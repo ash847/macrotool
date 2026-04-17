@@ -125,6 +125,7 @@ with st.sidebar:
     if st.button("↩ New view", use_container_width=True):
         st.session_state.flow = ConversationFlow()
         st.session_state.submitted = False
+        st.session_state.last_prompt = ""
         st.rerun()
 
     with st.expander("Pair reference"):
@@ -262,6 +263,10 @@ if st.session_state.page == "Market Data":
 else:
     # ---- Trade View page ----
 
+    # Echo the user's prompt back at the top once a view is active
+    if flow.view and "last_prompt" in st.session_state and st.session_state.last_prompt:
+        st.info(f"**View:** {st.session_state.last_prompt}")
+
     if flow.flat_distribution and flow.smile_distribution:
         target = _target_price(flow)
 
@@ -377,17 +382,17 @@ else:
         if not entries:
             st.caption("No log entries yet.")
         else:
-            if st.button("Clear log", key="clear_log"):
-                from pathlib import Path as _P
-                lp = _P(__file__).parent.parent / "logs" / "session.log"
-                lp.write_text("")
-                st.rerun()
-            for e in reversed(entries):
-                ts = e.pop("ts", "")
-                event = e.pop("event", "?")
-                st.markdown(f"**`{ts[11:19]}`** `{event}`")
-                if e:
-                    st.json(e, expanded=False)
+            import json as _json
+            log_text = _json.dumps(entries, indent=2, default=str)
+            col_copy, col_clear = st.columns([1, 1])
+            with col_copy:
+                st.code(log_text, language="json")
+            with col_clear:
+                if st.button("Clear log", key="clear_log"):
+                    from pathlib import Path as _P
+                    lp = _P(__file__).parent.parent / "logs" / "session.log"
+                    lp.write_text("")
+                    st.rerun()
 
     # Input (only on Trade View page)
     prompt = st.chat_input("Describe your trade view (pair, direction, magnitude, horizon)...")
@@ -401,6 +406,7 @@ else:
             st.error("Please enter your Anthropic API key in the sidebar.")
             st.stop()
 
+        st.session_state.last_prompt = prompt
         with st.spinner("Reading view..."):
             clarification = _extract_view(prompt)
 
