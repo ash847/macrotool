@@ -1,0 +1,40 @@
+{
+  "_description": "Default sizing parameters. All values overridable via user profile or session.",
+  "kelly": {
+    "default_fraction": 0.5,
+    "high_conviction_fraction": 0.75,
+    "low_conviction_fraction": 0.25,
+    "max_fraction": 1.0,
+    "min_fraction": 0.1
+  },
+  "vol_regime_size_adjustment": {
+    "low":      1.1,
+    "normal":   1.0,
+    "elevated": 0.75,
+    "stressed": 0.5
+  },
+  "stop": {
+    "method": "vol_derived",
+    "atr_multiple": 2.0,
+    "note": "Stop placed at atr_multiple * daily ATR (derived from ATM vol) from entry level"
+  },
+  "tranche_entry": {
+    "low_timing_conviction": {
+      "count": 3,
+      "weights": [0.4, 0.35, 0.25]
+    },
+    "medium_timing_conviction": {
+      "count": 2,
+      "weights": [0.6, 0.4]
+    },
+    "high_timing_conviction": {
+      "count": 1,
+      "weights": [1.0]
+    }
+  },
+  "take_profit": {
+    "scale_1": { "at_pct_of_target": 0.5,  "reduce_position_by": 0.33 },
+    "scale_2": { "at_pct_of_target": 0.75, "reduce_position_by": 0.33 },
+    "runner":  { "at_pct_of_target": 1.0,  "note": "Trail stop on remainder at entry + 0.5 * move" }
+  }
+}

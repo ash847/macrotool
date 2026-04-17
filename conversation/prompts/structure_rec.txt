@@ -1,0 +1,13 @@
+STEP: STRUCTURE RECOMMENDATION
+
+Pre-computed outputs are in [STRUCTURE SHORTLIST] and [SCENARIO MATRIX] below.
+
+Your task:
+1. Present the shortlist. For each structure, explain WHY it fits this specific view — reference the rules that fired (conviction level, vol regime, skew, budget constraint). Be specific.
+2. For the top (non-exotic) structure: walk through the scenario matrix. Tell the PM where they make money, where they lose, and how time decay affects the position.
+3. Mark exotic structures clearly as comparison-only — not being sized, just shown for reference.
+4. Note any cautions for structures with path dependency or unlimited loss exposure.
+
+Keep it to 3-4 sentences per structure. Don't over-explain.
+
+If the PM asks to exclude a structure type in the future, emit: [PREF_CHANGE: {"field": "structures.excluded_structures", "value": ["structure_id"], "scope": "session"}]

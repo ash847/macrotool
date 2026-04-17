@@ -1,0 +1,27 @@
+{
+  "profile_version": "1.0",
+  "sizing": {
+    "kelly_fraction": null,
+    "stop_atr_multiple": null,
+    "max_tranche_count": null
+  },
+  "structure_preferences": {
+    "excluded_structures": [],
+    "preferred_structures": [],
+    "exotic_comparisons": true
+  },
+  "vol_regime_thresholds": null,
+  "display": {
+    "scenario_matrix": {
+      "time_horizons": ["1M", "2M", "3M"],
+      "spot_range_pct": 10.0,
+      "vol_range_pct": 25.0,
+      "spot_steps": 7,
+      "vol_steps": 3
+    },
+    "show_source_trace": false,
+    "decimal_places_spot": 4,
+    "decimal_places_vol": 1,
+    "decimal_places_pnl": 0
+  }
+}

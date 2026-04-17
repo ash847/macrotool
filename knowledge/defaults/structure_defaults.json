@@ -1,0 +1,136 @@
+{
+  "_description": "Default structure selection behaviour. Overridable via user profile or session.",
+  "excluded_structures": [],
+  "preferred_structures": [],
+  "max_shortlist_size": 3,
+  "always_include_vanilla_baseline": true,
+  "exotic_comparison_available": true,
+  "default_tenor_buffer_days": 5,
+  "structure_catalog": {
+    "vanilla_call": {
+      "display_name": "Vanilla Call",
+      "optimised_for": "Directional upside with full participation; no cap on gains",
+      "budget_profile": "premium_paying",
+      "path_dependency": "none",
+      "max_loss": "premium_only"
+    },
+    "vanilla_put": {
+      "display_name": "Vanilla Put",
+      "optimised_for": "Directional downside with full participation; no cap on gains",
+      "budget_profile": "premium_paying",
+      "path_dependency": "none",
+      "max_loss": "premium_only"
+    },
+    "call_spread": {
+      "display_name": "Call Spread",
+      "optimised_for": "Capped directional upside at reduced premium; ideal when target level is known",
+      "budget_profile": "reduced_premium",
+      "path_dependency": "none",
+      "max_loss": "net_premium_only"
+    },
+    "put_spread": {
+      "display_name": "Put Spread",
+      "optimised_for": "Capped directional downside at reduced premium; ideal when target level is known",
+      "budget_profile": "reduced_premium",
+      "path_dependency": "none",
+      "max_loss": "net_premium_only"
+    },
+    "risk_reversal": {
+      "display_name": "Risk Reversal",
+      "optimised_for": "Zero or near-zero premium directional expression; sells vol in opposite direction to fund the bought leg",
+      "budget_profile": "zero_or_near_zero_premium",
+      "path_dependency": "none",
+      "max_loss": "unlimited_on_sold_leg",
+      "caution": "Unlimited loss on sold option leg; requires margin; skew makes one direction expensive"
+    },
+    "rko_call": {
+      "display_name": "Reverse Knock-Out Call",
+      "optimised_for": "Cheaper directional expression when PM believes spot will not trade through a specific topside level before reaching target",
+      "budget_profile": "reduced_premium_vs_vanilla",
+      "path_dependency": "barrier_touch",
+      "max_loss": "premium_only",
+      "caution": "Option ceases to exist if spot touches the knock-out level; path matters, not just expiry",
+      "comparison_only": true
+    },
+    "european_digital": {
+      "display_name": "European Digital",
+      "optimised_for": "Fixed binary payout if spot is through strike at expiry; high leverage on small moves near strike at expiry",
+      "budget_profile": "low_premium",
+      "path_dependency": "none",
+      "max_loss": "premium_only",
+      "caution": "Binary gamma near expiry is difficult to manage; payout is all-or-nothing",
+      "comparison_only": true
+    },
+    "european_digital_rko": {
+      "display_name": "European Digital with RKO",
+      "optimised_for": "Further-reduced premium digital; contingent on spot not touching a barrier during the life",
+      "budget_profile": "very_low_premium",
+      "path_dependency": "barrier_touch",
+      "max_loss": "premium_only",
+      "caution": "Combines binary expiry risk with knock-out path risk; complex payout profile",
+      "comparison_only": true
+    }
+  },
+  "decision_rules": [
+    {
+      "id": "SR-01",
+      "description": "High direction conviction, high or medium timing conviction — full directional expression",
+      "conditions": {
+        "direction_conviction": ["high"],
+        "timing_conviction": ["high", "medium"],
+        "budget_type": ["any"]
+      },
+      "shortlist": ["vanilla_call"],
+      "preferred_first": "vanilla",
+      "rationale": "High conviction warrants full delta participation. Pay the premium for unrestricted upside."
+    },
+    {
+      "id": "SR-02",
+      "description": "Budget-constrained with known target level — spread structures",
+      "conditions": {
+        "direction_conviction": ["high", "medium"],
+        "timing_conviction": ["high", "medium"],
+        "budget_type": ["premium_constrained"],
+        "target_level_known": [true]
+      },
+      "shortlist": ["call_spread", "put_spread"],
+      "preferred_first": "spread",
+      "rationale": "If PM has a specific target, capping the payout at that level is efficient. Spread reduces premium by selling the strike beyond target."
+    },
+    {
+      "id": "SR-03",
+      "description": "Buying into skew — buying topside in a topside-skewed currency",
+      "conditions": {
+        "direction_conviction": ["high", "medium"],
+        "view_aligns_with_skew": [true],
+        "skew_magnitude": ["high"]
+      },
+      "shortlist": ["call_spread", "risk_reversal"],
+      "preferred_first": "call_spread",
+      "rationale": "When the view aligns with the expensive side of skew, vanilla premium is elevated. A spread caps the cost. A risk reversal sells skew on the other side — only appropriate if PM is comfortable with the sold leg exposure.",
+      "skew_note": "Risk reversal is second on shortlist, not first, when skew is high — sold leg exposure requires explicit PM acceptance."
+    },
+    {
+      "id": "SR-04",
+      "description": "Low timing conviction — simple structure with tranche entry",
+      "conditions": {
+        "timing_conviction": ["low"],
+        "direction_conviction": ["high", "medium"]
+      },
+      "shortlist": ["vanilla_call"],
+      "preferred_first": "vanilla",
+      "sizing_modifier": "tranche_entry",
+      "rationale": "Low timing conviction is handled through the sizing discipline (tranche entry), not structure complexity. A simple vanilla allows adding to the position naturally."
+    },
+    {
+      "id": "SR-05",
+      "description": "Low direction conviction — no options, only spot or forward",
+      "conditions": {
+        "direction_conviction": ["low"]
+      },
+      "shortlist": ["spot", "forward"],
+      "preferred_first": "spot",
+      "rationale": "Low direction conviction does not support paying options premium. Spot or forward gives exposure without the vol premium cost — stop discipline does the risk management work."
+    }
+  ]
+}

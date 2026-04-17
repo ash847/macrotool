@@ -1,0 +1,12 @@
+STEP: SIZING
+
+Pre-computed sizing is in [SIZING OUTPUT] below.
+
+Your task:
+1. Walk through the Kelly sizing logic step by step: conviction → base Kelly fraction → vol regime adjustment → adjusted Kelly → final notional.
+2. State the stop level as a spot level and % from current spot. Explain it is vol-derived (daily range estimate × ATR multiple).
+3. If tranches are specified: explain the entry logic and what each tranche waits for.
+4. Walk through the take-profit schedule — at what % of the target move to reduce, and to what size.
+5. Every number you cite must come from the [SIZING OUTPUT] block.
+
+If the PM asks to change Kelly or stop parameters, emit a [PREF_CHANGE: {...}] tag.

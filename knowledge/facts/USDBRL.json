@@ -1,0 +1,56 @@
+{
+  "pair": "USDBRL",
+  "base_currency": "USD",
+  "term_currency": "BRL",
+  "instrument_type": "NDF",
+  "quotation": "BRL per USD",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["USD", "BRL"]
+  },
+  "ndf": {
+    "fixing_source": "PTAX",
+    "fixing_time_local": "13:00",
+    "fixing_timezone": "America/Sao_Paulo",
+    "fixing_time_london": "16:00",
+    "fixing_lag_days": 1,
+    "settlement_currency": "USD",
+    "settlement_days_after_fixing": 2,
+    "fixing_risk_notes": [
+      "PTAX is a daily auction average — not a single print, but an average of four intraday surveys",
+      "Fixing risk is elevated at month-end, quarter-end, and year-end due to rebalancing flows",
+      "BCB can intervene in PTAX window via FX swaps; creates intraday dislocation risk"
+    ]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "New York 10:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "liquid_tenors": ["1W", "1M", "2M", "3M", "6M"],
+    "liquid_strikes": "25D to 25D; ATM most liquid",
+    "illiquidity_note": "1Y+ vol is wide market; 10D strikes are indicative only in normal conditions"
+  },
+  "carry": {
+    "direction": "positive_for_long_USD",
+    "notes": [
+      "Carry is real and substantial but subject to sudden COPOM repricing",
+      "Positive carry for USD long reflects high BRL overnight rates (SELIC)"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "high",
+    "skew_character": "topside",
+    "skew_driver": "political and fiscal risk premium; capital flow risk",
+    "typical_participants": ["EM macro funds", "Brazilian corporates hedging USD liabilities", "local banks"],
+    "liquidity_profile": "good in core tenors; thins quickly beyond 6M"
+  },
+  "risk_notes": [
+    "Capital controls risk: BCB has history of imposing IOF taxes on FX transactions",
+    "BCB intervention: active in spot and NDF markets to manage volatility",
+    "Political premium: vol spikes are typically topside-driven on fiscal or political events",
+    "NDF settlement: no physical delivery; USD cash settlement eliminates delivery risk but requires credit lines"
+  ]
+}

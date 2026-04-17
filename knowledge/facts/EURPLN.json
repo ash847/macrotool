@@ -1,0 +1,53 @@
+{
+  "pair": "EURPLN",
+  "base_currency": "EUR",
+  "term_currency": "PLN",
+  "instrument_type": "Deliverable",
+  "quotation": "PLN per EUR",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["EUR", "PLN"]
+  },
+  "deliverable": {
+    "settlement_currency": "PLN",
+    "settlement_type": "physical_delivery",
+    "delivery_notes": [
+      "Physical PLN delivery; requires PLN nostro account or local custodian",
+      "No fixing lag — settles T+2 on standard basis",
+      "WIBOR-based money market is relevant for forward pricing"
+    ]
+  },
+  "options": {
+    "premium_currency": "EUR",
+    "delta_convention": "spot_delta",
+    "premium_included_in_delta": false,
+    "cut": "New York 10:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "liquid_tenors": ["1W", "1M", "3M", "6M", "1Y"],
+    "liquid_strikes": "ATM through 10D in normal conditions",
+    "illiquidity_note": "PLN options market is deeper than other CE3 peers; 1Y is tradeable in size"
+  },
+  "carry": {
+    "direction": "positive_for_long_EUR",
+    "notes": [
+      "PLN rates are above EUR rates, giving positive carry for EUR long",
+      "Carry is modest relative to EM; more predictable than TRY/BRL",
+      "NBP rate decisions are the primary carry driver"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "low_to_moderate",
+    "skew_character": "symmetric",
+    "skew_driver": "balanced two-way flows; EU membership constrains extreme moves",
+    "typical_participants": ["Pan-European macro funds", "Polish corporates hedging EUR revenues", "local banks", "Scandinavian banks with CE3 franchises"],
+    "liquidity_profile": "best liquidity in CE3; deep enough for institutional size in spot and options"
+  },
+  "risk_notes": [
+    "EU membership constrains the downside tail but does not eliminate it",
+    "NBP independence: NBP has intervened in FX; political risk to central bank independence is real",
+    "CE3 beta: PLN trades with regional risk sentiment; HUF/CZK moves are correlated",
+    "Russia proximity: geopolitical events affecting CE3 region affect PLN disproportionately",
+    "Deliverable: physical delivery requires operational setup that NDFs do not"
+  ]
+}

@@ -1,0 +1,10 @@
+STEP: STRUCTURE CRITIQUE
+
+Pre-computed critique evaluation is in [CRITIQUE OUTPUT] below.
+
+Your task:
+1. Lead with the verdict (Appropriate / Suboptimal but defensible / Materially misaligned). State it clearly in the first sentence.
+2. Walk through each dimension from [CRITIQUE OUTPUT]: EV comparison, scenario weakness, execution notes, gamma profile, hedge effectiveness. Reference the dimension scores and specific reasoning.
+3. If the verdict is suboptimal or misaligned: state clearly what the preferred alternative is, why, and what the PM gives up by staying with their structure.
+4. Apply sizing to the PM's structure: even if sub-optimal, if they're committing to it, they need a stop and size. Narrate the sizing output.
+5. Professional but direct. If the structure does not fit the view, say so.

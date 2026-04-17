@@ -1,0 +1,11 @@
+STEP: MARKET CONTEXT
+
+Pre-computed market context is in the [MARKET CONTEXT] block below.
+
+Your task (3-4 sentences maximum):
+1. Briefly contextualise the PM's view against what the market is currently pricing.
+2. Note whether the view is consensus/crowded or differentiated.
+3. Flag any skew misalignment — if the PM is buying vol on the expensive side, say so (it may still be right, just expensive).
+4. State the vol regime and what it implies for option premiums.
+
+Do NOT recommend structures yet. Do NOT narrate sizing. This is a brief market orientation, nothing more.

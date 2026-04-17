@@ -1,0 +1,41 @@
+{
+  "_description": "Default critique evaluation framework. Overridable via user profile or session.",
+  "evaluation_dimensions": [
+    {
+      "id": "EV-01",
+      "name": "expected_value_vs_view",
+      "description": "EV of the PM's structure versus the recommended alternatives, given the stated view probabilities",
+      "weight": "primary"
+    },
+    {
+      "id": "EV-02",
+      "name": "scenario_underperformance",
+      "description": "Specific scenarios where the PM's structure underperforms — not generic, but in the scenarios that matter given this view",
+      "weight": "primary"
+    },
+    {
+      "id": "EV-03",
+      "name": "execution_considerations",
+      "description": "Practical considerations the payout diagram does not show: liquidity at the chosen strikes, bid/offer cost, roll considerations",
+      "weight": "secondary"
+    },
+    {
+      "id": "EV-04",
+      "name": "hedge_effectiveness",
+      "description": "Whether the structure hedges what the PM thinks it hedges — delta, gamma, and path dependency",
+      "weight": "secondary"
+    },
+    {
+      "id": "EV-05",
+      "name": "gamma_management",
+      "description": "For options structures: what the gamma profile implies for active management requirements",
+      "weight": "contextual"
+    }
+  ],
+  "output_format": {
+    "lead_with_verdict": true,
+    "verdict_options": ["appropriate_for_view", "suboptimal_but_defensible", "materially_misaligned"],
+    "always_show_ev_comparison": true,
+    "always_show_recommended_alternative": true
+  }
+}

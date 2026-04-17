@@ -1,0 +1,59 @@
+{
+  "pair": "USDTRY",
+  "base_currency": "USD",
+  "term_currency": "TRY",
+  "instrument_type": "NDF",
+  "quotation": "TRY per USD",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["USD", "TRY"]
+  },
+  "ndf": {
+    "fixing_source": "CBRT",
+    "fixing_source_full": "Central Bank of the Republic of Turkey benchmark rate",
+    "fixing_time_local": "15:30",
+    "fixing_timezone": "Europe/Istanbul",
+    "fixing_time_london": "13:30",
+    "fixing_lag_days": 0,
+    "settlement_currency": "USD",
+    "settlement_days_after_fixing": 2,
+    "fixing_risk_notes": [
+      "CBRT sets benchmark rate; strong policy influence over fixings",
+      "Offshore NDF market can diverge significantly from onshore spot during stress",
+      "Onshore/offshore spread has been large and volatile during interventionist periods"
+    ]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "New York 10:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "liquid_tenors": ["1W", "1M", "3M", "6M"],
+    "liquid_strikes": "ATM and 25D; 10D is wide",
+    "illiquidity_note": "Vol market thins quickly beyond 6M; 1Y is broker-dependent"
+  },
+  "carry": {
+    "direction": "positive_for_long_USD",
+    "notes": [
+      "Very high carry reflects extreme TRY overnight rates",
+      "Carry is subject to sudden and severe CBRT policy reversals",
+      "TRY carry trades have historically ended in sharp unwind events"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "very_high",
+    "skew_character": "one_directional_topside",
+    "skew_driver": "persistent TRY depreciation trend; political interference risk; current account deficit",
+    "typical_participants": ["EM macro funds", "Turkish corporates with USD debt", "European banks hedging EM exposure"],
+    "liquidity_profile": "reasonable in spot and 1-3M; can gap sharply in stress"
+  },
+  "risk_notes": [
+    "Policy interference: CBRT has a history of politically-influenced rate decisions",
+    "Onshore/offshore split: different markets can have meaningfully different rates during crises",
+    "Dollarisation: high domestic USD deposit base creates constant structural TRY selling pressure",
+    "Reserve adequacy: CBRT net reserves have been negative on net swap basis at times",
+    "NDF: offshore market only; no onshore delivery available to foreign counterparties in normal course"
+  ]
+}

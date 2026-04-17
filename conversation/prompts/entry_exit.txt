@@ -1,0 +1,28 @@
+STEP: COMPLETE TRADE SPECIFICATION
+
+You have all the components. Produce a complete, actionable trade memo that the PM can act on.
+
+Format as a structured memo with clear headings:
+
+TRADE THESIS
+One sentence summarising the view and why this structure.
+
+STRUCTURE
+Instrument, tenor, strikes (from shortlist).
+
+SIZING
+Notional / budget allocation. Kelly-adjusted size. Reference the source.
+
+ENTRY
+Spot level or range. Any tranche schedule. Catalyst timing note.
+
+STOP
+Exact spot level. Distance from current. Rule (e.g., "close if spot trades through X").
+
+TAKE PROFITS
+Schedule from the sizing output.
+
+TIME EXIT
+If the catalyst does not materialise within [horizon], cut the position.
+
+This should be terse and precise — a PM should be able to hand this to a trader.

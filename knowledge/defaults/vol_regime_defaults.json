@@ -1,0 +1,16 @@
+{
+  "_description": "Default vol regime classification thresholds. Overridable via user profile or session.",
+  "regime_percentile_thresholds": {
+    "low":      { "max_percentile": 0.30 },
+    "normal":   { "min_percentile": 0.30, "max_percentile": 0.65 },
+    "elevated": { "min_percentile": 0.65, "max_percentile": 0.85 },
+    "stressed": { "min_percentile": 0.85 }
+  },
+  "skew_rr_vol_thresholds": {
+    "low":      { "max_abs_rr": 0.005 },
+    "moderate": { "min_abs_rr": 0.005, "max_abs_rr": 0.015 },
+    "high":     { "min_abs_rr": 0.015 }
+  },
+  "skew_direction_convention": "positive_rr_means_topside_expensive",
+  "lookback_window_days": 252
+}

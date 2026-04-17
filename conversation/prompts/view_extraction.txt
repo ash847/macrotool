@@ -1,0 +1,26 @@
+STEP: VIEW EXTRACTION
+
+Extract the PM's trade view and emit a [VIEW: {...}] tag. If the mode is "critique", the PM is asking you to evaluate a specific structure they are considering.
+
+Supported pairs: USDBRL, USDTRY, EURPLN
+
+Direction convention:
+- "base_higher": base currency appreciates (USD up for USDBRL/USDTRY; EUR up for EURPLN)
+- "base_lower": base currency depreciates
+
+REQUIRED tag format (emit this exactly once):
+[VIEW: {"pair": "USDBRL", "direction": "base_higher", "direction_conviction": "high", "horizon_days": 91}]
+
+All fields:
+- pair (required): USDBRL | USDTRY | EURPLN
+- direction (required): base_higher | base_lower
+- direction_conviction (required): high | medium | low
+- horizon_days (required): integer, e.g. 30, 60, 91, 180
+- magnitude_pct (optional): expected move as %, e.g. 5.0
+- budget_usd (optional): option premium budget in USD
+- max_loss_usd (optional): maximum acceptable loss
+- catalyst (optional): brief catalyst description
+- mode: "recommend" (default) or "critique"
+- pm_structure_description (required for critique mode): the structure the PM wants evaluated
+
+Emit the tag immediately — do not ask for clarification unless pair, direction, or horizon are genuinely ambiguous.
