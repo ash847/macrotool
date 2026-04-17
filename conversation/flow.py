@@ -32,6 +32,8 @@ from data.snapshot_loader import load_snapshot
 from data.schema import CurrencySnapshot, MarketSnapshot
 from knowledge_engine.conventions import resolve as resolve_conventions
 from knowledge_engine.critique_engine import evaluate_structure
+from analytics.distributions import interpolate_atm_vol
+from analytics.market_state import MarketState, compute_market_state
 from knowledge_engine.models import (
     CritiqueOutput,
     SizingOutput,
@@ -39,7 +41,7 @@ from knowledge_engine.models import (
     TradeView,
 )
 from knowledge_engine.sizing_engine import compute_sizing
-from knowledge_engine.structure_selector import select_structures
+from knowledge_engine.structure_scorer import score_structures
 from analytics.distributions import (
     compute_flat_vol_distribution,
     compute_smile_distribution,
@@ -87,6 +89,7 @@ class ConversationFlow:
         self.cfg: ResolvedConfig = load_config()
         self.view: TradeView | None = None
         self.ccy: CurrencySnapshot | None = None
+        self.market_state: MarketState | None = None
         self.selector_result: StructureSelectionResult | None = None
         self.sizing: SizingOutput | None = None
         self.critique: CritiqueOutput | None = None
@@ -122,6 +125,7 @@ class ConversationFlow:
         self.cfg = load_config()
         self.view = None
         self.ccy = None
+        self.market_state = None
         self.selector_result = None
         self.sizing = None
         self.critique = None
@@ -266,8 +270,26 @@ class ConversationFlow:
             self.cfg = resolve_config(self.cfg, None, self.session_overrides)
 
     def _run_engines(self) -> None:
-        """Run structure selector, sizing, distributions, and (if critique) critique engine."""
-        self.selector_result = select_structures(self.view, self.cfg)
+        """Compute MarketState, run structure scorer, sizing, distributions, and (if critique) critique engine."""
+        from pricing.forwards import DEFAULT_SETTLEMENT_RATES, build_rate_context
+        T = self.view.horizon_years
+        r_d = DEFAULT_SETTLEMENT_RATES.get(self.view.pair, 0.043)
+        rate_ctx = build_rate_context(self.ccy, T, r_d)
+        atm_vol = interpolate_atm_vol(self.ccy, self.view.horizon_days)
+        target: float | None = None
+        if self.view.magnitude_pct is not None:
+            sign = 1 if self.view.direction == "base_higher" else -1
+            target = self.ccy.spot * (1 + sign * self.view.magnitude_pct / 100)
+        self.market_state = compute_market_state(
+            spot=rate_ctx.spot,
+            fwd=rate_ctx.forward,
+            vol=atm_vol,
+            T=T,
+            r_d=rate_ctx.r_d,
+            r_f=rate_ctx.r_f,
+            target=target,
+        )
+        self.selector_result = score_structures(self.market_state)
         top_structure = self.selector_result.shortlist[0] if self.selector_result.shortlist else None
         if top_structure:
             self.sizing = compute_sizing(self.view, self.ccy, top_structure, self.cfg)

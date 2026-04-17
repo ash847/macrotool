@@ -29,6 +29,7 @@
     "cut": "New York 10:00",
     "expiry_to_settlement_lag_days": 2,
     "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, USD. 25DC = 25-delta USD call (BRL put); 25DP = 25-delta USD put (BRL call). 25DC > 25DP reflects topside USD skew — USD calls are more expensive than USD puts, consistent with BRL depreciation risk premium.",
     "liquid_tenors": ["1W", "1M", "2M", "3M", "6M"],
     "liquid_strikes": "25D to 25D; ATM most liquid",
     "illiquidity_note": "1Y+ vol is wide market; 10D strikes are indicative only in normal conditions"

@@ -1,0 +1,129 @@
+{
+  "_description": "Affinity scores for structure selection. For each structure: gates (hard filters on market state) and per-dimension scores. Total score = sum across dimensions. Overlays are ranked separately from primary structures.",
+
+  "_scoring_scale": "0 = neutral / not relevant, 1 = slightly attractive, 2 = attractive, 3 = highly attractive",
+
+  "_gates_schema": {
+    "target_z_abs_min": "Minimum absolute target_z required for this structure to be eligible. Structures that require a specific target (requires_target=true in structure_profiles.json) use this to exclude cases where the target is too close to the forward to be meaningful. Value is in σ units (e.g. 0.5 means target must be at least 0.5σ from the forward).",
+    "target_z_abs_max": "Maximum absolute target_z allowed for this structure to be eligible. Use this to exclude structures where the target is so far from the forward that the structure becomes inefficient (e.g. spread sold strike near worthless above 2.5σ). Value is in σ units."
+  },
+
+  "_bucket_labels": {
+    "target_z_abs":  ["no_target", "near (<0.5σ)", "moderate (0.5–1.5σ)", "extended (1.5–2.5σ)", "far (>2.5σ)"],
+    "carry_regime":  ["0 (noisy)", "1 (potential)", "2 (high carry)"],
+    "atmfsratio":    ["no_carry", "low (<2)", "medium (2–4)", "high (>4)"]
+  },
+
+  "thresholds": {
+    "target_z_abs": [0.5, 1.5, 2.5],
+    "atmfsratio":   [2.0, 4.0]
+  },
+
+  "structures": {
+
+    "vanilla": {
+      "gates": {},
+      "target_z_abs": {
+        "no_target": 2,
+        "near":      2,
+        "moderate":  2,
+        "extended":  1,
+        "far":       3
+      },
+      "carry_regime": { "0": 2, "1": 1, "2": 0 },
+      "atmfsratio":   { "no_carry": 0, "low": 0, "medium": 0, "high": 0 }
+    },
+
+    "1x1_spread": {
+      "gates": { "target_z_abs_min": 0.5 },
+      "target_z_abs": {
+        "no_target": 0,
+        "near":      0,
+        "moderate":  2,
+        "extended":  3,
+        "far":       0
+      },
+      "carry_regime": { "0": 0, "1": 2, "2": 3 },
+      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 2, "high": 3 }
+    },
+
+    "risk_reversal": {
+      "gates": {},
+      "target_z_abs": {
+        "no_target": 2,
+        "near":      2,
+        "moderate":  1,
+        "extended":  1,
+        "far":       1
+      },
+      "carry_regime": { "0": 1, "1": 2, "2": 2 },
+      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 0, "high": 0 }
+    },
+
+    "seagull": {
+      "gates": { "target_z_abs_min": 0.5 },
+      "target_z_abs": {
+        "no_target": 0,
+        "near":      0,
+        "moderate":  3,
+        "extended":  2,
+        "far":       0
+      },
+      "carry_regime": { "0": 1, "1": 2, "2": 2 },
+      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 1, "high": 1 }
+    },
+
+    "1x2_spread": {
+      "gates": { "target_z_abs_min": 0.5 },
+      "target_z_abs": {
+        "no_target": 0,
+        "near":      0,
+        "moderate":  2,
+        "extended":  3,
+        "far":       0
+      },
+      "carry_regime": { "0": 0, "1": 2, "2": 2 },
+      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 1, "high": 2 }
+    },
+
+    "rko": {
+      "gates": {},
+      "target_z_abs": {
+        "no_target": 0,
+        "near":      1,
+        "moderate":  3,
+        "extended":  2,
+        "far":       0
+      },
+      "carry_regime": { "0": 2, "1": 2, "2": 1 },
+      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 1, "high": 0 }
+    },
+
+    "european_digital": {
+      "gates": {},
+      "target_z_abs": {
+        "no_target": 0,
+        "near":      3,
+        "moderate":  2,
+        "extended":  1,
+        "far":       0
+      },
+      "carry_regime": { "0": 1, "1": 1, "2": 1 },
+      "atmfsratio":   { "no_carry": 0, "low": 0, "medium": 0, "high": 0 }
+    },
+
+    "european_digital_rko": {
+      "gates": {},
+      "target_z_abs": {
+        "no_target": 0,
+        "near":      2,
+        "moderate":  3,
+        "extended":  1,
+        "far":       0
+      },
+      "carry_regime": { "0": 2, "1": 2, "2": 1 },
+      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 0, "high": 0 }
+    }
+
+  }
+}

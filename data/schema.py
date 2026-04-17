@@ -5,6 +5,14 @@ The vol surface is stored as a delta-tenor grid — standard FX options conventi
 Deltas: 10DP, 25DP, ATM, 25DC, 10DC
 Tenors: 1W, 1M, 2M, 3M, 6M, 1Y
 
+Vol surface convention: delta labels are always expressed relative to the BASE
+currency (ccy1) in the pair. "Call" and "put" without qualification mean a call
+or put on ccy1. Examples:
+  - USDBRL: 25DC = 25-delta USD call (BRL put); 25DP = 25-delta USD put (BRL call).
+    25DC > 25DP means USD calls are more expensive than USD puts — topside USD skew.
+  - USDTRY: same convention; 25DC = USD call.
+  - EURPLN: 25DC = EUR call (PLN put).
+
 DiscountFactor curves (usd_df_curve, eur_df_curve) are stored per pair on the
 same tenor pillars as the vol surface.
 """

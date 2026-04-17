@@ -144,10 +144,39 @@ def build_structure_rec_prompt(
     atm_1m = ccy.get_atm_vol("1M")
     atm_3m = ccy.get_atm_vol("3M")
 
+    # Skew at the trade horizon (3M if available, else 1M)
+    skew_tenor = "3M" if atm_3m else "1M"
+    v25dc = ccy.get_vol(skew_tenor, "25DC")
+    v25dp = ccy.get_vol(skew_tenor, "25DP")
+    atm_h  = ccy.get_atm_vol(skew_tenor)
+    if v25dc and v25dp and atm_h:
+        rr = v25dc - v25dp
+        fly = 0.5 * (v25dc + v25dp) - atm_h
+        skew_sign = "topside" if rr > 0 else "downside"
+        # For risk reversals: which leg is bought/sold depends on view direction
+        # 25DC = call on base ccy (ccy1); 25DP = put on base ccy (ccy1)
+        if view.direction == "base_higher":
+            buy_leg  = f"25DC ({v25dc*100:.1f}%)"
+            sell_leg = f"25DP ({v25dp*100:.1f}%)"
+            rr_note  = f"Buying the {'expensive' if rr>0 else 'cheap'} leg (25DC), selling the {'cheap' if rr>0 else 'expensive'} leg (25DP)"
+        else:
+            buy_leg  = f"25DP ({v25dp*100:.1f}%)"
+            sell_leg = f"25DC ({v25dc*100:.1f}%)"
+            rr_note  = f"Buying the {'expensive' if rr<0 else 'cheap'} leg (25DP), selling the {'cheap' if rr<0 else 'expensive'} leg (25DC)"
+        skew_block = (
+            f"25d RR ({skew_tenor}): {rr*100:+.2f}% ({skew_sign} skew — 25DC={v25dc*100:.1f}% / ATM={atm_h*100:.1f}% / 25DP={v25dp*100:.1f}%)\n"
+            f"25d Fly ({skew_tenor}): {fly*100:+.2f}%\n"
+            f"Risk reversal for this view: buy {buy_leg}, sell {sell_leg}\n"
+            f"  → {rr_note}"
+        )
+    else:
+        skew_block = "Skew data unavailable"
+
     market_block = _block(
         "MARKET CONTEXT",
-        f"Pair: {view.pair} | Spot: {ccy.spot:.4f}\n"
-        f"ATM vol: 1M={atm_1m*100:.1f}%  3M={atm_3m*100:.1f}%",
+        f"Pair: {view.pair} | Spot: {ccy.spot:.4f} | Direction: {view.direction} | put_call: {view.direction == 'base_higher' and 'Call' or 'Put'}\n"
+        f"ATM vol: 1M={atm_1m*100:.1f}%  3M={atm_3m*100:.1f}%\n"
+        + skew_block,
     )
 
     shortlist_lines = [f"Rules fired: {', '.join(selector_result.rules_fired)}\n"]

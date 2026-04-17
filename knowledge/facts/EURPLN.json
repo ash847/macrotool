@@ -24,6 +24,7 @@
     "cut": "New York 10:00",
     "expiry_to_settlement_lag_days": 2,
     "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, EUR. 25DC = 25-delta EUR call (PLN put); 25DP = 25-delta EUR put (PLN call).",
     "liquid_tenors": ["1W", "1M", "3M", "6M", "1Y"],
     "liquid_strikes": "ATM through 10D in normal conditions",
     "illiquidity_note": "PLN options market is deeper than other CE3 peers; 1Y is tradeable in size"

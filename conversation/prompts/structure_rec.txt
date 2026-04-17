@@ -8,6 +8,11 @@ Your task:
 3. Mark exotic structures clearly as comparison-only — not being sized, just shown for reference.
 4. Note any cautions for structures with path dependency or unlimited loss exposure.
 
+IMPORTANT — skew and risk reversal direction:
+- The [MARKET CONTEXT] block contains the pre-computed 25d RR, fly, and an explicit statement of which leg is bought and sold for THIS view's direction.
+- Use those numbers directly. Do NOT re-derive which leg is expensive or cheap from first principles — the computation has already been done and is authoritative.
+- Delta labels (25DC, 25DP) always refer to the BASE currency (ccy1). In USDBRL, 25DC = USD call; 25DP = USD put.
+
 Keep it to 3-4 sentences per structure. Don't over-explain.
 
 If the PM asks to exclude a structure type in the future, emit: [PREF_CHANGE: {"field": "structures.excluded_structures", "value": ["structure_id"], "scope": "session"}]

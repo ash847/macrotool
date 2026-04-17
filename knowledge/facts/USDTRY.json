@@ -30,6 +30,7 @@
     "cut": "New York 10:00",
     "expiry_to_settlement_lag_days": 2,
     "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, USD. 25DC = 25-delta USD call (TRY put); 25DP = 25-delta USD put (TRY call). 25DC > 25DP reflects topside USD skew — USD calls more expensive, consistent with TRY depreciation risk premium.",
     "liquid_tenors": ["1W", "1M", "3M", "6M"],
     "liquid_strikes": "ATM and 25D; 10D is wide",
     "illiquidity_note": "Vol market thins quickly beyond 6M; 1Y is broker-dependent"

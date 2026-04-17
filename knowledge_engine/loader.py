@@ -67,6 +67,18 @@ def load_critique_defaults() -> dict:
     return _load(_DEFAULTS_DIR / "critique_defaults.json")
 
 
+@lru_cache(maxsize=None)
+def load_structure_profiles() -> dict:
+    return _load(_DEFAULTS_DIR / "structure_profiles.json")
+
+
+@lru_cache(maxsize=None)
+def load_affinity_scores() -> dict:
+    with open(_DEFAULTS_DIR / "affinity_scores.json") as f:
+        import json
+        return json.load(f)  # keep _-prefixed keys (thresholds, bucket_labels etc.)
+
+
 # ---------------------------------------------------------------------------
 # Convenience accessors
 # ---------------------------------------------------------------------------

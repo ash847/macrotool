@@ -319,3 +319,13 @@ def compute_maturity_histogram(
         horizon_days=flat.horizon_days,
         bins=bins,
     )
+
+
+def interpolate_atm_vol(ccy: CurrencySnapshot, horizon_days: int) -> float:
+    """Interpolate ATM vol to an arbitrary horizon using total-variance interpolation."""
+    return _interp_vol(ccy, horizon_days, "ATM")
+
+
+def interpolate_vol(ccy: CurrencySnapshot, horizon_days: int, delta_label: str) -> float:
+    """Interpolate vol at any delta pillar (e.g. '25DC', '25DP', '10DC') to an arbitrary horizon."""
+    return _interp_vol(ccy, horizon_days, delta_label)
