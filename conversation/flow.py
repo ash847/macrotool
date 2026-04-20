@@ -50,6 +50,7 @@ from analytics.distributions import (
 from analytics.models import PriceDistribution, MaturityHistogram
 
 from conversation.client import MacroToolClient
+from conversation.tracing import SessionTrace
 from conversation import context_builder
 
 
@@ -81,6 +82,7 @@ class ConversationFlow:
     ):
         self._client = MacroToolClient(api_key=api_key)
         self._snapshot: MarketSnapshot = snapshot or load_snapshot()
+        self._trace = SessionTrace()
 
         self.step: Step = Step.INTAKE
         self.messages: list[dict] = []
@@ -144,11 +146,11 @@ class ConversationFlow:
         so we never send a conversation ending with an assistant message.
         Combined response is recorded once at the end.
         """
-        system = context_builder.build_intake_prompt()
+        system = context_builder.build_intake_prompt(self._snapshot)
 
         # First call: extract VIEW — stream but don't record yet
         first_text = ""
-        for chunk in self._client.stream(self.messages, system):
+        for chunk in self._stream_traced(self.messages, system, "INTAKE_view_extraction"):
             first_text += chunk
             yield chunk
 
@@ -164,6 +166,7 @@ class ConversationFlow:
         self.view = view
         self.ccy = self._snapshot.get(view.pair)
         self._run_engines()
+        self._trace.tag_view(view.pair, view.mode, view.direction)
 
         # Second call: validation — messages still ends with user turn (correct)
         yield "\n\n"
@@ -172,7 +175,7 @@ class ConversationFlow:
             self.flat_distribution, self.smile_distribution, self.maturity_histogram,
         )
         second_text = ""
-        for chunk in self._client.stream(self.messages, validation_system):
+        for chunk in self._stream_traced(self.messages, validation_system, "INTAKE_validation"):
             second_text += chunk
             yield chunk
 
@@ -183,7 +186,7 @@ class ConversationFlow:
                 view, self.ccy, self.selector_result, self.sizing, self.critique
             )
             third_text = ""
-            for chunk in self._client.stream(self.messages, critique_system):
+            for chunk in self._stream_traced(self.messages, critique_system, "INTAKE_critique"):
                 third_text += chunk
                 yield chunk
             combined = first_text + "\n\n" + second_text + "\n\n" + third_text
@@ -195,7 +198,7 @@ class ConversationFlow:
                 view, self.ccy, self.selector_result
             )
             third_text = ""
-            for chunk in self._client.stream(self.messages, structure_system):
+            for chunk in self._stream_traced(self.messages, structure_system, "INTAKE_structure_rec"):
                 third_text += chunk
                 yield chunk
             combined = first_text + "\n\n" + second_text + "\n\n" + third_text
@@ -247,14 +250,28 @@ class ConversationFlow:
     def _stream_and_record(self, system: str) -> Generator[str, None, None]:
         """Stream a response and append the cleaned text to message history."""
         full_text = ""
-        for chunk in self._client.stream(self.messages, system):
+        for chunk in self._stream_traced(self.messages, system, self.step.value):
             full_text += chunk
             yield chunk
 
-        # Strip hidden tags before recording in history
         clean_text, _ = extract_overrides(full_text)
         clean_text = _VIEW_TAG.sub("", clean_text).strip()
         self.messages.append({"role": "assistant", "content": clean_text})
+
+    def _stream_traced(
+        self, messages: list[dict], system: str, step_name: str
+    ) -> Generator[str, None, None]:
+        """Stream a response, logging it as a Langfuse generation."""
+        gen = self._trace.generation(
+            name=step_name,
+            model=self._client.model,
+            input={"system": system, "messages": messages},
+        )
+        full_text = ""
+        for chunk in self._client.stream(messages, system):
+            full_text += chunk
+            yield chunk
+        gen.end(output=full_text)
 
     def _apply_pref_changes(self) -> None:
         """Parse PREF_CHANGE tags from last response and re-resolve config."""
