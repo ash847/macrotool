@@ -49,7 +49,7 @@ def score_structures(
 
         total = sum(
             score_cfg.get(dim, {}).get(buckets[dim], 0)
-            for dim in ("target_z_abs", "carry_regime", "atmfsratio", "with_carry")
+            for dim in ("target_z_abs", "carry_regime", "atmfsratio", "carry_alignment")
         )
 
         if profile.get("overlay_only", False):
@@ -102,7 +102,7 @@ def get_scoring_detail(market_state: MarketState) -> list[dict]:
 
         dims = {}
         total = 0
-        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "with_carry"):
+        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "carry_alignment"):
             bucket = buckets[dim]
             score = score_cfg.get(dim, {}).get(bucket, 0) if eligible else 0
             dims[dim] = {"bucket": bucket, "score": score}
@@ -174,11 +174,18 @@ def _compute_buckets(ms: MarketState, thresholds: dict) -> dict[str, str]:
     else:
         atm_bucket = "high"
 
+    if ms.carry_regime == 0:
+        carry_alignment = "no_carry"
+    elif ms.with_carry:
+        carry_alignment = f"with_{atm_bucket}"
+    else:
+        carry_alignment = f"counter_{atm_bucket}"
+
     return {
         "target_z_abs": tz_bucket,
         "carry_regime": str(ms.carry_regime),
         "atmfsratio": atm_bucket,
-        "with_carry": str(ms.with_carry).lower(),
+        "carry_alignment": carry_alignment,
     }
 
 
@@ -193,7 +200,7 @@ def _make_item(
 ) -> StructureShortlistItem:
     breakdown = {
         dim: (buckets[dim], score_cfg.get(dim, {}).get(buckets[dim], 0))
-        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "with_carry")
+        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "carry_alignment")
     }
     rationale = _build_rationale(profile, breakdown)
     return StructureShortlistItem(
