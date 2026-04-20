@@ -86,11 +86,15 @@ def _format_analytics_block(
 # Step-specific system prompt builders
 # ---------------------------------------------------------------------------
 
-def build_intake_prompt() -> str:
-    """INTAKE step: extract the view, no market data yet."""
+def build_intake_prompt(snapshot=None) -> str:
+    """INTAKE step: extract the view. Injects live spots so LLM can convert absolute targets."""
     base = _build_base(overridable_fields_description())
     step = _load("view_extraction.txt")
-    return base + "\n\n" + step
+    spot_block = ""
+    if snapshot is not None:
+        lines = [f"{pair}: spot {ccy.spot:.4f}" for pair, ccy in snapshot.currencies.items()]
+        spot_block = _block("SPOT REFERENCE", "\n".join(lines))
+    return base + "\n\n" + step + spot_block
 
 
 def build_validation_prompt(

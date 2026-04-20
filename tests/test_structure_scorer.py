@@ -83,12 +83,13 @@ class TestGating:
 # ---------------------------------------------------------------------------
 
 class TestRanking:
-    def test_vanilla_wins_no_target_low_carry(self):
-        # carry regime 0, no target → vanilla should rank first among primaries
+    def test_risk_reversal_wins_no_target_low_carry(self):
+        # carry regime 0, no target → risk_reversal scores higher than vanilla
+        # (vanilla carry_regime scores are 0; risk_reversal picks up carry + atmfsratio points)
         ms = _ms(c=0.20)  # regime 0
         result = score_structures(ms)
         primaries = [s for s in result.shortlist if not s.is_exotic]
-        assert primaries[0].structure_id == "vanilla"
+        assert primaries[0].structure_id == "risk_reversal"
 
     def test_spread_wins_extended_target_high_carry(self):
         # carry regime 2 (c=1.0), target at 2.0σ (extended) → 1x1_spread should top

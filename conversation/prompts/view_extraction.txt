@@ -16,7 +16,7 @@ All fields:
 - direction (required): base_higher | base_lower
 - direction_conviction (required): high | medium | low
 - horizon_days (required): integer, e.g. 30, 60, 91, 180
-- magnitude_pct (optional): expected move as %, e.g. 5.0
+- magnitude_pct (optional): expected move as %, e.g. 5.0. If the PM gives an absolute target price instead of a percentage (e.g. "target 5.50"), compute magnitude_pct = abs(target_price / spot - 1) * 100 using the current spot from [SPOT REFERENCE] below, and populate this field.
 - budget_usd (optional): option premium budget in USD
 - max_loss_usd (optional): maximum acceptable loss
 - catalyst (optional): brief catalyst description

@@ -117,7 +117,12 @@ with st.sidebar:
         st.write(f"**Pair:** {flow.view.pair}")
         st.write(f"**Direction:** {flow.view.direction.replace('_', ' ')}")
         st.write(f"**Horizon:** {flow.view.horizon_days}d")
-        if flow.view.magnitude_pct:
+        if flow.view.magnitude_pct and flow.market_state:
+            sign = 1 if flow.view.direction == "base_higher" else -1
+            _t = flow.ccy.spot * (1 + sign * flow.view.magnitude_pct / 100)
+            move_from_fwd = (_t / flow.market_state.fwd - 1) * 100
+            st.write(f"**Target move from fwd:** {move_from_fwd:+.1f}%")
+        elif flow.view.magnitude_pct:
             st.write(f"**Target move:** {flow.view.magnitude_pct:.1f}%")
 
     st.divider()
@@ -149,13 +154,15 @@ def _sigma_sentence(flow: ConversationFlow, target: float) -> str:
     if not flat:
         return ""
     try:
-        sigma_sqrtT = math.log(flat.terminal_plus1s / flat.terminal_median)
-        z = math.log(target / flat.terminal_median) / sigma_sqrtT
+        fwd = flat.terminal_median
+        sigma_sqrtT = math.log(flat.terminal_plus1s / fwd)
+        z = math.log(target / fwd) / sigma_sqrtT
+        move_from_fwd_pct = (target / fwd - 1) * 100
         direction_word = "appreciation" if flow.view.direction == "base_higher" else "depreciation"
         return (
-            f"A {flow.view.magnitude_pct:.1f}% {flow.view.pair} {direction_word} "
-            f"to **{target:.4f}** represents **{z:+.1f}σ** "
-            f"from the forward at the {flow.view.horizon_days}d horizon."
+            f"Target **{target:.4f}** ({move_from_fwd_pct:+.1f}% from the {flow.view.horizon_days}d forward of **{fwd:.4f}**) "
+            f"represents **{z:+.1f}σ** — "
+            f"a {flow.view.magnitude_pct:.1f}% {direction_word} from spot."
         )
     except (ValueError, ZeroDivisionError):
         return ""
@@ -167,7 +174,7 @@ def _sigma_sentence(flow: ConversationFlow, target: float) -> str:
 
 def _extract_view(prompt: str) -> str | None:
     log_prompt(prompt)
-    system = context_builder.build_intake_prompt()
+    system = context_builder.build_intake_prompt(flow._snapshot)
     full_text = ""
     for chunk in flow._client.stream([{"role": "user", "content": prompt}], system):
         full_text += chunk

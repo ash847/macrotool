@@ -6,6 +6,6 @@ Your task (3-4 sentences maximum):
 1. Briefly contextualise the PM's view against what the market is currently pricing.
 2. Note whether the view is consensus/crowded or differentiated.
 3. Flag any skew misalignment — if the PM is buying vol on the expensive side, say so (it may still be right, just expensive).
-4. State the vol regime and what it implies for option premiums.
+4. State the ATM vol level from the [MARKET CONTEXT] block and what it implies for premium cost. Do not characterise vol as "elevated", "high", or "low" — quote the actual number and let the PM judge.
 
 Do NOT recommend structures yet. Do NOT narrate sizing. This is a brief market orientation, nothing more.
