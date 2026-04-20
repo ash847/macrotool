@@ -1,11 +1,10 @@
 """
-Langfuse tracing — SDK v3, no-op safe if keys are not configured.
+Langfuse tracing — SDK v4, no-op safe if keys are not configured.
 
-One trace per ConversationFlow session. Each LLM call is a generation span
-nested inside the session trace. Flush is called after each generation to
-ensure events are sent in Streamlit's short-lived request model.
+Uses start_observation() (non-context-manager) so spans can be held across
+generator yield boundaries without losing OTel context.
 
-Required env vars (or Streamlit secrets):
+Required env vars:
   LANGFUSE_PUBLIC_KEY
   LANGFUSE_SECRET_KEY
   LANGFUSE_BASE_URL  (default: https://cloud.langfuse.com)
@@ -14,16 +13,15 @@ Required env vars (or Streamlit secrets):
 from __future__ import annotations
 
 import os
-from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any
 
-_connected: bool = False
+_lf = None
 _init_error: str | None = None
 
 
 def _init_client() -> None:
-    global _connected, _init_error
-    _connected = False
+    global _lf, _init_error
+    _lf = None
     _init_error = None
 
     pk = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
@@ -31,37 +29,28 @@ def _init_client() -> None:
     if not pk or not sk:
         _init_error = "LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set"
         return
-
     try:
-        from langfuse import get_client
-        lf = get_client()
-        try:
-            ok = lf.auth_check()
-            if ok:
-                _connected = True
-            else:
-                # auth_check returned False but didn't raise — still try to connect
-                _connected = True
-                _init_error = "auth_check() returned False — traces may not arrive"
-        except Exception as auth_err:
-            # auth_check itself failed (e.g. redirect/network issue) — still mark connected
-            # so traces are attempted; real auth failures will show up as missing traces
-            _connected = True
-            _init_error = f"auth_check warning: {auth_err}"
+        from langfuse import Langfuse
+        _lf = Langfuse(
+            public_key=pk,
+            secret_key=sk,
+            host=os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
+        )
+        _init_error = None
     except Exception as e:
+        _lf = None
         _init_error = str(e)
 
 
 def init_status() -> tuple[bool, str | None]:
-    """Return (connected, error_message) for sidebar display."""
-    return (_connected, _init_error)
+    return (_lf is not None, _init_error)
 
 
 _init_client()
 
 
 # ---------------------------------------------------------------------------
-# No-op fallbacks
+# No-op span
 # ---------------------------------------------------------------------------
 
 class _NoOpSpan:
@@ -72,62 +61,48 @@ class _NoOpSpan:
         pass
 
 
-@contextmanager
-def _noop_ctx(**kwargs):
-    yield _NoOpSpan()
-
-
 # ---------------------------------------------------------------------------
-# Public helpers used by ConversationFlow
+# Public API
 # ---------------------------------------------------------------------------
 
-def new_trace(name: str, session_id: str | None = None):
-    """Start a new top-level trace. Returns a span object (or no-op)."""
-    if not _connected:
+def new_session_span(name: str = "macrotool-session") -> Any:
+    """Create a top-level span for the session. Returns a span or no-op."""
+    if _lf is None:
         return _NoOpSpan()
     try:
-        from langfuse import get_client
-        lf = get_client()
-        trace = lf.start_as_current_observation(
-            as_type="span",
-            name=name,
-            session_id=session_id,
-        )
-        return trace
+        return _lf.start_observation(as_type="span", name=name)
     except Exception:
         return _NoOpSpan()
 
 
-@contextmanager
-def generation_span(
+def new_generation(
     name: str,
     model: str,
     input: Any,
-) -> Generator[_NoOpSpan, None, None]:
-    """Context manager for a single LLM generation. Flushes on exit."""
-    if not _connected:
-        yield _NoOpSpan()
-        return
+    session_span: Any = None,
+) -> Any:
+    """
+    Create a generation span. Returns the span object — caller must call
+    span.update(output=...) and span.end() when done, then flush().
+    """
+    if _lf is None:
+        return _NoOpSpan()
     try:
-        from langfuse import get_client
-        lf = get_client()
-        with lf.start_as_current_observation(
-            as_type="generation",
-            name=name,
-            model=model,
-            input=input,
-        ) as gen:
-            yield gen
-        lf.flush()
+        kwargs: dict = dict(as_type="generation", name=name, model=model, input=input)
+        if session_span is not None and hasattr(session_span, "trace_id"):
+            from langfuse.types import TraceContext
+            kwargs["trace_context"] = TraceContext(
+                trace_id=session_span.trace_id,
+                parent_observation_id=getattr(session_span, "id", None),
+            )
+        return _lf.start_observation(**kwargs)
     except Exception:
-        yield _NoOpSpan()
+        return _NoOpSpan()
 
 
 def flush() -> None:
-    if not _connected:
-        return
-    try:
-        from langfuse import get_client
-        get_client().flush()
-    except Exception:
-        pass
+    if _lf is not None:
+        try:
+            _lf.flush()
+        except Exception:
+            pass

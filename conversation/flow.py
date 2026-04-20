@@ -82,7 +82,7 @@ class ConversationFlow:
     ):
         self._client = MacroToolClient(api_key=api_key)
         self._snapshot: MarketSnapshot = snapshot or load_snapshot()
-        self._trace_span = _tracing.new_trace("macrotool-session")
+        self._session_span = _tracing.new_session_span("macrotool-session")
 
         self.step: Step = Step.INTAKE
         self.messages: list[dict] = []
@@ -167,7 +167,7 @@ class ConversationFlow:
         self.ccy = self._snapshot.get(view.pair)
         self._run_engines()
         try:
-            self._trace_span.update(
+            self._session_span.update(
                 tags=[view.pair, view.mode],
                 metadata={"pair": view.pair, "mode": view.mode, "direction": view.direction},
             )
@@ -267,17 +267,20 @@ class ConversationFlow:
     def _stream_traced(
         self, messages: list[dict], system: str, step_name: str
     ) -> Generator[str, None, None]:
-        """Stream a response, logging it as a Langfuse generation span."""
-        full_text = ""
-        with _tracing.generation_span(
+        """Stream a response, logging it as a Langfuse generation."""
+        gen = _tracing.new_generation(
             name=step_name,
             model=self._client.model,
             input={"system": system, "messages": messages},
-        ) as gen:
-            for chunk in self._client.stream(messages, system):
-                full_text += chunk
-                yield chunk
-            gen.update(output=full_text)
+            session_span=self._session_span,
+        )
+        full_text = ""
+        for chunk in self._client.stream(messages, system):
+            full_text += chunk
+            yield chunk
+        gen.update(output=full_text)
+        gen.end()
+        _tracing.flush()
 
     def _apply_pref_changes(self) -> None:
         """Parse PREF_CHANGE tags from last response and re-resolve config."""
