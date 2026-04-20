@@ -6,3 +6,4 @@ rich>=13.7.0
 streamlit>=1.32.0
 plotly>=5.20.0
 langfuse>=2.0.0
+supabase>=2.0.0

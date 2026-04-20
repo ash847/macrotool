@@ -55,6 +55,8 @@ def _inject_secrets() -> None:
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_BASE_URL",
+        "SUPABASE_URL",
+        "SUPABASE_KEY",
     ]
     try:
         for k in _secret_keys:
@@ -67,6 +69,9 @@ _inject_secrets()
 
 from conversation import tracing as _tracing
 _tracing._init_client()
+
+from interface.supabase_logger import log_query as _log_query, reinit as _sb_reinit
+_sb_reinit()
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +229,17 @@ def _extract_view(prompt: str) -> str | None:
         except Exception as e:
             log_error("_run_engines", e)
             raise
+        _log_query(
+            prompt=prompt,
+            pair=view.pair,
+            direction=view.direction,
+            magnitude_pct=view.magnitude_pct,
+            horizon_days=view.horizon_days,
+            target_z=flow.market_state.target_z if flow.market_state else None,
+            carry_regime=flow.market_state.carry_regime if flow.market_state else None,
+            top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
+            llm_response=full_text,
+        )
         return None
     else:
         log_view_failed(full_text)
