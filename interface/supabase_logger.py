@@ -12,19 +12,27 @@ import os
 from typing import Any
 
 _client = None
+_init_error: str | None = None
 
 
 def _init() -> None:
-    global _client
+    global _client, _init_error
+    _client = None
+    _init_error = None
     url = os.environ.get("SUPABASE_URL", "")
     key = os.environ.get("SUPABASE_KEY", "")
     if not url or not key:
+        _init_error = "SUPABASE_URL or SUPABASE_KEY not set"
         return
     try:
         from supabase import create_client
         _client = create_client(url, key)
-    except Exception:
-        pass
+    except Exception as e:
+        _init_error = str(e)
+
+
+def init_status() -> tuple[bool, str | None]:
+    return (_client is not None, _init_error)
 
 
 _init()
@@ -43,20 +51,17 @@ def log_query(
 ) -> None:
     if _client is None:
         return
-    try:
-        _client.table("queries").insert({
-            "prompt":        prompt,
-            "pair":          pair,
-            "direction":     direction,
-            "magnitude_pct": magnitude_pct,
-            "horizon_days":  horizon_days,
-            "target_z":      round(target_z, 4) if target_z is not None else None,
-            "carry_regime":  carry_regime,
-            "top_structure": top_structure,
-            "llm_response":  llm_response[:8000],  # guard against max row size
-        }).execute()
-    except Exception:
-        pass
+    _client.table("queries").insert({
+        "prompt":        prompt,
+        "pair":          pair,
+        "direction":     direction,
+        "magnitude_pct": magnitude_pct,
+        "horizon_days":  horizon_days,
+        "target_z":      round(target_z, 4) if target_z is not None else None,
+        "carry_regime":  carry_regime,
+        "top_structure": top_structure,
+        "llm_response":  llm_response[:8000],
+    }).execute()
 
 
 def reinit() -> None:

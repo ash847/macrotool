@@ -70,7 +70,7 @@ _inject_secrets()
 from conversation import tracing as _tracing
 _tracing._init_client()
 
-from interface.supabase_logger import log_query as _log_query, reinit as _sb_reinit
+from interface.supabase_logger import log_query as _log_query, reinit as _sb_reinit, init_status as _sb_status
 _sb_reinit()
 
 
@@ -145,6 +145,12 @@ with st.sidebar:
         st.success("Langfuse connected")
     elif lf_error:
         st.warning(f"Langfuse: {lf_error}")
+
+    sb_connected, sb_error = _sb_status()
+    if sb_connected:
+        st.success("Supabase connected")
+    else:
+        st.warning(f"Supabase: {sb_error}")
 
     st.divider()
 
@@ -229,17 +235,20 @@ def _extract_view(prompt: str) -> str | None:
         except Exception as e:
             log_error("_run_engines", e)
             raise
-        _log_query(
-            prompt=prompt,
-            pair=view.pair,
-            direction=view.direction,
-            magnitude_pct=view.magnitude_pct,
-            horizon_days=view.horizon_days,
-            target_z=flow.market_state.target_z if flow.market_state else None,
-            carry_regime=flow.market_state.carry_regime if flow.market_state else None,
-            top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
-            llm_response=full_text,
-        )
+        try:
+            _log_query(
+                prompt=prompt,
+                pair=view.pair,
+                direction=view.direction,
+                magnitude_pct=view.magnitude_pct,
+                horizon_days=view.horizon_days,
+                target_z=flow.market_state.target_z if flow.market_state else None,
+                carry_regime=flow.market_state.carry_regime if flow.market_state else None,
+                top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
+                llm_response=full_text,
+            )
+        except Exception as e:
+            log_error("supabase_log_query", e)
         return None
     else:
         log_view_failed(full_text)
