@@ -45,22 +45,8 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Session state
-# ---------------------------------------------------------------------------
-
-if "flow" not in st.session_state:
-    st.session_state.flow = ConversationFlow()
-if "submitted" not in st.session_state:
-    st.session_state.submitted = False
-if "page" not in st.session_state:
-    st.session_state.page = "Trade View"
-
-flow: ConversationFlow = st.session_state.flow
-
-
-# ---------------------------------------------------------------------------
-# Secrets → os.environ (Streamlit Cloud exposes secrets only via st.secrets,
-# not os.environ — push them across so non-Streamlit modules can read them)
+# Secrets → os.environ — must run before session state so ConversationFlow
+# (which creates SessionTrace) sees the Langfuse keys
 # ---------------------------------------------------------------------------
 
 def _inject_secrets() -> None:
@@ -79,9 +65,22 @@ def _inject_secrets() -> None:
 
 _inject_secrets()
 
-# Re-init Langfuse now that keys may be available in os.environ
 from conversation import tracing as _tracing
 _tracing._init_client()
+
+
+# ---------------------------------------------------------------------------
+# Session state
+# ---------------------------------------------------------------------------
+
+if "flow" not in st.session_state:
+    st.session_state.flow = ConversationFlow()
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
+if "page" not in st.session_state:
+    st.session_state.page = "Trade View"
+
+flow: ConversationFlow = st.session_state.flow
 
 
 # ---------------------------------------------------------------------------
