@@ -1,7 +1,7 @@
 {
   "_description": "Affinity scores for structure selection. For each structure: gates (hard filters on market state) and per-dimension scores. Total score = sum across dimensions. Overlays are ranked separately from primary structures.",
 
-  "_scoring_scale": "0 = neutral / not relevant, 1 = slightly attractive, 2 = attractive, 3 = highly attractive",
+  "_scoring_scale": "0 = neutral / not relevant, 1 = slightly attractive, 2 = attractive, 3 = highly attractive. Negative values penalise a structure.",
 
   "_gates_schema": {
     "target_z_abs_min": "Minimum absolute target_z required for this structure to be eligible. Structures that require a specific target (requires_target=true in structure_profiles.json) use this to exclude cases where the target is too close to the forward to be meaningful. Value is in σ units (e.g. 0.5 means target must be at least 0.5σ from the forward).",
@@ -11,7 +11,8 @@
   "_bucket_labels": {
     "target_z_abs":  ["no_target", "near (<0.5σ)", "moderate (0.5–1.5σ)", "extended (1.5–2.5σ)", "far (>2.5σ)"],
     "carry_regime":  ["0 (noisy)", "1 (potential)", "2 (high carry)"],
-    "atmfsratio":    ["no_carry", "low (<1.5)", "medium (1.5–2)", "high (>2)"]
+    "atmfsratio":    ["no_carry", "low (<1.5)", "medium (1.5–2)", "high (>2)"],
+    "with_carry":    ["true (view aligns with carry direction)", "false (view is counter-carry)"]
   },
 
   "thresholds": {
@@ -31,7 +32,8 @@
         "far":       3
       },
       "carry_regime": { "0": 0, "1": 0, "2": 0 },
-      "atmfsratio":   { "no_carry": 0, "low": 0, "medium": 0, "high": 0 }
+      "atmfsratio":   { "no_carry": 0, "low": 0, "medium": 0, "high": 0 },
+      "with_carry":   { "true": 0, "false": 0 }
     },
 
     "1x1_spread": {
@@ -44,7 +46,8 @@
         "far":       0
       },
       "carry_regime": { "0": 0, "1": 2, "2": 3 },
-      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 2, "high": 3 }
+      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 2, "high": 3 },
+      "with_carry":   { "true": 1, "false": -1 }
     },
 
     "risk_reversal": {
@@ -57,7 +60,8 @@
         "far":       1
       },
       "carry_regime": { "0": 1, "1": 2, "2": 2 },
-      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 0, "high": 0 }
+      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 0, "high": 0 },
+      "with_carry":   { "true": 2, "false": -2 }
     },
 
     "seagull": {
@@ -70,7 +74,8 @@
         "far":       0
       },
       "carry_regime": { "0": 1, "1": 2, "2": 2 },
-      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 1, "high": 1 }
+      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 1, "high": 1 },
+      "with_carry":   { "true": 1, "false": -1 }
     },
 
     "1x2_spread": {
@@ -83,7 +88,8 @@
         "far":       0
       },
       "carry_regime": { "0": 0, "1": 2, "2": 2 },
-      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 1, "high": 2 }
+      "atmfsratio":   { "no_carry": 0, "low": 1, "medium": 1, "high": 2 },
+      "with_carry":   { "true": 1, "false": -1 }
     },
 
     "rko": {
@@ -96,7 +102,8 @@
         "far":       0
       },
       "carry_regime": { "0": 2, "1": 2, "2": 1 },
-      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 1, "high": 0 }
+      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 1, "high": 0 },
+      "with_carry":   { "true": -1, "false": 1 }
     },
 
     "european_digital": {
@@ -109,7 +116,8 @@
         "far":       0
       },
       "carry_regime": { "0": 1, "1": 1, "2": 1 },
-      "atmfsratio":   { "no_carry": 0, "low": 0, "medium": 0, "high": 0 }
+      "atmfsratio":   { "no_carry": 0, "low": 0, "medium": 0, "high": 0 },
+      "with_carry":   { "true": 0, "false": 0 }
     },
 
     "european_digital_rko": {
@@ -122,7 +130,8 @@
         "far":       0
       },
       "carry_regime": { "0": 2, "1": 2, "2": 1 },
-      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 0, "high": 0 }
+      "atmfsratio":   { "no_carry": 1, "low": 1, "medium": 0, "high": 0 },
+      "with_carry":   { "true": -1, "false": 1 }
     }
 
   }

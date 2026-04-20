@@ -49,7 +49,7 @@ def score_structures(
 
         total = sum(
             score_cfg.get(dim, {}).get(buckets[dim], 0)
-            for dim in ("target_z_abs", "carry_regime", "atmfsratio")
+            for dim in ("target_z_abs", "carry_regime", "atmfsratio", "with_carry")
         )
 
         if profile.get("overlay_only", False):
@@ -102,7 +102,7 @@ def get_scoring_detail(market_state: MarketState) -> list[dict]:
 
         dims = {}
         total = 0
-        for dim in ("target_z_abs", "carry_regime", "atmfsratio"):
+        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "with_carry"):
             bucket = buckets[dim]
             score = score_cfg.get(dim, {}).get(bucket, 0) if eligible else 0
             dims[dim] = {"bucket": bucket, "score": score}
@@ -178,6 +178,7 @@ def _compute_buckets(ms: MarketState, thresholds: dict) -> dict[str, str]:
         "target_z_abs": tz_bucket,
         "carry_regime": str(ms.carry_regime),
         "atmfsratio": atm_bucket,
+        "with_carry": str(ms.with_carry).lower(),
     }
 
 
@@ -192,7 +193,7 @@ def _make_item(
 ) -> StructureShortlistItem:
     breakdown = {
         dim: (buckets[dim], score_cfg.get(dim, {}).get(buckets[dim], 0))
-        for dim in ("target_z_abs", "carry_regime", "atmfsratio")
+        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "with_carry")
     }
     rationale = _build_rationale(profile, breakdown)
     return StructureShortlistItem(
@@ -214,7 +215,15 @@ def _build_rationale(profile: dict, breakdown: dict) -> str:
         for dim, (bucket, s) in breakdown.items()
         if s >= 2 and bucket not in ("no_target", "no_carry")
     ]
+    penalties = [
+        dim.replace("_", " ")
+        for dim, (bucket, s) in breakdown.items()
+        if s <= -1
+    ]
     base = profile.get("optimal_for", "")
+    parts = []
     if drivers:
-        return f"{base} [scores on: {', '.join(drivers)}]"
-    return base
+        parts.append(f"scores on: {', '.join(drivers)}")
+    if penalties:
+        parts.append(f"penalised by: {', '.join(penalties)}")
+    return f"{base} [{'; '.join(parts)}]" if parts else base

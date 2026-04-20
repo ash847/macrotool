@@ -311,6 +311,7 @@ class ConversationFlow:
             r_d=rate_ctx.r_d,
             r_f=rate_ctx.r_f,
             target=target,
+            direction=self.view.direction,
         )
         self.selector_result = score_structures(self.market_state)
         top_structure = self.selector_result.shortlist[0] if self.selector_result.shortlist else None

@@ -34,6 +34,7 @@ class MarketState:
     target_z: float | None      # ln(target/fwd) / (σ√T); None if no target supplied
     atmfsratio: float | None    # |fwd-spot| / carry-spread cost; None if carry_regime == 0
     put_call: str | None        # "Call" if target > fwd, "Put" if target < fwd; None if no target
+    with_carry: bool            # True if view direction aligns with the carry (sign of c)
 
 
 def compute_market_state(
@@ -44,6 +45,7 @@ def compute_market_state(
     r_d: float,
     r_f: float,
     target: float | None = None,
+    direction: str | None = None,
 ) -> MarketState:
     """
     Compute all derived market state metrics from raw inputs.
@@ -75,6 +77,7 @@ def compute_market_state(
 
     target_z = math.log(target / fwd) / vol_sqrt_T if target is not None else None
     put_call = ("Call" if target > fwd else "Put") if target is not None else None
+    with_carry = (c > 0) == (direction == "base_higher") if direction else (c > 0)
 
     atmfsratio = None
     if carry_regime >= 1:
@@ -100,4 +103,5 @@ def compute_market_state(
         target_z=target_z,
         atmfsratio=atmfsratio,
         put_call=put_call,
+        with_carry=with_carry,
     )
