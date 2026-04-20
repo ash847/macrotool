@@ -35,10 +35,19 @@ def _init_client() -> None:
     try:
         from langfuse import get_client
         lf = get_client()
-        if lf.auth_check():
+        try:
+            ok = lf.auth_check()
+            if ok:
+                _connected = True
+            else:
+                # auth_check returned False but didn't raise — still try to connect
+                _connected = True
+                _init_error = "auth_check() returned False — traces may not arrive"
+        except Exception as auth_err:
+            # auth_check itself failed (e.g. redirect/network issue) — still mark connected
+            # so traces are attempted; real auth failures will show up as missing traces
             _connected = True
-        else:
-            _init_error = "auth_check() failed — check your keys"
+            _init_error = f"auth_check warning: {auth_err}"
     except Exception as e:
         _init_error = str(e)
 
