@@ -135,6 +135,12 @@ with st.sidebar:
             import anthropic as _anth2
             flow._client._client = _anth2.Anthropic(api_key=api_key_input)
 
+    lf_connected, lf_error = _tracing.init_status()
+    if lf_connected:
+        st.success("Langfuse connected")
+    elif lf_error:
+        st.warning(f"Langfuse: {lf_error}")
+
     st.divider()
 
     if flow.view:

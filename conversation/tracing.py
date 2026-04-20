@@ -11,19 +11,30 @@ import os
 from typing import Any
 
 _langfuse = None
+_init_error: str | None = None
 
 
-def _init_client():
-    global _langfuse
+def _init_client() -> None:
+    global _langfuse, _init_error
+    _init_error = None
     pk = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
     sk = os.environ.get("LANGFUSE_SECRET_KEY", "")
     host = os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
-    if pk and sk:
-        try:
-            from langfuse import Langfuse
-            _langfuse = Langfuse(public_key=pk, secret_key=sk, host=host)
-        except Exception:
-            pass
+    if not pk or not sk:
+        _init_error = "LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set"
+        return
+    try:
+        from langfuse import Langfuse
+        _langfuse = Langfuse(public_key=pk, secret_key=sk, host=host)
+        _init_error = None
+    except Exception as e:
+        _langfuse = None
+        _init_error = str(e)
+
+
+def init_status() -> tuple[bool, str | None]:
+    """Return (connected, error_message). For display in the UI."""
+    return (_langfuse is not None, _init_error)
 
 
 _init_client()
