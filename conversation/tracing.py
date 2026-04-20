@@ -81,3 +81,11 @@ class SessionTrace:
             return self._trace.generation(name=name, model=model, input=input)
         except Exception:
             return _NoOpGeneration()
+
+    def flush(self) -> None:
+        """Force-flush buffered events to Langfuse. Call after each LLM response."""
+        if _langfuse is not None:
+            try:
+                _langfuse.flush()
+            except Exception:
+                pass

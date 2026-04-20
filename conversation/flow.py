@@ -272,6 +272,7 @@ class ConversationFlow:
             full_text += chunk
             yield chunk
         gen.end(output=full_text)
+        self._trace.flush()
 
     def _apply_pref_changes(self) -> None:
         """Parse PREF_CHANGE tags from last response and re-resolve config."""
