@@ -50,7 +50,7 @@ from analytics.distributions import (
 from analytics.models import PriceDistribution, MaturityHistogram
 
 from conversation.client import MacroToolClient
-from conversation.tracing import SessionTrace
+import conversation.tracing as _tracing
 from conversation import context_builder
 
 
@@ -82,7 +82,7 @@ class ConversationFlow:
     ):
         self._client = MacroToolClient(api_key=api_key)
         self._snapshot: MarketSnapshot = snapshot or load_snapshot()
-        self._trace = SessionTrace()
+        self._trace_span = _tracing.new_trace("macrotool-session")
 
         self.step: Step = Step.INTAKE
         self.messages: list[dict] = []
@@ -166,7 +166,13 @@ class ConversationFlow:
         self.view = view
         self.ccy = self._snapshot.get(view.pair)
         self._run_engines()
-        self._trace.tag_view(view.pair, view.mode, view.direction)
+        try:
+            self._trace_span.update(
+                tags=[view.pair, view.mode],
+                metadata={"pair": view.pair, "mode": view.mode, "direction": view.direction},
+            )
+        except Exception:
+            pass
 
         # Second call: validation — messages still ends with user turn (correct)
         yield "\n\n"
@@ -261,18 +267,17 @@ class ConversationFlow:
     def _stream_traced(
         self, messages: list[dict], system: str, step_name: str
     ) -> Generator[str, None, None]:
-        """Stream a response, logging it as a Langfuse generation."""
-        gen = self._trace.generation(
+        """Stream a response, logging it as a Langfuse generation span."""
+        full_text = ""
+        with _tracing.generation_span(
             name=step_name,
             model=self._client.model,
             input={"system": system, "messages": messages},
-        )
-        full_text = ""
-        for chunk in self._client.stream(messages, system):
-            full_text += chunk
-            yield chunk
-        gen.end(output=full_text)
-        self._trace.flush()
+        ) as gen:
+            for chunk in self._client.stream(messages, system):
+                full_text += chunk
+                yield chunk
+            gen.update(output=full_text)
 
     def _apply_pref_changes(self) -> None:
         """Parse PREF_CHANGE tags from last response and re-resolve config."""

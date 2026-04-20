@@ -54,7 +54,7 @@ def _inject_secrets() -> None:
         "ANTHROPIC_API_KEY",
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
-        "LANGFUSE_HOST",
+        "LANGFUSE_BASE_URL",
     ]
     try:
         for k in _secret_keys:
