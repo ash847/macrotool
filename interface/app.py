@@ -59,6 +59,32 @@ flow: ConversationFlow = st.session_state.flow
 
 
 # ---------------------------------------------------------------------------
+# Secrets → os.environ (Streamlit Cloud exposes secrets only via st.secrets,
+# not os.environ — push them across so non-Streamlit modules can read them)
+# ---------------------------------------------------------------------------
+
+def _inject_secrets() -> None:
+    _secret_keys = [
+        "ANTHROPIC_API_KEY",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+        "LANGFUSE_HOST",
+    ]
+    try:
+        for k in _secret_keys:
+            if k in st.secrets and k not in os.environ:
+                os.environ[k] = st.secrets[k]
+    except Exception:
+        pass
+
+_inject_secrets()
+
+# Re-init Langfuse now that keys may be available in os.environ
+from conversation import tracing as _tracing
+_tracing._init_client()
+
+
+# ---------------------------------------------------------------------------
 # API key
 # ---------------------------------------------------------------------------
 
