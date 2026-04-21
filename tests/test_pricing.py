@@ -20,7 +20,7 @@ from pricing.forwards import (
     implied_r_f,
     discount_factor,
     build_rate_context,
-    DEFAULT_SETTLEMENT_RATES,
+    rate_context_for_snapshot,
 )
 from pricing.black_scholes import (
     black76_call,
@@ -117,15 +117,16 @@ class TestForwards:
         assert F_check == pytest.approx(F, rel=1e-6)
 
     def test_build_rate_context(self, brl):
-        ctx = build_rate_context(brl, tenor_to_years("3M"), DEFAULT_SETTLEMENT_RATES["USDBRL"])
+        ctx = rate_context_for_snapshot(brl, tenor_to_years("3M"))
         assert ctx.spot == pytest.approx(5.785, rel=0.01)
         assert ctx.forward == pytest.approx(5.897, rel=0.01)
         assert ctx.T == pytest.approx(tenor_to_years("3M"))
         assert ctx.discount_factor < 1.0
-        # b = r_d - r_f encodes the BRL carry (forward at premium to spot)
-        # With r_d = USD settlement rate, r_f comes out negative (it's a derived quantity,
-        # not the BRL rate directly). What matters is that the forward premium is positive.
-        assert ctx.rate_differential > 0   # ln(F/S)/T > 0: BRL forward at premium
+        # r_d = BRL (implied), r_f = USD (direct from usd_df_curve)
+        # BRL rates > USD rates, so rate_differential (r_d - r_f) > 0
+        assert ctx.rate_differential > 0
+        assert ctx.r_f == pytest.approx(0.045, abs=0.01)   # USD rate ~4-5%
+        assert ctx.r_d > 0.10   # BRL implied ~12%
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +435,7 @@ class TestScenarioMatrix:
     def test_scenario_with_real_snapshot(self, snapshot):
         """End-to-end: build scenario matrix from real snapshot data."""
         brl = snapshot.get("USDBRL")
-        ctx = build_rate_context(brl, tenor_to_years("3M"), DEFAULT_SETTLEMENT_RATES["USDBRL"])
+        ctx = rate_context_for_snapshot(brl, tenor_to_years("3M"))
         strike = ctx.forward  # ATM forward
 
         def pricer(spot, T_rem, sigma):

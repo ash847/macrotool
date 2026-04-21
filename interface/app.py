@@ -412,18 +412,10 @@ else:
             c4.metric("ATM fwd ratio", "—")
 
         _pair = flow.view.pair
+        _base, _quote = _pair[:3], _pair[3:]
         c1, c2, c3, c4 = st.columns(4)
-        if _pair in ("USDBRL", "USDTRY"):
-            # r_d = USD (Black-76 discount rate); EM rate is implied from forward
-            _em = _pair[3:]
-            _T = flow.view.horizon_days / 365
-            _em_rate = ms.r_d + math.log(ms.fwd / ms.spot) / _T
-            c1.metric("r USD", f"{ms.r_d:.2%}")
-            c2.metric(f"r {_em} (implied)", f"{_em_rate:.2%}")
-        else:
-            # EURPLN: r_f = EUR (from DF curve, direct); r_d = PLN (CIP-derived)
-            c1.metric("r PLN (implied)", f"{ms.r_d:.2%}")
-            c2.metric("r EUR", f"{ms.r_f:.2%}")
+        c1.metric(f"r {_base}", f"{ms.r_f:.2%}")
+        c2.metric(f"r {_quote} (implied)", f"{ms.r_d:.2%}")
         try:
             v25dc = interpolate_vol(flow.ccy, h, "25DC")
             v25dp = interpolate_vol(flow.ccy, h, "25DP")

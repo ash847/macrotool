@@ -139,19 +139,18 @@ def build_rate_context(
     """
     Build a RateContext for a given pair and tenor.
 
-    For NDF pairs: pass r_d (USD rate); r_f is CIP-derived from the forward.
-    For EURPLN: pass r_f (EUR rate from eur_df_curve); r_d (PLN) is CIP-derived.
+    r_f (base currency rate) is the known anchor, read from the base DF curve.
+    r_d (quote currency rate) is CIP-derived from the forward.
 
     Args:
         snapshot:  CurrencySnapshot for the pair.
         T_years:   Time to expiry in years.
-        r_d:       Domestic rate (settlement currency). Ignored when r_f is supplied.
-        r_f:       Foreign (base) rate. When provided, r_d is derived from CIP
-                   instead of the other way around.
+        r_d:       Ignored — kept for signature compatibility. Always CIP-derived.
+        r_f:       Base currency rate. When provided directly, r_d is CIP-derived.
+                   Normally supplied via rate_context_for_snapshot.
     """
     forward = interpolate_forward(snapshot, T_years)
     if r_f is not None:
-        # r_f is the known anchor; derive r_d from CIP: r_d = r_f + ln(F/S)/T
         r_d = r_f + math.log(forward / snapshot.spot) / T_years
     else:
         r_f = implied_r_f(snapshot.spot, forward, T_years, r_d)
@@ -166,25 +165,18 @@ def build_rate_context(
     )
 
 
-# Default settlement currency rates used for NDF pairs (USD is the settlement currency)
-DEFAULT_SETTLEMENT_RATES: dict[str, float] = {
-    "USDBRL": 0.043,
-    "USDTRY": 0.043,
-}
-
-
 def rate_context_for_snapshot(snapshot: CurrencySnapshot, T_years: float) -> RateContext:
     """
-    Build a RateContext using the correct rate anchor for the pair.
+    Build a RateContext for any pair.
 
-    NDF pairs (USDBRL, USDTRY): USD rate from DEFAULT_SETTLEMENT_RATES is the
-    anchor; the EM rate is CIP-derived from the forward.
+    Convention: r_f = base currency (ccy1) rate, read from the base DF curve.
+                r_d = quote currency (ccy2) rate, CIP-derived from the forward.
 
-    EURPLN (deliverable): EUR rate is read directly from eur_df_curve and is
-    the anchor; PLN rate is CIP-derived from the forward.
+    USDBRL: r_f = USD (from usd_df_curve), r_d = BRL implied.
+    USDTRY: r_f = USD (from usd_df_curve), r_d = TRY implied.
+    EURPLN: r_f = EUR (from eur_df_curve), r_d = PLN implied.
     """
-    if snapshot.instrument_type == "Deliverable":
-        r_f = interpolate_df_rate(snapshot.eur_df_curve, T_years)
-        return build_rate_context(snapshot, T_years, r_d=0.0, r_f=r_f)
-    r_d = DEFAULT_SETTLEMENT_RATES.get(snapshot.pair, 0.043)
-    return build_rate_context(snapshot, T_years, r_d=r_d)
+    base_ccy = snapshot.pair[:3]
+    df_curve = snapshot.eur_df_curve if base_ccy == "EUR" else snapshot.usd_df_curve
+    r_f = interpolate_df_rate(df_curve, T_years)
+    return build_rate_context(snapshot, T_years, r_d=0.0, r_f=r_f)
