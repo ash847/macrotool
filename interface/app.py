@@ -454,7 +454,7 @@ else:
         )
         display_df.fillna("—", inplace=True)
 
-        styled = display_df.style.applymap(
+        styled = display_df.style.map(
             _color, subset=["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]
         )
         st.dataframe(styled, use_container_width=True)
@@ -477,9 +477,12 @@ else:
                 st.code(log_text, language="json")
             with col_clear:
                 if st.button("Clear log", key="clear_log"):
-                    from pathlib import Path as _P
-                    lp = _P(__file__).parent.parent / "logs" / "session.log"
-                    lp.write_text("")
+                    try:
+                        from pathlib import Path as _P
+                        lp = _P(__file__).parent.parent / "logs" / "session.log"
+                        lp.write_text("")
+                    except Exception:
+                        pass
                     st.rerun()
 
     # Input (only on Trade View page)
