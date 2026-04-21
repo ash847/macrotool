@@ -183,7 +183,7 @@ def rate_context_for_snapshot(snapshot: CurrencySnapshot, T_years: float) -> Rat
     EURPLN (deliverable): EUR rate is read directly from eur_df_curve and is
     the anchor; PLN rate is CIP-derived from the forward.
     """
-    if snapshot.eur_df_curve:
+    if snapshot.instrument_type == "Deliverable":
         r_f = interpolate_df_rate(snapshot.eur_df_curve, T_years)
         return build_rate_context(snapshot, T_years, r_d=0.0, r_f=r_f)
     r_d = DEFAULT_SETTLEMENT_RATES.get(snapshot.pair, 0.043)
