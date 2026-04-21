@@ -6,15 +6,13 @@
   "focus": "Does the structure scorer rank structures in the right order for your view? We want to understand whether the scoring dimensions (target distance, carry regime, carry alignment) are producing sensible recommendations, and where expert intuition disagrees with the ranked output.",
 
   "try_these": [
-    "Long USDBRL targeting 5.90, 3 months, high conviction — does a spread or vanilla top the list?",
-    "Short USDTRY directional, no specific target, 1 month — does risk reversal rank well?",
-    "Long EURPLN targeting 4.35, 6 months, low conviction — does the low-conviction view affect the shortlist?",
-    "Try adjusting the R/R slider and see if the ranking changes in a way that makes sense"
+    "Long USDBRL targeting 5.90, 3 months, high conviction",
+    "Short EURPLN targeting 4.35, 6 months, high conviction",
   ],
 
   "ignore_for_now": [
     "Premium and strike numbers — the vol surface is synthetic and not calibrated to real levels",
-    "The exact sizing / notional output — Kelly parameters not yet tuned",
+    "The exact sizing / notional output — conviction is not used anywhere",
     "The LLM narrative text — being replaced by structured data outputs"
   ],
 

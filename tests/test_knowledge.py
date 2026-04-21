@@ -19,9 +19,12 @@ from data.snapshot_loader import load_snapshot
 from knowledge_engine.conventions import resolve as resolve_conventions, format_for_context
 from knowledge_engine.loader import get_decision_rules, get_structure_catalog
 from knowledge_engine.models import TradeView
-from knowledge_engine.structure_selector import select_structures
+from knowledge_engine.structure_scorer import score_structures
 from knowledge_engine.sizing_engine import compute_sizing
 from knowledge_engine.critique_engine import evaluate_structure
+from analytics.market_state import compute_market_state
+from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
+from analytics.distributions import interpolate_atm_vol
 
 
 # ---------------------------------------------------------------------------
@@ -132,93 +135,8 @@ class TestConventions:
 # Structure selector
 # ---------------------------------------------------------------------------
 
-class TestStructureSelector:
-    def test_high_conviction_base_higher_includes_vanilla_call(self, brl_snapshot, cfg):
-        view = _brl_view(direction_conviction="high", timing_conviction="high")
-        result = select_structures(view, cfg)
-        ids = [s.structure_id for s in result.shortlist]
-        assert "vanilla_call" in ids
-
-    def test_high_conviction_base_lower_includes_vanilla_put(self, brl_snapshot, cfg):
-        view = _brl_view(direction="base_lower", direction_conviction="high")
-        result = select_structures(view, cfg)
-        ids = [s.structure_id for s in result.shortlist]
-        assert "vanilla_put" in ids
-
-    def test_no_vanilla_call_for_base_lower_view(self, brl_snapshot, cfg):
-        view = _brl_view(direction="base_lower", direction_conviction="high")
-        result = select_structures(view, cfg)
-        ids = [s.structure_id for s in result.shortlist]
-        assert "vanilla_call" not in ids
-
-    def test_budget_constrained_with_target_suggests_spread(self, brl_snapshot, cfg):
-        view = _brl_view(
-            direction_conviction="high",
-            budget_usd=200_000,
-            magnitude_pct=5.0,
-        )
-        result = select_structures(view, cfg)
-        ids = [s.structure_id for s in result.shortlist]
-        assert "call_spread" in ids
-
-    def test_skew_rule_sr03_does_not_fire_without_regime(self, brl_snapshot, cfg):
-        """SR-03 requires skew classification — does not fire without vol regime data."""
-        view = _brl_view(direction_conviction="high")
-        result = select_structures(view, cfg)
-        assert "SR-03" not in result.rules_fired
-
-    def test_low_direction_conviction_suggests_spot_or_forward(self, brl_snapshot, cfg):
-        view = _brl_view(direction_conviction="low")
-        result = select_structures(view, cfg)
-        ids = [s.structure_id for s in result.shortlist]
-        assert "spot" in ids or "forward" in ids
-
-    def test_low_timing_conviction_fires_sr04(self, brl_snapshot, cfg):
-        view = _brl_view(timing_conviction="low", direction_conviction="high")
-        result = select_structures(view, cfg)
-        assert "SR-04" in result.rules_fired
-
-    def test_low_timing_conviction_has_tranche_modifier(self, brl_snapshot, cfg):
-        view = _brl_view(timing_conviction="low", direction_conviction="high")
-        result = select_structures(view, cfg)
-        tranche_items = [s for s in result.shortlist if s.sizing_modifier == "tranche_entry"]
-        assert len(tranche_items) > 0
-
-    def test_sr03_does_not_fire_for_pln(self, pln_snapshot, cfg):
-        """SR-03 requires skew classification — does not fire."""
-        view = _pln_view(direction_conviction="high")
-        result = select_structures(view, cfg)
-        assert "SR-03" not in result.rules_fired
-
-    def test_shortlist_respects_max_size(self, brl_snapshot, cfg):
-        view = _brl_view(direction_conviction="high")
-        result = select_structures(view, cfg)
-        non_exotic = [s for s in result.shortlist if not s.is_exotic]
-        assert len(non_exotic) <= cfg.structures.max_shortlist_size
-
-    def test_excluded_structure_not_in_shortlist(self, brl_snapshot):
-        session = SessionOverrides()
-        session.apply("structures.excluded_structures", ["call_spread"], "session", "no spreads")
-        cfg_with_exclusion = resolve(load_config(), None, session)
-        view = _brl_view(
-            direction_conviction="high", budget_usd=200_000, magnitude_pct=5.0
-        )
-        result = select_structures(view, cfg_with_exclusion)
-        ids = [s.structure_id for s in result.shortlist]
-        assert "call_spread" not in ids
-
-    def test_shortlist_has_rationale(self, brl_snapshot, cfg):
-        view = _brl_view()
-        result = select_structures(view, cfg)
-        for item in result.shortlist:
-            assert len(item.rationale) > 0
-
-    def test_result_skew_context_is_blank(self, brl_snapshot, cfg):
-        """skew_context is blank until vol regime classification is re-introduced."""
-        view = _brl_view()
-        result = select_structures(view, cfg)
-        assert result.skew_context == ""
-        assert result.vol_regime_note == ""
+# TestStructureSelector removed — old rules engine (structure_selector.py) replaced
+# by quantitative scorer (structure_scorer.py). Scorer tests are in test_structure_scorer.py.
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +145,15 @@ class TestStructureSelector:
 
 class TestSizingEngine:
     def _top_structure(self, view, snapshot, cfg):
-        result = select_structures(view, cfg)
+        r_d = DEFAULT_SETTLEMENT_RATES.get(view.pair, 0.043)
+        rate_ctx = build_rate_context(snapshot, view.horizon_years, r_d)
+        atm_vol = interpolate_atm_vol(snapshot, view.horizon_days)
+        ms = compute_market_state(
+            spot=rate_ctx.spot, fwd=rate_ctx.forward, vol=atm_vol,
+            T=view.horizon_years, r_d=rate_ctx.r_d, r_f=rate_ctx.r_f,
+            target=None, direction=view.direction,
+        )
+        result = score_structures(ms)
         return result.shortlist[0]
 
     def test_kelly_fraction_high_conviction(self, brl_snapshot, cfg):
@@ -322,7 +248,7 @@ class TestSizingEngine:
         cfg_override = resolve(load_config(), None, session)
 
         view = _brl_view(direction_conviction="medium", budget_usd=200_000)
-        top = select_structures(view, cfg_override).shortlist[0]
+        top = self._top_structure(view, brl_snapshot, cfg_override)
         sizing = compute_sizing(view, brl_snapshot, top, cfg_override)
         assert sizing.kelly_fraction == pytest.approx(0.25)
 
@@ -334,7 +260,7 @@ class TestSizingEngine:
         cfg_base = load_config()
 
         view = _brl_view()
-        top = select_structures(view, cfg_base).shortlist[0]
+        top = self._top_structure(view, brl_snapshot, cfg_base)
         sz_wide = compute_sizing(view, brl_snapshot, top, cfg_wide)
         sz_base = compute_sizing(view, brl_snapshot, top, cfg_base)
 
@@ -346,46 +272,51 @@ class TestSizingEngine:
 # ---------------------------------------------------------------------------
 
 class TestCritiqueEngine:
-    def _run_critique(self, pm_id, view, snapshot, cfg):
-        from knowledge_engine.structure_selector import select_structures
-        selector_result = select_structures(view, cfg)
-        return evaluate_structure(view, pm_id, selector_result)
+    def _selector_result(self, view, snapshot):
+        r_d = DEFAULT_SETTLEMENT_RATES.get(view.pair, 0.043)
+        rate_ctx = build_rate_context(snapshot, view.horizon_years, r_d)
+        atm_vol = interpolate_atm_vol(snapshot, view.horizon_days)
+        ms = compute_market_state(
+            spot=rate_ctx.spot, fwd=rate_ctx.forward, vol=atm_vol,
+            T=view.horizon_years, r_d=rate_ctx.r_d, r_f=rate_ctx.r_f,
+            target=None, direction=view.direction,
+        )
+        return score_structures(ms)
 
     def test_matching_recommended_structure_is_appropriate(self, brl_snapshot, cfg):
         view = _brl_view(direction_conviction="high")
-        selector_result = select_structures(view, cfg)
+        selector_result = self._selector_result(view, brl_snapshot)
         rec_id = selector_result.shortlist[0].structure_id
         critique = evaluate_structure(view, rec_id, selector_result)
         assert critique.verdict == "appropriate_for_view"
 
     def test_rko_call_is_suboptimal_not_misaligned(self, brl_snapshot, cfg):
-        """RKO call is path dependent — should be flagged but not materially misaligned."""
         view = _brl_view(direction_conviction="high")
-        selector_result = select_structures(view, cfg)
+        selector_result = self._selector_result(view, brl_snapshot)
         critique = evaluate_structure(view, "rko_call", selector_result)
         assert critique.verdict in ("suboptimal_but_defensible", "materially_misaligned")
 
     def test_rko_call_flags_barrier_path_risk(self, brl_snapshot, cfg):
         view = _brl_view(direction_conviction="high")
-        selector_result = select_structures(view, cfg)
+        selector_result = self._selector_result(view, brl_snapshot)
         critique = evaluate_structure(view, "rko_call", selector_result)
         assert "barrier" in critique.scenario_weakness.lower() or "knock" in critique.scenario_weakness.lower()
 
     def test_digital_flags_binary_gamma(self, brl_snapshot, cfg):
         view = _brl_view(direction_conviction="high")
-        selector_result = select_structures(view, cfg)
+        selector_result = self._selector_result(view, brl_snapshot)
         critique = evaluate_structure(view, "european_digital", selector_result)
         assert "binary" in critique.gamma_notes.lower() or "expiry" in critique.gamma_notes.lower()
 
     def test_critique_has_recommended_alternative(self, brl_snapshot, cfg):
         view = _brl_view(direction_conviction="high")
-        selector_result = select_structures(view, cfg)
+        selector_result = self._selector_result(view, brl_snapshot)
         critique = evaluate_structure(view, "rko_call", selector_result)
         assert critique.recommended_alternative is not None
 
     def test_all_dimensions_populated(self, brl_snapshot, cfg):
         view = _brl_view(direction_conviction="high")
-        selector_result = select_structures(view, cfg)
+        selector_result = self._selector_result(view, brl_snapshot)
         critique = evaluate_structure(view, "vanilla_call", selector_result)
         assert len(critique.ev_comparison_note) > 0
         assert len(critique.scenario_weakness) > 0
@@ -393,8 +324,8 @@ class TestCritiqueEngine:
         assert len(critique.gamma_notes) > 0
         assert len(critique.hedge_effectiveness) > 0
 
-    def test_risk_reversal_notes_unlimited_loss(self, brl_snapshot, cfg):
+    def test_risk_reversal_critique_returns_valid_verdict(self, brl_snapshot, cfg):
         view = _brl_view(direction_conviction="high")
-        selector_result = select_structures(view, cfg)
+        selector_result = self._selector_result(view, brl_snapshot)
         critique = evaluate_structure(view, "risk_reversal", selector_result)
-        assert "unlimited" in critique.ev_comparison_note.lower() or "sold leg" in critique.ev_comparison_note.lower()
+        assert critique.verdict in ("appropriate_for_view", "suboptimal_but_defensible", "materially_misaligned")

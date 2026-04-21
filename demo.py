@@ -21,7 +21,9 @@ from config.schema import SessionOverrides
 from data.snapshot_loader import load_snapshot
 from knowledge_engine.conventions import resolve as resolve_conventions, format_for_context
 from knowledge_engine.models import TradeView
-from knowledge_engine.structure_selector import select_structures
+from knowledge_engine.structure_scorer import score_structures
+from analytics.market_state import compute_market_state
+from analytics.distributions import interpolate_atm_vol
 from knowledge_engine.sizing_engine import compute_sizing, format_sizing_for_context
 from knowledge_engine.critique_engine import evaluate_structure
 from pricing.forwards import build_rate_context, tenor_to_years, DEFAULT_SETTLEMENT_RATES
@@ -105,9 +107,19 @@ def run_demo(
     # Step 2 — Structure selection
     # ------------------------------------------------------------------
     print(f"\n{'─'*72}")
-    print("STEP 2 — STRUCTURE SELECTION (deterministic rules engine)")
+    print("STEP 2 — STRUCTURE SELECTION (quantitative scorer)")
     print(f"{'─'*72}")
-    selector_result = select_structures(view, cfg)
+    r_d = DEFAULT_SETTLEMENT_RATES.get(pair, 0.043)
+    rate_ctx = build_rate_context(ccy, view.horizon_years, r_d)
+    atm_vol = interpolate_atm_vol(ccy, view.horizon_days)
+    target = ccy.spot * (1 + (1 if view.direction == "base_higher" else -1) * (view.magnitude_pct or 0) / 100)
+    ms = compute_market_state(
+        spot=rate_ctx.spot, fwd=rate_ctx.forward, vol=atm_vol,
+        T=view.horizon_years, r_d=rate_ctx.r_d, r_f=rate_ctx.r_f,
+        target=target if view.magnitude_pct else None,
+        direction=view.direction,
+    )
+    selector_result = score_structures(ms)
 
     print(f"\nRules fired: {', '.join(selector_result.rules_fired)}")
     print(f"\nShortlist:")

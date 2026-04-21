@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kelly Criterion Visualizer</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace" aria-labelledby="page-title">
+        <header class="hero">
+          <div>
+            <p class="eyebrow">Educational sizing model</p>
+            <h1 id="page-title">Kelly Criterion Visualizer</h1>
+          </div>
+          <div class="formula-card" aria-label="Kelly formula">
+            <span>f* = (bp - q) / b</span>
+            <small>q = 1 - p</small>
+          </div>
+        </header>
+
+        <section class="metrics-grid" aria-label="Current Kelly outputs">
+          <article class="metric">
+            <span class="metric-label">Full Kelly</span>
+            <strong id="fullKellyValue">0.00%</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Applied Kelly</span>
+            <strong id="appliedKellyValue">0.00%</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Break-even win rate</span>
+            <strong id="breakEvenValue">50.00%</strong>
+          </article>
+          <article class="metric edge" id="edgeCard">
+            <span class="metric-label">Edge</span>
+            <strong id="edgeValue">Neutral</strong>
+          </article>
+        </section>
+
+        <section class="panel bankroll-panel" aria-labelledby="bankroll-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Current sizing</p>
+              <h2 id="bankroll-title">Bankroll Allocation</h2>
+            </div>
+            <span id="allocationLabel" class="pill">0.00% bet</span>
+          </div>
+          <div class="bankroll-track" aria-label="Bankroll allocation bar">
+            <div id="betSegment" class="bet-segment"></div>
+            <div id="cashSegment" class="cash-segment"></div>
+          </div>
+          <div class="bar-legend">
+            <span><i class="legend-box bet"></i>Bet fraction</span>
+            <span><i class="legend-box cash"></i>Unallocated cash</span>
+          </div>
+        </section>
+
+        <section class="panel chart-panel" aria-labelledby="chart-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Sensitivity</p>
+              <h2 id="chart-title">Kelly vs Win Probability</h2>
+            </div>
+            <div class="segmented" role="group" aria-label="Sensitivity chart mode">
+              <button id="modeProbability" class="active" type="button">Win probability</button>
+              <button id="modePayout" type="button">Payout multiple</button>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <svg id="sensitivityChart" role="img" aria-labelledby="chart-title chart-desc"></svg>
+            <p id="chart-desc" class="sr-only">A line chart showing how the Kelly fraction changes as one input changes.</p>
+          </div>
+        </section>
+
+        <section class="panel comparison-panel" aria-labelledby="comparison-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Fractional comparison</p>
+              <h2 id="comparison-title">Kelly Fractions</h2>
+            </div>
+          </div>
+          <div id="comparisonBars" class="comparison-bars"></div>
+        </section>
+      </section>
+
+      <aside class="controls-panel" aria-label="Kelly inputs">
+        <div class="control-header">
+          <p class="eyebrow">Inputs</p>
+          <h2>Assumptions</h2>
+        </div>
+
+        <label class="control">
+          <span>
+            <strong>Win probability p</strong>
+            <output id="pOutput">55.0%</output>
+          </span>
+          <input id="pInput" type="range" min="0" max="100" step="0.1" value="55">
+        </label>
+
+        <label class="control">
+          <span>
+            <strong>Payout multiple b</strong>
+            <output id="bOutput">1.00x</output>
+          </span>
+          <input id="bInput" type="range" min="0.1" max="10" step="0.05" value="1">
+          <small>Net profit won per 1 unit staked. Example: b = 2 means staking $1 wins $2 profit, plus the stake back.</small>
+        </label>
+
+        <label class="control">
+          <span>
+            <strong>Fractional Kelly</strong>
+            <output id="multiplierOutput">0.50x</output>
+          </span>
+          <input id="multiplierInput" type="range" min="0" max="1" step="0.01" value="0.5">
+        </label>
+
+        <div class="toggle-row">
+          <label>
+            <input id="capEnabledInput" type="checkbox">
+            <span>Use max bet cap</span>
+          </label>
+        </div>
+
+        <label class="control" id="capControl">
+          <span>
+            <strong>Max bet cap</strong>
+            <output id="capOutput">25.0%</output>
+          </span>
+          <input id="capInput" type="range" min="0" max="100" step="0.5" value="25" disabled>
+        </label>
+
+        <div class="toggle-row">
+          <label>
+            <input id="clampInput" type="checkbox" checked>
+            <span>Clamp negative applied Kelly to zero</span>
+          </label>
+        </div>
+      </aside>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
