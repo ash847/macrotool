@@ -69,12 +69,14 @@ def log_feedback(
     pair: str | None,
     answers: list[bool | None],
     questions: list[str],
+    note: str | None = None,
 ) -> None:
     if _client is None:
         return
     row: dict = {
         "prompt": prompt,
         "pair":   pair,
+        "note":   note,
     }
     for i, (q, a) in enumerate(zip(questions, answers), start=1):
         row[f"q{i}_text"]   = q

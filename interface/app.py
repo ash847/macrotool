@@ -496,6 +496,7 @@ else:
                     for i, q in enumerate(questions):
                         val = st.radio(q, ["Yes", "No"], index=None, horizontal=True, key=f"{_fb_key}_q{i}")
                         answers.append(True if val == "Yes" else (False if val == "No" else None))
+                    note = st.text_area("Anything else? (optional)", key=f"{_fb_key}_note", height=80)
                     if st.button("Submit feedback", key=f"{_fb_key}_submit"):
                         try:
                             _log_feedback(
@@ -503,6 +504,7 @@ else:
                                 pair=flow.view.pair if flow.view else None,
                                 answers=answers,
                                 questions=questions,
+                                note=note or None,
                             )
                         except Exception:
                             pass
