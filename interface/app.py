@@ -413,7 +413,7 @@ else:
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("r domestic", f"{ms.r_d:.2%}")
-        c2.metric("r foreign (implied)", f"{ms.r_d - ms.r_f:.2%}")
+        c2.metric("r foreign (implied)", f"{ms.r_f:.2%}")
         try:
             v25dc = interpolate_vol(flow.ccy, h, "25DC")
             v25dp = interpolate_vol(flow.ccy, h, "25DP")

@@ -131,12 +131,12 @@
       "spot": 4.2150,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": -5.0,   "outright": 4.2100 },
-        { "tenor": "1M",  "points": -22.0,  "outright": 4.1930 },
-        { "tenor": "2M",  "points": -44.0,  "outright": 4.1710 },
-        { "tenor": "3M",  "points": -66.0,  "outright": 4.1490 },
-        { "tenor": "6M",  "points": -132.0, "outright": 4.0830 },
-        { "tenor": "1Y",  "points": -262.0, "outright": 3.9530 }
+        { "tenor": "1W",  "points": 3.0,   "outright": 4.2180 },
+        { "tenor": "1M",  "points": 11.0,  "outright": 4.2260 },
+        { "tenor": "2M",  "points": 23.0,  "outright": 4.2380 },
+        { "tenor": "3M",  "points": 34.0,  "outright": 4.2490 },
+        { "tenor": "6M",  "points": 69.0,  "outright": 4.2840 },
+        { "tenor": "1Y",  "points": 139.0, "outright": 4.3540 }
       ],
       "vol_surface": [
         { "tenor": "1W",  "delta": "10DP",  "vol": 0.085 },
