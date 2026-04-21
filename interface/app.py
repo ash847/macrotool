@@ -10,6 +10,7 @@ Run with:
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import sys
@@ -70,7 +71,7 @@ _inject_secrets()
 from conversation import tracing as _tracing
 _tracing._init_client()
 
-from interface.supabase_logger import log_query as _log_query, reinit as _sb_reinit, init_status as _sb_status
+from interface.supabase_logger import log_query as _log_query, log_feedback as _log_feedback, reinit as _sb_reinit, init_status as _sb_status
 _sb_reinit()
 
 
@@ -340,6 +341,24 @@ if st.session_state.page == "Market Data":
 else:
     # ---- Trade View page ----
 
+    # Testing brief
+    _brief_path = Path(__file__).parent / "testing_brief.json"
+    try:
+        _brief = json.loads(_brief_path.read_text())
+        with st.expander(f"Testing brief — {_brief.get('updated', '')}", expanded=not flow.view):
+            st.markdown(f"**Focus:** {_brief['focus']}")
+            col_try, col_skip = st.columns(2)
+            with col_try:
+                st.markdown("**Try these**")
+                for item in _brief.get("try_these", []):
+                    st.caption(f"• {item}")
+            with col_skip:
+                st.markdown("**Ignore for now**")
+                for item in _brief.get("ignore_for_now", []):
+                    st.caption(f"• {item}")
+    except Exception:
+        pass
+
     # Echo the user's prompt back at the top once a view is active
     if flow.view and "last_prompt" in st.session_state and st.session_state.last_prompt:
         st.info(f"**View:** {st.session_state.last_prompt}")
@@ -459,6 +478,37 @@ else:
         )
         st.dataframe(styled, use_container_width=True)
 
+    # Feedback form (only after a view is active)
+    if flow.view:
+        try:
+            _brief = json.loads(_brief_path.read_text())
+            questions = _brief.get("questions", [])
+        except Exception:
+            questions = []
+        if questions:
+            with st.expander("Feedback", expanded=False):
+                st.caption("3 quick questions — helps calibrate the scorer")
+                _fb_key = f"fb_{st.session_state.get('last_prompt','')[:40]}"
+                if st.session_state.get(f"{_fb_key}_submitted"):
+                    st.success("Thanks — feedback recorded.")
+                else:
+                    answers = []
+                    for i, q in enumerate(questions):
+                        val = st.radio(q, ["Yes", "No"], index=None, horizontal=True, key=f"{_fb_key}_q{i}")
+                        answers.append(True if val == "Yes" else (False if val == "No" else None))
+                    if st.button("Submit feedback", key=f"{_fb_key}_submit"):
+                        try:
+                            _log_feedback(
+                                prompt=st.session_state.get("last_prompt"),
+                                pair=flow.view.pair if flow.view else None,
+                                answers=answers,
+                                questions=questions,
+                            )
+                        except Exception:
+                            pass
+                        st.session_state[f"{_fb_key}_submitted"] = True
+                        st.rerun()
+
     # Clarification message
     if "clarification" in st.session_state and st.session_state.clarification:
         st.info(st.session_state.clarification)
@@ -470,8 +520,7 @@ else:
         if not entries:
             st.caption("No log entries yet.")
         else:
-            import json as _json
-            log_text = _json.dumps(entries, indent=2, default=str)
+            log_text = json.dumps(entries, indent=2, default=str)
             col_copy, col_clear = st.columns([1, 1])
             with col_copy:
                 st.code(log_text, language="json")

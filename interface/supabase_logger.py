@@ -64,6 +64,24 @@ def log_query(
     }).execute()
 
 
+def log_feedback(
+    prompt: str | None,
+    pair: str | None,
+    answers: list[bool | None],
+    questions: list[str],
+) -> None:
+    if _client is None:
+        return
+    row: dict = {
+        "prompt": prompt,
+        "pair":   pair,
+    }
+    for i, (q, a) in enumerate(zip(questions, answers), start=1):
+        row[f"q{i}_text"]   = q
+        row[f"q{i}_answer"] = a
+    _client.table("feedback").insert(row).execute()
+
+
 def reinit() -> None:
     """Call after os.environ is updated (e.g. after st.secrets injection)."""
     _init()
