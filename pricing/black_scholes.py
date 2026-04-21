@@ -10,6 +10,16 @@ All prices use the Black-76 forward-based form:
 
 where F is the outright forward and DF = e^(-r_d * T).
 
+Delta convention: forward delta (undiscounted), premium not included.
+  Call forward delta: Δ_c = N(d1)          range (0, 1)
+  Put  forward delta: Δ_p = N(d1) - 1      range (-1, 0)
+  Put-call parity:    Δ_c + |Δ_p| = 1
+
+delta_to_strike is closed-form under this convention:
+  K = F × exp(0.5σ²T − N⁻¹(Δ_c) × σ√T)
+
+strike_to_delta is also direct — compute d1 and apply N().
+
 This formulation is correct for both NDF currencies (where the settlement is in
 USD and the forward already encodes the full interest differential) and for
 deliverable FX options.
@@ -75,6 +85,38 @@ def black76_vega(F: float, K: float, T: float, sigma: float, discount_factor: fl
     """Vega (dV/dσ) for a call or put (same for both)."""
     d1, _ = _d1_d2(F, K, T, sigma)
     return discount_factor * F * _n(d1) * math.sqrt(T)
+
+
+def delta_to_strike(delta: float, F: float, T: float, sigma: float) -> float:
+    """
+    Convert a forward delta to a strike (closed-form, forward delta / no premium adjustment).
+
+    Args:
+        delta: call delta in (0, 1) or put delta in (-1, 0).
+               A 25-delta put is passed as -0.25.
+    Returns:
+        Strike K such that black76_delta_call(F, K, T, sigma) == delta  (for calls)
+        or     black76_delta_put(F, K, T, sigma) == delta               (for puts).
+    """
+    if not (-1.0 < delta < 1.0) or delta == 0.0:
+        raise ValueError(f"delta must be in (-1, 1) excluding 0, got {delta}")
+    # Convert put delta to call delta equivalent: Δ_c = 1 + Δ_p for puts
+    call_delta = delta if delta > 0 else 1.0 + delta
+    d1 = norm.ppf(call_delta)
+    return F * math.exp(0.5 * sigma ** 2 * T - d1 * sigma * math.sqrt(T))
+
+
+def strike_to_delta(K: float, F: float, T: float, sigma: float) -> tuple[float, float]:
+    """
+    Compute both call and put forward deltas for a given strike.
+
+    Returns:
+        (call_delta, put_delta) where call_delta ∈ (0,1), put_delta ∈ (-1,0).
+    """
+    d1, _ = _d1_d2(F, K, T, sigma)
+    call_delta = _N(d1)
+    put_delta = call_delta - 1.0
+    return call_delta, put_delta
 
 
 # ---------------------------------------------------------------------------
