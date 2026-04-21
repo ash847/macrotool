@@ -1,202 +1,296 @@
 {
   "_description": "Affinity scores for structure selection. For each structure: gates (hard filters on market state) and per-dimension scores. Total score = sum across dimensions. Overlays are ranked separately from primary structures.",
-
   "_scoring_scale": "0 = neutral / not relevant, 1 = slightly attractive, 2 = attractive, 3 = highly attractive. Negative values penalise a structure.",
-
   "_gates_schema": {
-    "target_z_abs_min": "Minimum absolute target_z required for this structure to be eligible. Value is in σ units.",
-    "target_z_abs_max": "Maximum absolute target_z allowed for this structure to be eligible. Value is in σ units."
+    "target_z_abs_min": "Minimum absolute target_z required for this structure to be eligible. Value is in \u03c3 units.",
+    "target_z_abs_max": "Maximum absolute target_z allowed for this structure to be eligible. Value is in \u03c3 units."
   },
-
   "_bucket_labels": {
-    "target_z_abs":     ["no_target", "near (<0.5σ)", "moderate (0.5–1.5σ)", "extended (1.5–2.5σ)", "far (>2.5σ)"],
-    "carry_regime":     ["0 (noisy)", "1 (potential)", "2 (high carry)"],
-    "atmfsratio":       ["no_carry", "low (<1.5)", "medium (1.5–2)", "high (>2)"],
-    "carry_alignment":  ["no_carry (carry_regime=0)", "with_low", "with_medium", "with_high", "counter_low", "counter_medium", "counter_high"]
+    "target_z_abs": [
+      "no_target",
+      "near (<0.5\u03c3)",
+      "moderate (0.5\u20131.5\u03c3)",
+      "extended (1.5\u20132.5\u03c3)",
+      "far (>2.5\u03c3)"
+    ],
+    "carry_regime": [
+      "0 (noisy)",
+      "1 (potential)",
+      "2 (high carry)"
+    ],
+    "atmfsratio": [
+      "no_carry",
+      "low (<1.5)",
+      "medium (1.5\u20132)",
+      "high (>2)"
+    ],
+    "carry_alignment": [
+      "no_carry (carry_regime=0)",
+      "with_low",
+      "with_medium",
+      "with_high",
+      "counter_low",
+      "counter_medium",
+      "counter_high"
+    ]
   },
-
   "thresholds": {
-    "target_z_abs": [0.5, 1.5, 2.5],
-    "atmfsratio":   [1.5, 2.0]
+    "target_z_abs": [
+      0.5,
+      1.5,
+      2.5
+    ],
+    "atmfsratio": [
+      1.5,
+      2.0
+    ]
   },
-
   "structures": {
-
     "vanilla": {
       "gates": {},
       "target_z_abs": {
-        "no_target": 2,
-        "near":      0,
-        "moderate":  0.5,
-        "extended":  2,
-        "far":       3
+        "no_target": 2.0,
+        "near": 0.0,
+        "moderate": 0.5,
+        "extended": 2.0,
+        "far": 3.0
       },
-      "carry_regime":    { "0": 0, "1": 0, "2": 0 },
-      "atmfsratio":      { "no_carry": 0, "low": 0, "medium": 0, "high": 0 },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 0.0,
+        "medium": 0.0,
+        "high": 0.0
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":       0,
-        "with_medium":    0,
-        "with_high":      0,
-        "counter_low":    0,
-        "counter_medium": 0,
-        "counter_high":   0
+        "no_carry": 0.0,
+        "with_low": 0.0,
+        "with_medium": 0.0,
+        "with_high": 0.0,
+        "counter_low": 0.0,
+        "counter_medium": 0.0,
+        "counter_high": 0.0
       }
     },
-
     "1x1_spread": {
-      "gates": { "target_z_abs_min": 0.5 },
-      "target_z_abs": {
-        "no_target": 0,
-        "near":      2,
-        "moderate":  2,
-        "extended":  1,
-        "far":       0
+      "gates": {
+        "target_z_abs_min": 0.5
       },
-      "carry_regime":    { "0": 0, "1": 2, "2": 3 },
-      "atmfsratio":      { "no_carry": 0, "low": 1, "medium": 2, "high": 3 },
+      "target_z_abs": {
+        "no_target": 0.0,
+        "near": 2.0,
+        "moderate": 2.0,
+        "extended": 1.0,
+        "far": 0.0
+      },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 1.0,
+        "2": 2.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 0.7,
+        "medium": 1.2,
+        "high": 2.5
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":       0,
-        "with_medium":    1,
-        "with_high":      2,
-        "counter_low":    2,
-        "counter_medium": 0,
-        "counter_high":  -1
+        "no_carry": 0.0,
+        "with_low": 0.0,
+        "with_medium": 1.0,
+        "with_high": 2.0,
+        "counter_low": 2.0,
+        "counter_medium": 1.0,
+        "counter_high": 0.0
       }
     },
-
     "risk_reversal": {
       "gates": {},
       "target_z_abs": {
-        "no_target": 2,
-        "near":      2,
-        "moderate":  1,
-        "extended":  1,
-        "far":       1
+        "no_target": 2.0,
+        "near": 2.0,
+        "moderate": 1.0,
+        "extended": 1.0,
+        "far": 1.0
       },
-      "carry_regime":    { "0": 1, "1": 2, "2": 2 },
-      "atmfsratio":      { "no_carry": 1, "low": 1, "medium": 0, "high": 0 },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 0.0,
+        "medium": -0.5,
+        "high": -1.5
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":       1,
-        "with_medium":    2,
-        "with_high":      2,
-        "counter_low":   -2,
-        "counter_medium":-1,
-        "counter_high":  -1
+        "no_carry": 0.0,
+        "with_low": 0.0,
+        "with_medium": -1.0,
+        "with_high": -2.0,
+        "counter_low": 2.0,
+        "counter_medium": 0.0,
+        "counter_high": -1.0
       }
     },
-
     "seagull": {
-      "gates": { "target_z_abs_min": 0.5 },
-      "target_z_abs": {
-        "no_target": 0,
-        "near":      0,
-        "moderate":  3,
-        "extended":  2,
-        "far":       0
+      "gates": {
+        "target_z_abs_min": 0.5
       },
-      "carry_regime":    { "0": 1, "1": 2, "2": 2 },
-      "atmfsratio":      { "no_carry": 0, "low": 1, "medium": 1, "high": 1 },
+      "target_z_abs": {
+        "no_target": 0.0,
+        "near": 0.0,
+        "moderate": 3.0,
+        "extended": 2.0,
+        "far": 0.0
+      },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 1.0,
+        "2": 1.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 0.5,
+        "medium": 0.5,
+        "high": 0.5
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":       0,
-        "with_medium":    1,
-        "with_high":      1,
-        "counter_low":   -1,
-        "counter_medium": 0,
-        "counter_high":   0
+        "no_carry": 0.0,
+        "with_low": 1.5,
+        "with_medium": 0.7,
+        "with_high": 0.0,
+        "counter_low": 1.5,
+        "counter_medium": 1.0,
+        "counter_high": 0.5
       }
     },
-
     "1x2_spread": {
-      "gates": { "target_z_abs_max": 1.0 },
-      "target_z_abs": {
-        "no_target": 0,
-        "near":      0,
-        "moderate":  2,
-        "extended":  3,
-        "far":       0
+      "gates": {
+        "target_z_abs_max": 1.0
       },
-      "carry_regime":    { "0": 0, "1": 2, "2": 2 },
-      "atmfsratio":      { "no_carry": 0, "low": 1, "medium": 1, "high": 2 },
+      "target_z_abs": {
+        "no_target": 0.0,
+        "near": 0.0,
+        "moderate": 2.0,
+        "extended": 3.0,
+        "far": 0.0
+      },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 2.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 0.5,
+        "medium": 1.0,
+        "high": 3.0
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":       0,
-        "with_medium":    1,
-        "with_high":      1,
-        "counter_low":   -1,
-        "counter_medium": 0,
-        "counter_high":   0
+        "no_carry": 0.0,
+        "with_low": 0.0,
+        "with_medium": 1.0,
+        "with_high": 2.0,
+        "counter_low": 1.0,
+        "counter_medium": 0.5,
+        "counter_high": 0.0
       }
     },
-
     "rko": {
       "gates": {},
       "target_z_abs": {
-        "no_target": 0,
-        "near":      1,
-        "moderate":  3,
-        "extended":  2,
-        "far":       0
+        "no_target": 0.0,
+        "near": 1.0,
+        "moderate": 3.0,
+        "extended": 2.0,
+        "far": 0.0
       },
-      "carry_regime":    { "0": 2, "1": 2, "2": 1 },
-      "atmfsratio":      { "no_carry": 1, "low": 1, "medium": 1, "high": 0 },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 1.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 1.0,
+        "medium": 1.0,
+        "high": 2.5
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":      -1,
-        "with_medium":   -1,
-        "with_high":     -1,
-        "counter_low":    1,
-        "counter_medium": 1,
-        "counter_high":   1
+        "no_carry": 0.0,
+        "with_low": 0.0,
+        "with_medium": 1.0,
+        "with_high": 2.0,
+        "counter_low": 2.0,
+        "counter_medium": 1.0,
+        "counter_high": 0.0
       }
     },
-
     "european_digital": {
       "gates": {},
       "target_z_abs": {
-        "no_target": 0,
-        "near":      3,
-        "moderate":  2,
-        "extended":  1,
-        "far":       0
+        "no_target": 0.0,
+        "near": 3.0,
+        "moderate": 2.0,
+        "extended": 1.0,
+        "far": 0.0
       },
-      "carry_regime":    { "0": 1, "1": 1, "2": 1 },
-      "atmfsratio":      { "no_carry": 0, "low": 0, "medium": 0, "high": 0 },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 1.0,
+        "2": 1.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 0.0,
+        "medium": 1.0,
+        "high": 2.0
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":       0,
-        "with_medium":    0,
-        "with_high":      0,
-        "counter_low":    0,
-        "counter_medium": 0,
-        "counter_high":   0
+        "no_carry": 0.0,
+        "with_low": 0.0,
+        "with_medium": 0.0,
+        "with_high": 0.0,
+        "counter_low": 0.0,
+        "counter_medium": 0.0,
+        "counter_high": 0.0
       }
     },
-
     "european_digital_rko": {
       "gates": {},
       "target_z_abs": {
-        "no_target": 0,
-        "near":      2,
-        "moderate":  3,
-        "extended":  1,
-        "far":       0
+        "no_target": 0.0,
+        "near": 2.0,
+        "moderate": 3.0,
+        "extended": 1.0,
+        "far": 0.0
       },
-      "carry_regime":    { "0": 2, "1": 2, "2": 1 },
-      "atmfsratio":      { "no_carry": 1, "low": 1, "medium": 0, "high": 0 },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0
+      },
+      "atmfsratio": {
+        "no_carry": 0.0,
+        "low": 0.0,
+        "medium": 0.0,
+        "high": 0.0
+      },
       "carry_alignment": {
-        "no_carry":       0,
-        "with_low":      -1,
-        "with_medium":   -1,
-        "with_high":     -1,
-        "counter_low":    1,
-        "counter_medium": 1,
-        "counter_high":   0
+        "no_carry": 0.0,
+        "with_low": -1.0,
+        "with_medium": -1.0,
+        "with_high": -1.0,
+        "counter_low": 1.0,
+        "counter_medium": 1.0,
+        "counter_high": 0.0
       }
     }
-
   }
 }

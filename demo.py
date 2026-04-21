@@ -26,7 +26,7 @@ from analytics.market_state import compute_market_state
 from analytics.distributions import interpolate_atm_vol
 from knowledge_engine.sizing_engine import compute_sizing, format_sizing_for_context
 from knowledge_engine.critique_engine import evaluate_structure
-from pricing.forwards import build_rate_context, tenor_to_years, DEFAULT_SETTLEMENT_RATES
+from pricing.forwards import rate_context_for_snapshot, tenor_to_years
 from pricing.black_scholes import call_value, put_value
 from pricing.scenario import build_scenario_matrix, ScenarioConfig, format_scenario_table
 
@@ -109,8 +109,7 @@ def run_demo(
     print(f"\n{'─'*72}")
     print("STEP 2 — STRUCTURE SELECTION (quantitative scorer)")
     print(f"{'─'*72}")
-    r_d = DEFAULT_SETTLEMENT_RATES.get(pair, 0.043)
-    rate_ctx = build_rate_context(ccy, view.horizon_years, r_d)
+    rate_ctx = rate_context_for_snapshot(ccy, view.horizon_years)
     atm_vol = interpolate_atm_vol(ccy, view.horizon_days)
     target = ccy.spot * (1 + (1 if view.direction == "base_higher" else -1) * (view.magnitude_pct or 0) / 100)
     ms = compute_market_state(
@@ -140,11 +139,7 @@ def run_demo(
         top = selector_result.shortlist[0]
         print(f"\nScenario matrix — {top.display_name}")
 
-        rate_ctx = build_rate_context(
-            ccy,
-            tenor_to_years("3M"),
-            DEFAULT_SETTLEMENT_RATES[pair],
-        )
+        rate_ctx = rate_context_for_snapshot(ccy, tenor_to_years("3M"))
         atm_vol = ccy.get_atm_vol("3M")
         strike = rate_ctx.forward  # ATM forward
 

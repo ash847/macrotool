@@ -10,6 +10,7 @@ from data.snapshot_loader import load_snapshot
 from pricing.black_scholes import delta_to_strike, strike_to_delta, black76_delta_call, black76_delta_put
 from analytics.vol_surface import SmileInterpolator
 from pricing.spreads import price_delta_spread, price_strike_spread
+from pricing.forwards import rate_context_for_snapshot
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -143,10 +144,9 @@ class TestSmileInterpolator:
 
     def test_vol_at_strike_atm_consistent(self, brl, smile_brl):
         # vol_at_strike at the ATM forward should be close to ATM pillar vol
-        from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
-        r_d = DEFAULT_SETTLEMENT_RATES["USDBRL"]
+        from pricing.forwards import rate_context_for_snapshot
         T = 91 / 365.0
-        rate_ctx = build_rate_context(brl, T, r_d)
+        rate_ctx = rate_context_for_snapshot(brl, T)
         F = rate_ctx.forward
         vol_at_fwd = smile_brl.vol_at_strike(F, F, 91)
         atm_pillar = brl.get_vol("3M", "ATM")
@@ -157,10 +157,9 @@ class TestSmileInterpolator:
 
     def test_vol_at_strike_otm_call_reflects_skew(self, brl, smile_brl):
         # For USDBRL topside skew: OTM call (high strike) should have higher vol than ATM
-        from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
-        r_d = DEFAULT_SETTLEMENT_RATES["USDBRL"]
+        from pricing.forwards import rate_context_for_snapshot
         T = 91 / 365.0
-        rate_ctx = build_rate_context(brl, T, r_d)
+        rate_ctx = rate_context_for_snapshot(brl, T)
         F = rate_ctx.forward
         K_otm_call = delta_to_strike(0.25, F, T, smile_brl.vol_at_delta(0.25, 91))
         vol_otm = smile_brl.vol_at_strike(K_otm_call, F, 91)
@@ -239,10 +238,9 @@ class TestDeltaSpread:
 class TestStrikeSpread:
 
     def test_put_spread_from_strikes(self, brl):
-        from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
-        r_d = DEFAULT_SETTLEMENT_RATES["USDBRL"]
+        from pricing.forwards import rate_context_for_snapshot
         T = 120 / 365.0
-        ctx = build_rate_context(brl, T, r_d)
+        ctx = rate_context_for_snapshot(brl, T)
         F = ctx.forward
         # Use strikes either side of 25d put
         K_long  = F * 0.97   # closer to spot
@@ -253,10 +251,9 @@ class TestStrikeSpread:
         assert result.short_leg.strike == K_short
 
     def test_call_spread_from_strikes(self, brl):
-        from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
-        r_d = DEFAULT_SETTLEMENT_RATES["USDBRL"]
+        from pricing.forwards import rate_context_for_snapshot
         T = 91 / 365.0
-        ctx = build_rate_context(brl, T, r_d)
+        ctx = rate_context_for_snapshot(brl, T)
         F = ctx.forward
         K_long  = F * 1.02
         K_short = F * 1.05
@@ -265,10 +262,9 @@ class TestStrikeSpread:
         assert result.long_leg.strike < result.short_leg.strike
 
     def test_delta_outputs_in_valid_range(self, brl):
-        from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
-        r_d = DEFAULT_SETTLEMENT_RATES["USDBRL"]
+        from pricing.forwards import rate_context_for_snapshot
         T = 91 / 365.0
-        ctx = build_rate_context(brl, T, r_d)
+        ctx = rate_context_for_snapshot(brl, T)
         F = ctx.forward
         result = price_strike_spread(F * 0.97, F * 0.94, brl, horizon_days=91, option_type="put")
         for leg in (result.long_leg, result.short_leg):
@@ -281,11 +277,9 @@ class TestStrikeSpread:
 
     def test_strike_and_delta_entry_consistent(self, brl):
         # price_delta_spread and price_strike_spread should agree when given equivalent inputs
-        from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
         long_d, short_d = -0.25, -0.10
-        r_d = DEFAULT_SETTLEMENT_RATES["USDBRL"]
         T = 91 / 365.0
-        ctx = build_rate_context(brl, T, r_d)
+        ctx = rate_context_for_snapshot(brl, T)
         F = ctx.forward
 
         delta_result = price_delta_spread(long_d, short_d, brl, horizon_days=91)

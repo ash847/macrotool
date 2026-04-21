@@ -26,7 +26,7 @@ from knowledge_engine.models import (
 )
 from knowledge_engine.sizing_engine import format_sizing_for_context
 from pricing.scenario import format_scenario_table, build_scenario_matrix, ScenarioConfig
-from pricing.forwards import build_rate_context, tenor_to_years, DEFAULT_SETTLEMENT_RATES
+from pricing.forwards import rate_context_for_snapshot, tenor_to_years
 from pricing.black_scholes import call_value, put_value
 from analytics.models import PriceDistribution, MaturityHistogram
 
@@ -212,11 +212,7 @@ def build_structure_rec_prompt(
     top_non_exotic = next((i for i in selector_result.shortlist if not i.is_exotic), None)
     if top_non_exotic and top_non_exotic.structure_id not in ("spot", "forward"):
         try:
-            rate_ctx = build_rate_context(
-                ccy,
-                tenor_to_years("3M"),
-                DEFAULT_SETTLEMENT_RATES[view.pair],
-            )
+            rate_ctx = rate_context_for_snapshot(ccy, tenor_to_years("3M"))
             atm_vol = ccy.get_atm_vol("3M")
             strike = rate_ctx.forward
 

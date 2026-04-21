@@ -19,11 +19,7 @@ from conversation.flow import ConversationFlow, Step
 from data.schema import CurrencySnapshot
 from knowledge_engine.models import SizingOutput, StructureSelectionResult, TradeView
 from pricing.black_scholes import call_value, put_value
-from pricing.forwards import (
-    DEFAULT_SETTLEMENT_RATES,
-    build_rate_context,
-    tenor_to_years,
-)
+from pricing.forwards import rate_context_for_snapshot, tenor_to_years
 from pricing.scenario import ScenarioConfig, build_scenario_matrix
 from analytics.models import PriceDistribution
 
@@ -49,11 +45,7 @@ def build_scenario_heatmap(flow: ConversationFlow) -> go.Figure | None:
         return None
 
     try:
-        rate_ctx = build_rate_context(
-            ccy,
-            tenor_to_years("3M"),
-            DEFAULT_SETTLEMENT_RATES[view.pair],
-        )
+        rate_ctx = rate_context_for_snapshot(ccy, tenor_to_years("3M"))
         atm_vol = ccy.get_atm_vol("3M")
         strike = rate_ctx.forward
 

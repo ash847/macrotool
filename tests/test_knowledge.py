@@ -23,7 +23,7 @@ from knowledge_engine.structure_scorer import score_structures
 from knowledge_engine.sizing_engine import compute_sizing
 from knowledge_engine.critique_engine import evaluate_structure
 from analytics.market_state import compute_market_state
-from pricing.forwards import build_rate_context, DEFAULT_SETTLEMENT_RATES
+from pricing.forwards import rate_context_for_snapshot
 from analytics.distributions import interpolate_atm_vol
 
 
@@ -145,8 +145,7 @@ class TestConventions:
 
 class TestSizingEngine:
     def _top_structure(self, view, snapshot, cfg):
-        r_d = DEFAULT_SETTLEMENT_RATES.get(view.pair, 0.043)
-        rate_ctx = build_rate_context(snapshot, view.horizon_years, r_d)
+        rate_ctx = rate_context_for_snapshot(snapshot, view.horizon_years)
         atm_vol = interpolate_atm_vol(snapshot, view.horizon_days)
         ms = compute_market_state(
             spot=rate_ctx.spot, fwd=rate_ctx.forward, vol=atm_vol,
@@ -273,8 +272,7 @@ class TestSizingEngine:
 
 class TestCritiqueEngine:
     def _selector_result(self, view, snapshot):
-        r_d = DEFAULT_SETTLEMENT_RATES.get(view.pair, 0.043)
-        rate_ctx = build_rate_context(snapshot, view.horizon_years, r_d)
+        rate_ctx = rate_context_for_snapshot(snapshot, view.horizon_years)
         atm_vol = interpolate_atm_vol(snapshot, view.horizon_days)
         ms = compute_market_state(
             spot=rate_ctx.spot, fwd=rate_ctx.forward, vol=atm_vol,

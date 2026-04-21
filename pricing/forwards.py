@@ -106,26 +106,55 @@ def discount_factor(rate: float, T: float) -> float:
     return math.exp(-rate * T)
 
 
+def interpolate_df_rate(df_curve: list, T_years: float) -> float:
+    """
+    Linearly interpolate a continuously-compounded rate from a DF curve.
+
+    df_curve entries must have .tenor (TenorLabel) and .df (float) attributes.
+    """
+    points = sorted([(tenor_to_years(d.tenor), d.df) for d in df_curve])
+    if T_years <= points[0][0]:
+        t, df = points[0]
+        return -math.log(df) / t if t > 0 else 0.0
+    if T_years >= points[-1][0]:
+        t, df = points[-1]
+        return -math.log(df) / t
+    for i in range(len(points) - 1):
+        t0, df0 = points[i]
+        t1, df1 = points[i + 1]
+        if t0 <= T_years <= t1:
+            w = (T_years - t0) / (t1 - t0)
+            df_interp = df0 + (df1 - df0) * w
+            return -math.log(df_interp) / T_years
+    t, df = points[-1]
+    return -math.log(df) / t
+
+
 def build_rate_context(
     snapshot: CurrencySnapshot,
     T_years: float,
     r_d: float,
+    r_f: float | None = None,
 ) -> RateContext:
     """
-    Build a RateContext for a given pair, tenor, and domestic rate.
+    Build a RateContext for a given pair and tenor.
+
+    For NDF pairs: pass r_d (USD rate); r_f is CIP-derived from the forward.
+    For EURPLN: pass r_f (EUR rate from eur_df_curve); r_d (PLN) is CIP-derived.
 
     Args:
-        snapshot:  The CurrencySnapshot for the pair.
+        snapshot:  CurrencySnapshot for the pair.
         T_years:   Time to expiry in years.
-        r_d:       Domestic (settlement currency) continuously-compounded rate.
-                   For NDF pairs (USD settlement): USD rate.
-                   For EURPLN: PLN rate (PLN is the term/settlement currency).
-
-    Returns:
-        RateContext with all rate inputs resolved.
+        r_d:       Domestic rate (settlement currency). Ignored when r_f is supplied.
+        r_f:       Foreign (base) rate. When provided, r_d is derived from CIP
+                   instead of the other way around.
     """
     forward = interpolate_forward(snapshot, T_years)
-    r_f = implied_r_f(snapshot.spot, forward, T_years, r_d)
+    if r_f is not None:
+        # r_f is the known anchor; derive r_d from CIP: r_d = r_f + ln(F/S)/T
+        r_d = r_f + math.log(forward / snapshot.spot) / T_years
+    else:
+        r_f = implied_r_f(snapshot.spot, forward, T_years, r_d)
     df = discount_factor(r_d, T_years)
     return RateContext(
         spot=snapshot.spot,
@@ -137,9 +166,25 @@ def build_rate_context(
     )
 
 
-# Default settlement currency rates for the synthetic snapshot (approximate, POC only)
+# Default settlement currency rates used for NDF pairs (USD is the settlement currency)
 DEFAULT_SETTLEMENT_RATES: dict[str, float] = {
-    "USDBRL": 0.043,   # USD rate (settlement currency for NDF)
-    "USDTRY": 0.043,   # USD rate (settlement currency for NDF)
-    "EURPLN": 0.058,   # PLN rate (term/settlement currency for deliverable)
+    "USDBRL": 0.043,
+    "USDTRY": 0.043,
 }
+
+
+def rate_context_for_snapshot(snapshot: CurrencySnapshot, T_years: float) -> RateContext:
+    """
+    Build a RateContext using the correct rate anchor for the pair.
+
+    NDF pairs (USDBRL, USDTRY): USD rate from DEFAULT_SETTLEMENT_RATES is the
+    anchor; the EM rate is CIP-derived from the forward.
+
+    EURPLN (deliverable): EUR rate is read directly from eur_df_curve and is
+    the anchor; PLN rate is CIP-derived from the forward.
+    """
+    if snapshot.eur_df_curve:
+        r_f = interpolate_df_rate(snapshot.eur_df_curve, T_years)
+        return build_rate_context(snapshot, T_years, r_d=0.0, r_f=r_f)
+    r_d = DEFAULT_SETTLEMENT_RATES.get(snapshot.pair, 0.043)
+    return build_rate_context(snapshot, T_years, r_d=r_d)

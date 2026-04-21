@@ -299,10 +299,9 @@ class ConversationFlow:
 
     def _run_engines(self) -> None:
         """Compute MarketState, run structure scorer, sizing, distributions, and (if critique) critique engine."""
-        from pricing.forwards import DEFAULT_SETTLEMENT_RATES, build_rate_context
+        from pricing.forwards import rate_context_for_snapshot
         T = self.view.horizon_years
-        r_d = DEFAULT_SETTLEMENT_RATES.get(self.view.pair, 0.043)
-        rate_ctx = build_rate_context(self.ccy, T, r_d)
+        rate_ctx = rate_context_for_snapshot(self.ccy, T)
         atm_vol = interpolate_atm_vol(self.ccy, self.view.horizon_days)
         target: float | None = None
         if self.view.magnitude_pct is not None:

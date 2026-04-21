@@ -40,7 +40,7 @@ from pricing.black_scholes import (
     delta_to_strike,
     strike_to_delta,
 )
-from pricing.forwards import DEFAULT_SETTLEMENT_RATES, build_rate_context
+from pricing.forwards import rate_context_for_snapshot
 
 
 @dataclass
@@ -72,7 +72,6 @@ def price_delta_spread(
     ccy: CurrencySnapshot,
     horizon_days: int,
     notional: float = 1_000_000.0,
-    r_d: float | None = None,
 ) -> SpreadPricingResult:
     """
     Price a spread given two forward deltas.
@@ -83,15 +82,13 @@ def price_delta_spread(
         ccy:         CurrencySnapshot for the pair.
         horizon_days: days to expiry.
         notional:    base currency notional.
-        r_d:         domestic rate override (defaults to DEFAULT_SETTLEMENT_RATES).
 
     Both deltas must have the same sign (both calls or both puts).
     """
     _validate_same_type(long_delta, short_delta)
 
-    r_d = r_d or DEFAULT_SETTLEMENT_RATES.get(ccy.pair, 0.043)
     T = horizon_days / 365.0
-    rate_ctx = build_rate_context(ccy, T, r_d)
+    rate_ctx = rate_context_for_snapshot(ccy, T)
     smile = SmileInterpolator(ccy)
 
     long_vol = smile.vol_at_delta(long_delta, horizon_days)
@@ -116,7 +113,6 @@ def price_strike_spread(
     horizon_days: int,
     option_type: str = "put",
     notional: float = 1_000_000.0,
-    r_d: float | None = None,
 ) -> SpreadPricingResult:
     """
     Price a spread given two strikes.
@@ -128,14 +124,12 @@ def price_strike_spread(
         horizon_days: days to expiry.
         option_type:  "call" or "put".
         notional:     base currency notional.
-        r_d:          domestic rate override.
     """
     if option_type not in ("call", "put"):
         raise ValueError("option_type must be 'call' or 'put'")
 
-    r_d = r_d or DEFAULT_SETTLEMENT_RATES.get(ccy.pair, 0.043)
     T = horizon_days / 365.0
-    rate_ctx = build_rate_context(ccy, T, r_d)
+    rate_ctx = rate_context_for_snapshot(ccy, T)
     smile = SmileInterpolator(ccy)
 
     long_vol  = smile.vol_at_strike(long_strike,  rate_ctx.forward, horizon_days)
