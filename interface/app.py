@@ -411,9 +411,12 @@ else:
         else:
             c4.metric("ATM fwd ratio", "—")
 
+        _RD_LABELS = {"USDBRL": "r USD", "USDTRY": "r USD", "EURPLN": "r PLN"}
+        _RF_LABELS = {"USDBRL": "r BRL (implied)", "USDTRY": "r TRY (implied)", "EURPLN": "r EUR (implied)"}
+        _pair = flow.view.pair
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("r domestic", f"{ms.r_d:.2%}")
-        c2.metric("r foreign (implied)", f"{ms.r_f:.2%}")
+        c1.metric(_RD_LABELS.get(_pair, "r domestic"), f"{ms.r_d:.2%}")
+        c2.metric(_RF_LABELS.get(_pair, "r foreign (implied)"), f"{ms.r_f:.2%}")
         try:
             v25dc = interpolate_vol(flow.ccy, h, "25DC")
             v25dp = interpolate_vol(flow.ccy, h, "25DP")
