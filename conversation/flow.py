@@ -89,6 +89,7 @@ class ConversationFlow:
         self.session_overrides = SessionOverrides()
 
         self.cfg: ResolvedConfig = load_config()
+        self.target_rr: float | None = None
         self.view: TradeView | None = None
         self.ccy: CurrencySnapshot | None = None
         self.market_state: MarketState | None = None
@@ -179,6 +180,7 @@ class ConversationFlow:
         validation_system = context_builder.build_validation_prompt(
             view, self.ccy, self.selector_result,
             self.flat_distribution, self.smile_distribution, self.maturity_histogram,
+            target_rr=self.target_rr,
         )
         second_text = ""
         for chunk in self._stream_traced(self.messages, validation_system, "INTAKE_validation"):
@@ -201,7 +203,7 @@ class ConversationFlow:
             # Third call: structure recommendation — no PM input needed
             yield "\n\n---\n\n"
             structure_system = context_builder.build_structure_rec_prompt(
-                view, self.ccy, self.selector_result
+                view, self.ccy, self.selector_result, target_rr=self.target_rr,
             )
             third_text = ""
             for chunk in self._stream_traced(self.messages, structure_system, "INTAKE_structure_rec"):
@@ -217,7 +219,7 @@ class ConversationFlow:
 
     def _run_structure_rec(self) -> Generator[str, None, None]:
         system = context_builder.build_structure_rec_prompt(
-            self.view, self.ccy, self.selector_result
+            self.view, self.ccy, self.selector_result, target_rr=self.target_rr,
         )
         yield from self._stream_and_record(system)
         self._apply_pref_changes()

@@ -84,6 +84,8 @@ if "submitted" not in st.session_state:
     st.session_state.submitted = False
 if "page" not in st.session_state:
     st.session_state.page = "Trade View"
+if "target_rr" not in st.session_state:
+    st.session_state.target_rr = 3.0
 
 flow: ConversationFlow = st.session_state.flow
 
@@ -151,6 +153,18 @@ with st.sidebar:
         st.success("Supabase connected")
     else:
         st.warning(f"Supabase: {sb_error}")
+
+    st.divider()
+
+    st.caption("Risk / Reward target")
+    st.session_state.target_rr = st.slider(
+        "Risk 1 to make",
+        min_value=1.5,
+        max_value=10.0,
+        value=st.session_state.target_rr,
+        step=0.5,
+        format="%.1f×",
+    )
 
     st.divider()
 
@@ -470,6 +484,7 @@ else:
             st.stop()
 
         st.session_state.last_prompt = prompt
+        flow.target_rr = st.session_state.target_rr
         with st.spinner("Reading view..."):
             clarification = _extract_view(prompt)
 

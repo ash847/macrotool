@@ -104,6 +104,7 @@ def build_validation_prompt(
     flat_distribution: PriceDistribution | None = None,
     smile_distribution: PriceDistribution | None = None,
     maturity_histogram: MaturityHistogram | None = None,
+    target_rr: float | None = None,
 ) -> str:
     """VALIDATION step: market context injected; LLM narrates it."""
     from knowledge_engine.conventions import resolve as resolve_conventions
@@ -133,13 +134,18 @@ def build_validation_prompt(
             _format_analytics_block(flat_distribution, smile_distribution, maturity_histogram),
         )
 
-    return base + "\n\n" + step + market_block + analytics_block
+    rr_block = ""
+    if target_rr is not None:
+        rr_block = _block("RISK/REWARD TARGET", f"PM targets risk 1 to make {target_rr:.1f} (i.e. {target_rr:.1f}× return on max loss).")
+
+    return base + "\n\n" + step + market_block + analytics_block + rr_block
 
 
 def build_structure_rec_prompt(
     view: TradeView,
     ccy: CurrencySnapshot,
     selector_result: StructureSelectionResult,
+    target_rr: float | None = None,
 ) -> str:
     """STRUCTURE_REC step: shortlist + scenario matrix."""
     base = _build_base(overridable_fields_description())
@@ -243,7 +249,11 @@ def build_structure_rec_prompt(
         except Exception:
             pass  # Scenario matrix is best-effort; don't break the flow
 
-    return base + "\n\n" + step + market_block + shortlist_block + scenario_block
+    rr_block = ""
+    if target_rr is not None:
+        rr_block = _block("RISK/REWARD TARGET", f"PM targets risk 1 to make {target_rr:.1f} (i.e. {target_rr:.1f}× return on max loss). Use this to assess which structures can realistically deliver this R:R at the stated target, given their premium cost and payoff profile.")
+
+    return base + "\n\n" + step + market_block + shortlist_block + scenario_block + rr_block
 
 
 def build_sizing_prompt(
