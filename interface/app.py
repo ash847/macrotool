@@ -406,47 +406,58 @@ else:
             c3.metric("25d RR", "—")
             c4.metric("25d Fly", "—")
 
-        with st.expander("Scoring detail", expanded=True):
-            rows = get_scoring_detail(ms)
-            table_data = []
-            for r in rows:
-                tz  = r["dimensions"]["target_z_abs"]
-                cr  = r["dimensions"]["carry_regime"]
-                atm = r["dimensions"]["atmfsratio"]
-                table_data.append({
-                    "Structure":       r["display_name"],
-                    "Overlay":         "✓" if r["overlay_only"] else "",
-                    "Eligible":        "✓" if r["eligible"] else "✗ gated",
-                    "target_z bucket": tz["bucket"],
-                    "tz score":        tz["score"] if r["eligible"] else "—",
-                    "carry bucket":    cr["bucket"],
-                    "carry score":     cr["score"] if r["eligible"] else "—",
-                    "atmfs bucket":    atm["bucket"],
-                    "atmfs score":     atm["score"] if r["eligible"] else "—",
-                    "Total":           r["total_score"] if r["total_score"] is not None else "—",
-                })
-            st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+        st.subheader("Structure scores")
+        rows = get_scoring_detail(ms)
+        table_data = []
+        for r in rows:
+            dims = r["dimensions"]
+            eligible = r["eligible"]
+            def _s(dim):
+                return dims[dim]["score"] if eligible else None
+            table_data.append({
+                "Structure":      r["display_name"],
+                "Target Z":       _s("target_z_abs"),
+                "Carry regime":   _s("carry_regime"),
+                "ATM/FS ratio":   _s("atmfsratio"),
+                "Carry align":    _s("carry_alignment"),
+                "Total":          r["total_score"] if eligible else None,
+                "Overlay":        r["overlay_only"],
+                "Eligible":       eligible,
+            })
 
-        st.subheader("Recommendation")
-        primaries = [s for s in flow.selector_result.shortlist if not s.is_exotic]
-        overlays  = [s for s in flow.selector_result.shortlist if s.is_exotic]
+        score_df = pd.DataFrame(table_data)
+        score_df = score_df.sort_values(
+            ["Eligible", "Total"], ascending=[False, False]
+        ).reset_index(drop=True)
+        score_df.index = score_df.index + 1  # rank from 1
 
-        for item in primaries:
-            with st.container(border=True):
-                st.markdown(f"**#{item.rank} {item.display_name}**")
-                if item.optimised_for:
-                    st.caption(item.optimised_for)
-                if item.caution:
-                    st.warning(item.caution, icon="⚠️")
+        def _color(val):
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return "color: #aaa"
+            try:
+                v = float(val)
+            except (TypeError, ValueError):
+                return ""
+            if v > 0:
+                return f"color: #1a7a1a; font-weight: bold"
+            if v < 0:
+                return "color: #b00000; font-weight: bold"
+            return "color: #888"
 
-        if overlays:
-            with st.expander("Overlay structures"):
-                for item in overlays:
-                    st.markdown(f"**{item.display_name}**")
-                    if item.optimised_for:
-                        st.caption(item.optimised_for)
-                    if item.caution:
-                        st.caption(f"⚠️ {item.caution}")
+        display_df = score_df.drop(columns=["Overlay", "Eligible"]).copy()
+        display_df["Status"] = score_df.apply(
+            lambda r: ("overlay" if r["Overlay"] else "") if r["Eligible"] else "gated", axis=1
+        )
+        display_df = display_df[["Structure", "Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total", "Status"]]
+        display_df[["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]] = (
+            display_df[["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]].astype(object)
+        )
+        display_df.fillna("—", inplace=True)
+
+        styled = display_df.style.applymap(
+            _color, subset=["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]
+        )
+        st.dataframe(styled, use_container_width=True)
 
     # Clarification message
     if "clarification" in st.session_state and st.session_state.clarification:
