@@ -1,0 +1,46 @@
+{
+  "pair": "USDJPY",
+  "base_currency": "USD",
+  "term_currency": "JPY",
+  "instrument_type": "Deliverable",
+  "quotation": "JPY per USD",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["USD", "JPY"]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "Tokyo 15:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, USD. 25DC = 25-delta USD call (JPY put); 25DP = 25-delta USD put (JPY call). Negative 25d RR (25DP > 25DC) reflects persistent JPY-call demand — fear of sharp JPY appreciation as carry trades unwind is the dominant skew driver.",
+    "liquid_tenors": ["1W", "1M", "2M", "3M", "6M", "1Y"],
+    "liquid_strikes": "10D through 10D; one of the most liquid FX vol markets globally",
+    "illiquidity_note": "Extremely liquid in all tenors; 2Y+ is wide market"
+  },
+  "carry": {
+    "direction": "negative_for_long_USD",
+    "notes": [
+      "USD rates well above JPY rates (BOJ normalising slowly from near-zero)",
+      "Negative carry for long USD but historically large — USDJPY is the classic carry trade",
+      "Forward points are negative (USD at discount); carry cost reduces short-JPY returns"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "medium",
+    "skew_character": "downside",
+    "skew_driver": "carry unwind risk; BOJ policy normalisation surprise; global risk-off triggers sharp JPY rallies",
+    "typical_participants": ["global macro funds", "Japanese real-money (hedging USD assets)", "retail carry traders", "systematic CTA"],
+    "liquidity_profile": "second most liquid FX pair; 24h liquidity; extremely tight bid-ask"
+  },
+  "risk_notes": [
+    "BOJ policy: rate hike surprises trigger large USDJPY moves; BOJ normalisation is the key structural driver",
+    "Carry unwind: USDJPY carry unwind episodes are violent and fast — 5-10% moves in days are historical precedent",
+    "MOF intervention: Japanese Ministry of Finance intervenes to cap JPY weakness; creates gap risk on topside",
+    "Risk-off correlation: JPY is a safe-haven; USDJPY falls sharply in global risk-off events",
+    "Option cut: Tokyo cut (15:00 JST) is standard; large barriers are often concentrated at round levels",
+    "Real-money hedging: Japanese institutional investors hold large USD assets and hedge via FX forwards, creating structural USD-selling at month-end"
+  ]
+}

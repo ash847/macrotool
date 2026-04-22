@@ -70,7 +70,7 @@ class TestMarketSnapshot:
     def test_missing_pair_raises(self):
         snap = load_snapshot()
         with pytest.raises(KeyError):
-            snap.get("USDMXN")
+            snap.get("USDXXX")
 
 
 # ---------------------------------------------------------------------------

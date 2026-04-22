@@ -1,0 +1,43 @@
+{
+  "pair": "EURUSD",
+  "base_currency": "EUR",
+  "term_currency": "USD",
+  "instrument_type": "Deliverable",
+  "quotation": "USD per EUR",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["EUR", "USD"]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "New York 10:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, EUR. 25DC = 25-delta EUR call (USD put); 25DP = 25-delta EUR put (USD call). Slight positive 25d RR (25DC slightly above 25DP) reflects modest USD-put/EUR-call demand from European exporters hedging USD receivables.",
+    "liquid_tenors": ["1W", "1M", "2M", "3M", "6M", "1Y"],
+    "liquid_strikes": "10D through 10D; deepest liquidity in G10 FX",
+    "illiquidity_note": "Most liquid currency pair in the world; 2Y+ vol is wide market"
+  },
+  "carry": {
+    "direction": "positive_for_long_EUR",
+    "notes": [
+      "USD rates above EUR rates; long EUR earns negative carry (pays USD, receives EUR)",
+      "Rate differential is driven by Fed vs ECB divergence — shifts significantly with macro data"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "low_to_medium",
+    "skew_character": "near_symmetric",
+    "skew_driver": "mild USD-put demand from EUR-based exporters; tail risk from geopolitical events",
+    "typical_participants": ["global macro funds", "European exporters/importers", "central banks", "systematic FX"],
+    "liquidity_profile": "deepest FX market globally; 24h liquidity; minimal bid-ask even in size"
+  },
+  "risk_notes": [
+    "ECB/Fed divergence: the primary vol driver; sharp repricing on CPI or labour data",
+    "Geopolitical risk: European energy shocks, Ukraine conflict escalation spike EUR vol",
+    "Safe-haven dynamics: USD strengthens in risk-off; EUR often weakens in stress",
+    "Options market: extremely liquid; tight spreads; 1W and 1M are the most actively traded tenors"
+  ]
+}

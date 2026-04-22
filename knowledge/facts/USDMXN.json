@@ -1,0 +1,46 @@
+{
+  "pair": "USDMXN",
+  "base_currency": "USD",
+  "term_currency": "MXN",
+  "instrument_type": "Deliverable",
+  "quotation": "MXN per USD",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["USD", "MXN"]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "New York 10:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, USD. 25DC = 25-delta USD call (MXN put); 25DP = 25-delta USD put (MXN call). Strong positive 25d RR (25DC >> 25DP) reflects persistent MXN crash risk premium — USD calls are significantly more expensive.",
+    "liquid_tenors": ["1W", "1M", "2M", "3M", "6M", "1Y"],
+    "liquid_strikes": "ATM through 25D; 10D strikes are liquid in 1M-3M",
+    "illiquidity_note": "Vol thins beyond 1Y; 10D strikes are wide market beyond 3M"
+  },
+  "carry": {
+    "direction": "negative_for_long_USD",
+    "notes": [
+      "MXN rates (Banxico) are well above USD rates; long USD pays significant carry",
+      "Historically one of the highest-carry EM pairs; carry can exceed 5% annually",
+      "Negative carry for long USD but positive for short USD — popular carry trade destination"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "high",
+    "skew_character": "strong_topside",
+    "skew_driver": "political risk premium, nearshoring uncertainty, US tariff risk, oil price sensitivity",
+    "typical_participants": ["EM macro funds", "carry traders", "Mexican corporates", "US multinationals with Mexico exposure"],
+    "liquidity_profile": "good in core tenors given high carry trader interest; spreads widen in stress"
+  },
+  "risk_notes": [
+    "US trade policy: USDMXN is extremely sensitive to US tariff announcements; gap risk is high",
+    "Banxico independence: political interference risk with Banxico rate decisions",
+    "Oil sensitivity: Mexico is an oil exporter; lower oil prices weaken MXN",
+    "Nearshoring flows: significant corporate FX demand from manufacturing relocation to Mexico",
+    "Carry unwind: in risk-off episodes, USDMXN can gap 3-5% in a session as carry positions unwind",
+    "Deliverable: physical settlement; requires custody and settlement infrastructure"
+  ]
+}

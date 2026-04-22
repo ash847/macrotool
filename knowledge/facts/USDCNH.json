@@ -1,0 +1,45 @@
+{
+  "pair": "USDCNH",
+  "base_currency": "USD",
+  "term_currency": "CNH",
+  "instrument_type": "Deliverable",
+  "quotation": "CNH per USD",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["USD", "CNH"]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "New York 10:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, USD. 25DC = 25-delta USD call (CNH put); 25DP = 25-delta USD put (CNH call). Slight positive 25d RR (25DC above 25DP) reflects persistent CNH depreciation risk premium relative to managed band.",
+    "liquid_tenors": ["1W", "1M", "2M", "3M", "6M", "1Y"],
+    "liquid_strikes": "ATM through 25D most liquid; 10D strikes are indicative",
+    "illiquidity_note": "Vol market is less liquid than G10; spreads widen significantly beyond 1Y"
+  },
+  "carry": {
+    "direction": "negative_for_long_USD",
+    "notes": [
+      "CNH rates are below USD rates (PBOC manages rates lower to support growth)",
+      "Negative carry for long USD reflects USD rate advantage vs CNH HIBOR",
+      "Forward points are negative (USD at discount); carry cost is real but modest"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "low",
+    "skew_character": "mild_topside",
+    "skew_driver": "PBOC band management suppresses vol; topside USD skew reflects depreciation risk on PBOC fixings",
+    "typical_participants": ["EM macro funds", "Chinese corporates hedging USD liabilities", "commodity traders", "EM bond investors"],
+    "liquidity_profile": "reasonable in core tenors; offshore market (CNH vs CNY); spreads wider than G10"
+  },
+  "risk_notes": [
+    "PBOC fixing: daily USD/CNY central parity fixing is the dominant risk; CNH tracks closely but can gap",
+    "Capital controls: CNH is offshore renminbi — convertible, but PBOC can tighten access suddenly",
+    "Trade war risk: USD/CNH is a direct expression of US-China trade tensions; gap risk on tariff announcements",
+    "Vol suppression: PBOC actively intervenes to cap vol; realised vol often far below implied",
+    "CNH vs CNY basis: spread between offshore (CNH) and onshore (CNY) can widen sharply in stress"
+  ]
+}

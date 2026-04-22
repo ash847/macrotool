@@ -51,7 +51,7 @@
       "target_z_abs": {
         "no_target": 2.0,
         "near": 0.0,
-        "moderate": 0.5,
+        "moderate": 1.0,
         "extended": 2.0,
         "far": 3.0
       },
@@ -85,7 +85,7 @@
         "near": 2.0,
         "moderate": 2.0,
         "extended": 1.0,
-        "far": 0.0
+        "far": 2.0
       },
       "carry_regime": {
         "0": 0.0,
@@ -112,9 +112,9 @@
       "gates": {},
       "target_z_abs": {
         "no_target": 2.0,
-        "near": 2.0,
-        "moderate": 1.0,
-        "extended": 1.0,
+        "near": 0.0,
+        "moderate": 0.0,
+        "extended": 0.0,
         "far": 1.0
       },
       "carry_regime": {
@@ -144,9 +144,9 @@
       },
       "target_z_abs": {
         "no_target": 0.0,
-        "near": 0.0,
-        "moderate": 3.0,
-        "extended": 2.0,
+        "near": 2.0,
+        "moderate": 1.0,
+        "extended": 0.0,
         "far": 0.0
       },
       "carry_regime": {
@@ -178,7 +178,7 @@
         "no_target": 0.0,
         "near": 0.0,
         "moderate": 2.0,
-        "extended": 3.0,
+        "extended": 0.0,
         "far": 0.0
       },
       "carry_regime": {
@@ -208,7 +208,7 @@
         "no_target": 0.0,
         "near": 1.0,
         "moderate": 3.0,
-        "extended": 2.0,
+        "extended": 0.0,
         "far": 0.0
       },
       "carry_regime": {
@@ -236,9 +236,9 @@
       "gates": {},
       "target_z_abs": {
         "no_target": 0.0,
-        "near": 3.0,
-        "moderate": 2.0,
-        "extended": 1.0,
+        "near": 0.0,
+        "moderate": 1.0,
+        "extended": 2.0,
         "far": 0.0
       },
       "carry_regime": {
@@ -267,8 +267,8 @@
       "target_z_abs": {
         "no_target": 0.0,
         "near": 2.0,
-        "moderate": 3.0,
-        "extended": 1.0,
+        "moderate": 1.0,
+        "extended": 0.0,
         "far": 0.0
       },
       "carry_regime": {

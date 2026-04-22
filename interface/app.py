@@ -191,9 +191,13 @@ with st.sidebar:
         st.rerun()
 
     with st.expander("Pair reference"):
-        st.caption("**USDBRL** — NDF, topside (call) skew, elevated vol")
-        st.caption("**USDTRY** — NDF, strong topside skew, normal vol")
-        st.caption("**EURPLN** — Deliverable, symmetric skew, normal vol")
+        st.caption("**USDBRL** — topside (call) skew, elevated vol, high carry")
+        st.caption("**USDTRY** — strong topside skew, very high carry")
+        st.caption("**EURPLN** — symmetric skew, normal vol, moderate carry")
+        st.caption("**EURUSD** — near-symmetric skew, low vol, negative carry for long EUR")
+        st.caption("**USDCNH** — mild topside skew, low vol, negative carry for long USD")
+        st.caption("**USDMXN** — strong topside skew, high vol, high positive carry for short USD")
+        st.caption("**USDJPY** — downside skew, medium vol, negative carry for long USD")
 
 # ---------------------------------------------------------------------------
 # Helpers
