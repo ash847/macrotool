@@ -144,9 +144,9 @@ class TestPutCall:
 # ---------------------------------------------------------------------------
 
 class TestAtmfsRatio:
-    def test_none_when_regime_0(self):
+    def test_present_when_regime_0(self):
         ms = _make(_FWD_REGIME_0)
-        assert ms.atmfsratio is None
+        assert ms.atmfsratio is not None
 
     def test_present_when_regime_1(self):
         ms = _make(_FWD_REGIME_1)

@@ -300,6 +300,7 @@ class ConversationFlow:
     def _run_engines(self) -> None:
         """Compute MarketState, run structure scorer, sizing, distributions, and (if critique) critique engine."""
         from pricing.forwards import rate_context_for_snapshot
+        from knowledge_engine.loader import load_affinity_scores
         T = self.view.horizon_years
         rate_ctx = rate_context_for_snapshot(self.ccy, T)
         atm_vol = interpolate_atm_vol(self.ccy, self.view.horizon_days)
@@ -307,6 +308,7 @@ class ConversationFlow:
         if self.view.magnitude_pct is not None:
             sign = 1 if self.view.direction == "base_higher" else -1
             target = self.ccy.spot * (1 + sign * self.view.magnitude_pct / 100)
+        carry_regime_cuts = load_affinity_scores()["thresholds"]["carry_regime"]
         self.market_state = compute_market_state(
             spot=rate_ctx.spot,
             fwd=rate_ctx.forward,
@@ -316,6 +318,7 @@ class ConversationFlow:
             r_f=rate_ctx.r_f,
             target=target,
             direction=self.view.direction,
+            carry_regime_cuts=carry_regime_cuts,
         )
         self.selector_result = score_structures(self.market_state)
         top_structure = self.selector_result.shortlist[0] if self.selector_result.shortlist else None

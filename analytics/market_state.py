@@ -46,6 +46,7 @@ def compute_market_state(
     r_f: float,
     target: float | None = None,
     direction: str | None = None,
+    carry_regime_cuts: list[float] | None = None,
 ) -> MarketState:
     """
     Compute all derived market state metrics from raw inputs.
@@ -67,10 +68,11 @@ def compute_market_state(
 
     c = math.log(fwd / spot) / vol_sqrt_T
 
+    cuts = carry_regime_cuts if carry_regime_cuts is not None else [0.4, 0.8]
     abs_c = abs(c)
-    if abs_c < 0.4:
+    if abs_c < cuts[0]:
         carry_regime = 0
-    elif abs_c < 0.8:
+    elif abs_c < cuts[1]:
         carry_regime = 1
     else:
         carry_regime = 2
@@ -80,13 +82,11 @@ def compute_market_state(
     with_carry = (c > 0) == (direction == "base_higher") if direction else (c > 0)
 
     atmfsratio = None
-    if carry_regime >= 1:
-        carry_pips = abs(fwd - spot)
+    carry_pips = abs(fwd - spot)
+    if carry_pips > 0:
         if fwd >= spot:
-            # Call spread: buy call at spot, sell call at fwd
             result = bs_call_spread(spot, spot, fwd, T, vol, vol, r_d, r_f)
         else:
-            # Put spread: buy put at spot (high strike), sell put at fwd (low strike)
             result = bs_put_spread(spot, fwd, spot, T, vol, vol, r_d, r_f)
         if result.net_premium > 0:
             atmfsratio = carry_pips / result.net_premium

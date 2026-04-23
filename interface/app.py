@@ -119,7 +119,7 @@ with st.sidebar:
     st.divider()
 
     # Navigation
-    for label in ("Trade View", "Market Data"):
+    for label in ("Trade View", "Market Data", "Decision Parameters"):
         active = st.session_state.page == label
         if st.button(
             label,
@@ -341,6 +341,10 @@ def _render_market_data() -> None:
 
 if st.session_state.page == "Market Data":
     _render_market_data()
+
+elif st.session_state.page == "Decision Parameters":
+    from interface.decision_parameters import render as _render_decision_params
+    _render_decision_params()
 
 else:
     # ---- Trade View page ----

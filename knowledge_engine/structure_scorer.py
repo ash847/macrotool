@@ -165,21 +165,14 @@ def _compute_buckets(ms: MarketState, thresholds: dict) -> dict[str, str]:
             tz_bucket = "far"
 
     atm_cuts = thresholds["atmfsratio"]
-    if ms.atmfsratio is None:
-        atm_bucket = "no_carry"
-    elif ms.atmfsratio < atm_cuts[0]:
+    if ms.atmfsratio is None or ms.atmfsratio < atm_cuts[0]:
         atm_bucket = "low"
     elif ms.atmfsratio < atm_cuts[1]:
         atm_bucket = "medium"
     else:
         atm_bucket = "high"
 
-    if ms.carry_regime == 0:
-        carry_alignment = "no_carry"
-    elif ms.with_carry:
-        carry_alignment = f"with_{atm_bucket}"
-    else:
-        carry_alignment = f"counter_{atm_bucket}"
+    carry_alignment = f"with_{atm_bucket}" if ms.with_carry else f"counter_{atm_bucket}"
 
     return {
         "target_z_abs": tz_bucket,

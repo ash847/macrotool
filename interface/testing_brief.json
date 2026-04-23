@@ -6,6 +6,7 @@
   "focus": "Does the structure scorer rank structures in the right order for your view? We want to understand whether the scoring dimensions (target distance, carry regime, carry alignment) are producing sensible recommendations, and where expert intuition disagrees with the ranked output.",
 
   "try_these": [
+    "Currently has USDBRL EURPLN USDTRY EURUSD USDMXN USDCNH. See Market data on left tab for details"
     "Long USDBRL targeting 5.90, 3 months, high conviction",
     "Short EURPLN targeting 4.35, 6 months, high conviction",
   ],

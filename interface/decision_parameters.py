@@ -31,8 +31,8 @@ _DIM_LABELS = {
 _BUCKET_ORDER = {
     "target_z_abs":    ["no_target", "near", "moderate", "extended", "far"],
     "carry_regime":    ["0", "1", "2"],
-    "atmfsratio":      ["no_carry", "low", "medium", "high"],
-    "carry_alignment": ["no_carry", "with_low", "with_medium", "with_high",
+    "atmfsratio":      ["low", "medium", "high"],
+    "carry_alignment": ["with_low", "with_medium", "with_high",
                         "counter_low", "counter_medium", "counter_high"],
 }
 
@@ -114,8 +114,9 @@ def _render_thresholds(scores_cfg: dict) -> None:
     st.subheader("Bucket thresholds")
     st.caption("Cut-points that define which bucket a market state falls into.")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     tz = scores_cfg["thresholds"]["target_z_abs"]
+    cr = scores_cfg["thresholds"]["carry_regime"]
     atm = scores_cfg["thresholds"]["atmfsratio"]
 
     with col1:
@@ -126,6 +127,12 @@ def _render_thresholds(scores_cfg: dict) -> None:
         scores_cfg["thresholds"]["target_z_abs"] = [tz0, tz1, tz2]
 
     with col2:
+        st.markdown("**Carry regime buckets** (|c| = normalised carry)")
+        cr0 = st.number_input("noisy / potential boundary", value=float(cr[0]), step=0.05, format="%.2f", key="cr0")
+        cr1 = st.number_input("potential / high boundary", value=float(cr[1]), step=0.05, format="%.2f", key="cr1")
+        scores_cfg["thresholds"]["carry_regime"] = [cr0, cr1]
+
+    with col3:
         st.markdown("**ATM/F-S ratio buckets**")
         atm0 = st.number_input("low / medium boundary", value=float(atm[0]), step=0.1, format="%.2f", key="atm0")
         atm1 = st.number_input("medium / high boundary", value=float(atm[1]), step=0.1, format="%.2f", key="atm1")
@@ -162,70 +169,77 @@ def _render_dim(scores_cfg: dict, dim: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Main render (called from app.py)
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Decision Parameters Editor", layout="wide")
-st.title("Decision Parameters Editor")
-st.caption(f"Source: `{_SCORES_PATH.relative_to(_SCORES_PATH.parent.parent.parent)}`")
+def render() -> None:
+    st.title("Decision Parameters Editor")
+    st.caption(f"Source: `{_SCORES_PATH.name}` — edits persist locally only; commit and push to deploy.")
 
-if "scores_cfg" not in st.session_state:
-    st.session_state.scores_cfg = _load()
+    if "scores_cfg" not in st.session_state:
+        st.session_state.scores_cfg = _load()
 
-working = copy.deepcopy(st.session_state.scores_cfg)
+    working = copy.deepcopy(st.session_state.scores_cfg)
 
-tab_tz, tab_cr, tab_atm, tab_ca, tab_gates, tab_thresh = st.tabs([
-    "Target Z",
-    "Carry Regime",
-    "ATM/F-S Ratio",
-    "Carry Alignment",
-    "Gates",
-    "Thresholds",
-])
+    tab_tz, tab_cr, tab_atm, tab_ca, tab_gates, tab_thresh = st.tabs([
+        "Target Z",
+        "Carry Regime",
+        "ATM/F-S Ratio",
+        "Carry Alignment",
+        "Gates",
+        "Thresholds",
+    ])
 
-with tab_tz:
-    _render_dim(working, "target_z_abs")
+    with tab_tz:
+        _render_dim(working, "target_z_abs")
 
-with tab_cr:
-    _render_dim(working, "carry_regime")
+    with tab_cr:
+        _render_dim(working, "carry_regime")
 
-with tab_atm:
-    _render_dim(working, "atmfsratio")
+    with tab_atm:
+        _render_dim(working, "atmfsratio")
 
-with tab_ca:
-    _render_dim(working, "carry_alignment")
+    with tab_ca:
+        _render_dim(working, "carry_alignment")
 
-with tab_gates:
-    gates_df = _render_gates(working)
-    # Write gate edits back
-    for struct in gates_df.index:
-        gates = {}
-        for k in ["target_z_abs_min", "target_z_abs_max"]:
-            v = gates_df.loc[struct, k]
-            if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                gates[k] = float(v)
-        working["structures"][struct]["gates"] = gates
+    with tab_gates:
+        gates_df = _render_gates(working)
+        for struct in gates_df.index:
+            gates = {}
+            for k in ["target_z_abs_min", "target_z_abs_max"]:
+                v = gates_df.loc[struct, k]
+                if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                    gates[k] = float(v)
+            working["structures"][struct]["gates"] = gates
 
-with tab_thresh:
-    _render_thresholds(working)
+    with tab_thresh:
+        _render_thresholds(working)
+
+    st.divider()
+    col_l, col_r = st.columns([3, 1])
+
+    original = _load()
+    out = {k: v for k, v in original.items() if k.startswith("_")}
+    out.update({k: v for k, v in working.items() if not k.startswith("_")})
+
+    with col_r:
+        if st.button("Save to file", type="primary", use_container_width=True):
+            st.session_state.scores_cfg = copy.deepcopy(working)
+            with open(_SCORES_PATH, "w") as f:
+                json.dump(out, f, indent=2)
+                f.write("\n")
+            from knowledge_engine.loader import load_affinity_scores
+            load_affinity_scores.cache_clear()
+            st.success(f"Saved to {_SCORES_PATH.name}")
+
+    with col_l:
+        st.code(json.dumps(out, indent=2), language="json")
+
 
 # ---------------------------------------------------------------------------
-# Export
+# Standalone entry point
 # ---------------------------------------------------------------------------
-st.divider()
-col_l, col_r = st.columns([3, 1])
 
-original = _load()
-out = {k: v for k, v in original.items() if k.startswith("_")}
-out.update({k: v for k, v in working.items() if not k.startswith("_")})
-
-with col_r:
-    if st.button("Save to file", type="primary", use_container_width=True):
-        st.session_state.scores_cfg = copy.deepcopy(working)
-        with open(_SCORES_PATH, "w") as f:
-            json.dump(out, f, indent=2)
-            f.write("\n")
-        st.success(f"Saved to {_SCORES_PATH.name}")
-
-with col_l:
-    st.code(json.dumps(out, indent=2), language="json")
+if __name__ == "__main__" or not hasattr(st, "_is_running_with_streamlit"):
+    st.set_page_config(page_title="Decision Parameters Editor", layout="wide")
+    render()

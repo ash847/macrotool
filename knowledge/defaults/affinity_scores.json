@@ -8,10 +8,10 @@
   "_bucket_labels": {
     "target_z_abs": [
       "no_target",
-      "near (<0.5\u03c3)",
-      "moderate (0.5\u20131.5\u03c3)",
-      "extended (1.5\u20132.5\u03c3)",
-      "far (>2.5\u03c3)"
+      "near",
+      "moderate",
+      "extended",
+      "far"
     ],
     "carry_regime": [
       "0 (noisy)",
@@ -19,13 +19,11 @@
       "2 (high carry)"
     ],
     "atmfsratio": [
-      "no_carry",
-      "low (<1.5)",
-      "medium (1.5\u20132)",
-      "high (>2)"
+      "low",
+      "medium",
+      "high"
     ],
     "carry_alignment": [
-      "no_carry (carry_regime=0)",
       "with_low",
       "with_medium",
       "with_high",
@@ -37,8 +35,12 @@
   "thresholds": {
     "target_z_abs": [
       0.5,
-      1.5,
-      2.5
+      1.25,
+      1.75
+    ],
+    "carry_regime": [
+      0.25,
+      0.65
     ],
     "atmfsratio": [
       1.5,
@@ -51,7 +53,7 @@
       "target_z_abs": {
         "no_target": 2.0,
         "near": 0.0,
-        "moderate": 1.0,
+        "moderate": 1.5,
         "extended": 2.0,
         "far": 3.0
       },
@@ -61,13 +63,11 @@
         "2": 0.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 0.0,
         "medium": 0.0,
         "high": 0.0
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": 0.0,
         "with_medium": 0.0,
         "with_high": 0.0,
@@ -93,13 +93,11 @@
         "2": 2.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 0.7,
         "medium": 1.2,
         "high": 2.5
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": 0.0,
         "with_medium": 1.0,
         "with_high": 2.0,
@@ -111,7 +109,7 @@
     "risk_reversal": {
       "gates": {},
       "target_z_abs": {
-        "no_target": 2.0,
+        "no_target": 0.0,
         "near": 0.0,
         "moderate": 0.0,
         "extended": 0.0,
@@ -123,13 +121,11 @@
         "2": 0.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 0.0,
         "medium": -0.5,
         "high": -1.5
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": 0.0,
         "with_medium": -1.0,
         "with_high": -2.0,
@@ -155,13 +151,11 @@
         "2": 1.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 0.5,
         "medium": 0.5,
         "high": 0.5
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": 1.5,
         "with_medium": 0.7,
         "with_high": 0.0,
@@ -176,8 +170,8 @@
       },
       "target_z_abs": {
         "no_target": 0.0,
-        "near": 0.0,
-        "moderate": 2.0,
+        "near": 2.0,
+        "moderate": 0.5,
         "extended": 0.0,
         "far": 0.0
       },
@@ -187,13 +181,11 @@
         "2": 2.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 0.5,
         "medium": 1.0,
         "high": 3.0
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": 0.0,
         "with_medium": 1.0,
         "with_high": 2.0,
@@ -206,8 +198,8 @@
       "gates": {},
       "target_z_abs": {
         "no_target": 0.0,
-        "near": 1.0,
-        "moderate": 3.0,
+        "near": 1.5,
+        "moderate": 0.7,
         "extended": 0.0,
         "far": 0.0
       },
@@ -217,13 +209,11 @@
         "2": 1.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 1.0,
         "medium": 1.0,
         "high": 2.5
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": 0.0,
         "with_medium": 1.0,
         "with_high": 2.0,
@@ -247,13 +237,11 @@
         "2": 1.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 0.0,
         "medium": 1.0,
         "high": 2.0
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": 0.0,
         "with_medium": 0.0,
         "with_high": 0.0,
@@ -277,13 +265,11 @@
         "2": 0.0
       },
       "atmfsratio": {
-        "no_carry": 0.0,
         "low": 0.0,
         "medium": 0.0,
         "high": 0.0
       },
       "carry_alignment": {
-        "no_carry": 0.0,
         "with_low": -1.0,
         "with_medium": -1.0,
         "with_high": -1.0,
