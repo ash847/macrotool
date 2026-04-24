@@ -88,8 +88,15 @@ def fetch_config(key: str) -> dict | None:
     if _client is None:
         return None
     try:
-        result = _client.table("config").select("value").eq("key", key).single().execute()
-        data = result.data.get("value") if result.data else None
+        result = (
+            _client.table("config_history")
+            .select("value")
+            .eq("key", key)
+            .order("saved_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        data = result.data[0].get("value") if result.data else None
         return data if data else None
     except Exception:
         return None
@@ -99,10 +106,9 @@ def save_config(key: str, value: dict) -> bool:
     if _client is None:
         return False
     try:
-        _client.table("config").upsert({
+        _client.table("config_history").insert({
             "key": key,
             "value": value,
-            "updated_at": "now()",
         }).execute()
         return True
     except Exception:
