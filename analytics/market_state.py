@@ -79,7 +79,7 @@ def compute_market_state(
 
     target_z = math.log(target / fwd) / vol_sqrt_T if target is not None else None
     put_call = ("Call" if target > fwd else "Put") if target is not None else None
-    with_carry = (c > 0) == (direction == "base_higher") if direction else (c > 0)
+    with_carry = (c > 0) == (direction == "base_lower") if direction else (c > 0)
 
     atmfsratio = None
     carry_pips = abs(fwd - spot)

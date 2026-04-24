@@ -175,8 +175,17 @@ class ConversationFlow:
         except Exception:
             pass
 
+        # Emit view confirmation as first visible line
+        direction_label = "Long" if view.direction == "base_higher" else "Short"
+        conf = f"**View:** {direction_label} {view.pair} · {view.horizon_days}d"
+        if view.magnitude_pct is not None:
+            sign = 1 if view.direction == "base_higher" else -1
+            target_lvl = self.ccy.spot * (1 + sign * view.magnitude_pct / 100)
+            conf += f" · target {target_lvl:.4f}"
+        yield "\n\n" + conf + "\n\n"
+
         # Second call: validation — messages still ends with user turn (correct)
-        yield "\n\n"
+
         validation_system = context_builder.build_validation_prompt(
             view, self.ccy, self.selector_result,
             self.flat_distribution, self.smile_distribution, self.maturity_histogram,

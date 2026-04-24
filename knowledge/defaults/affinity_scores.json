@@ -59,8 +59,8 @@
       },
       "carry_regime": {
         "0": 0.0,
-        "1": 0.0,
-        "2": 0.0
+        "1": 1.0,
+        "2": 2.0
       },
       "atmfsratio": {
         "low": 0.0,
@@ -68,12 +68,12 @@
         "high": 0.0
       },
       "carry_alignment": {
-        "with_low": 0.0,
-        "with_medium": 0.0,
-        "with_high": 0.0,
-        "counter_low": 0.0,
-        "counter_medium": 0.0,
-        "counter_high": 0.0
+        "with_low": 1.0,
+        "with_medium": 1.5,
+        "with_high": 2.0,
+        "counter_low": -1.0,
+        "counter_medium": -1.5,
+        "counter_high": -2.0
       }
     },
     "1x1_spread": {
@@ -107,13 +107,16 @@
       }
     },
     "risk_reversal": {
-      "gates": {},
+      "_dormant": "Gated out pending scoring review. Re-enable by removing target_z_abs_min gate.",
+      "gates": {
+        "target_z_abs_min": 999
+      },
       "target_z_abs": {
         "no_target": 0.0,
         "near": 0.0,
         "moderate": 0.0,
         "extended": 0.0,
-        "far": 1.0
+        "far": 0.0
       },
       "carry_regime": {
         "0": 0.0,
@@ -141,7 +144,7 @@
       "target_z_abs": {
         "no_target": 0.0,
         "near": 2.0,
-        "moderate": 1.0,
+        "moderate": 2.0,
         "extended": 0.0,
         "far": 0.0
       },
@@ -166,7 +169,7 @@
     },
     "1x2_spread": {
       "gates": {
-        "target_z_abs_max": 1.0
+        "target_z_abs_max": 1.5
       },
       "target_z_abs": {
         "no_target": 0.0,
@@ -205,7 +208,7 @@
       },
       "carry_regime": {
         "0": 0.0,
-        "1": 0.0,
+        "1": 0.5,
         "2": 1.0
       },
       "atmfsratio": {
@@ -261,18 +264,18 @@
       },
       "carry_regime": {
         "0": 0.0,
-        "1": 0.0,
-        "2": 0.0
+        "1": 1.0,
+        "2": 1.0
       },
       "atmfsratio": {
-        "low": 0.0,
-        "medium": 0.0,
-        "high": 0.0
+        "low": 0.5,
+        "medium": 1.0,
+        "high": 2.0
       },
       "carry_alignment": {
-        "with_low": -1.0,
-        "with_medium": -1.0,
-        "with_high": -1.0,
+        "with_low": 0.0,
+        "with_medium": 0.5,
+        "with_high": 1.0,
         "counter_low": 1.0,
         "counter_medium": 1.0,
         "counter_high": 0.0
