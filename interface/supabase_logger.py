@@ -84,6 +84,15 @@ def log_feedback(
     _client.table("feedback").insert(row).execute()
 
 
+def fetch_queries() -> list[dict]:
+    if _client is None:
+        return []
+    result = _client.table("queries").select(
+        "created_at, pair, direction, magnitude_pct, horizon_days, target_z, carry_regime, top_structure, prompt"
+    ).order("created_at", desc=True).execute()
+    return result.data or []
+
+
 def reinit() -> None:
     """Call after os.environ is updated (e.g. after st.secrets injection)."""
     _init()

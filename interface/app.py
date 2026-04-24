@@ -119,7 +119,7 @@ with st.sidebar:
     st.divider()
 
     # Navigation
-    for label in ("Trade View", "Market Data", "Decision Parameters"):
+    for label in ("Trade View", "Market Data", "Decision Parameters", "Query log"):
         active = st.session_state.page == label
         if st.button(
             label,
@@ -282,6 +282,33 @@ _TENOR_ORDER = ["1W", "1M", "2M", "3M", "6M", "1Y"]
 _DELTA_ORDER = ["10DP", "25DP", "ATM", "25DC", "10DC"]
 
 
+def _render_query_log() -> None:
+    from interface.supabase_logger import fetch_queries
+    st.subheader("Query log")
+    rows = fetch_queries()
+    if not rows:
+        st.caption("No queries logged yet, or Supabase not connected.")
+        return
+    df = pd.DataFrame(rows)
+    df["created_at"] = pd.to_datetime(df["created_at"]).dt.strftime("%Y-%m-%d %H:%M")
+    df["direction"] = df["direction"].str.replace("_", " ")
+    df["target_z"] = df["target_z"].apply(lambda x: f"{x:+.2f}σ" if x is not None else "—")
+    df["carry_regime"] = df["carry_regime"].map({0: "0 noisy", 1: "1 potential", 2: "2 high"}).fillna("—")
+    df = df.rename(columns={
+        "created_at":    "Time",
+        "pair":          "Pair",
+        "direction":     "Direction",
+        "magnitude_pct": "Mag %",
+        "horizon_days":  "Horizon",
+        "target_z":      "Target z",
+        "carry_regime":  "Carry regime",
+        "top_structure": "Top structure",
+        "prompt":        "Prompt",
+    })
+    df = df[["Time", "Pair", "Direction", "Mag %", "Horizon", "Target z", "Carry regime", "Top structure", "Prompt"]]
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+
 def _render_market_data() -> None:
     snapshot = load_snapshot()
     st.subheader("Market Data")
@@ -341,6 +368,9 @@ def _render_market_data() -> None:
 
 if st.session_state.page == "Market Data":
     _render_market_data()
+
+elif st.session_state.page == "Query log":
+    _render_query_log()
 
 elif st.session_state.page == "Decision Parameters":
     from interface.decision_parameters import render as _render_decision_params
