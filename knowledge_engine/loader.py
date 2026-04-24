@@ -72,11 +72,29 @@ def load_structure_profiles() -> dict:
     return _load(_DEFAULTS_DIR / "structure_profiles.json")
 
 
-@lru_cache(maxsize=None)
+_affinity_cache: dict | None = None
+
+
 def load_affinity_scores() -> dict:
+    global _affinity_cache
+    if _affinity_cache is not None:
+        return _affinity_cache
+    try:
+        from interface.supabase_logger import fetch_config
+        data = fetch_config("affinity_scores")
+        if data:
+            _affinity_cache = data
+            return _affinity_cache
+    except Exception:
+        pass
     with open(_DEFAULTS_DIR / "affinity_scores.json") as f:
-        import json
-        return json.load(f)  # keep _-prefixed keys (thresholds, bucket_labels etc.)
+        _affinity_cache = json.load(f)
+    return _affinity_cache
+
+
+def clear_affinity_scores_cache() -> None:
+    global _affinity_cache
+    _affinity_cache = None
 
 
 # ---------------------------------------------------------------------------

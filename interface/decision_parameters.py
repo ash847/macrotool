@@ -43,6 +43,13 @@ _SCORE_MIN, _SCORE_MAX = -3, 3
 
 
 def _load() -> dict:
+    try:
+        from interface.supabase_logger import fetch_config
+        data = fetch_config("affinity_scores")
+        if data:
+            return data
+    except Exception:
+        pass
     with open(_SCORES_PATH) as f:
         return json.load(f)
 
@@ -174,7 +181,7 @@ def _render_dim(scores_cfg: dict, dim: str) -> None:
 
 def render() -> None:
     st.title("Decision Parameters Editor")
-    st.caption(f"Source: `{_SCORES_PATH.name}` — edits persist locally only; commit and push to deploy.")
+    st.caption("Scores are loaded from Supabase (falls back to local file). Save pushes to Supabase and takes effect on the next query.")
 
     if "scores_cfg" not in st.session_state:
         st.session_state.scores_cfg = _load()
@@ -223,14 +230,23 @@ def render() -> None:
     out.update({k: v for k, v in working.items() if not k.startswith("_")})
 
     with col_r:
-        if st.button("Save to file", type="primary", use_container_width=True):
+        if st.button("Save", type="primary", use_container_width=True):
             st.session_state.scores_cfg = copy.deepcopy(working)
-            with open(_SCORES_PATH, "w") as f:
-                json.dump(out, f, indent=2)
-                f.write("\n")
-            from knowledge_engine.loader import load_affinity_scores
-            load_affinity_scores.cache_clear()
-            st.success(f"Saved to {_SCORES_PATH.name}")
+            from knowledge_engine.loader import clear_affinity_scores_cache
+            from interface.supabase_logger import save_config, init_status
+            sb_ok, _ = init_status()
+            if sb_ok and save_config("affinity_scores", out):
+                clear_affinity_scores_cache()
+                st.success("Saved to Supabase — next query will use updated scores.")
+            else:
+                try:
+                    with open(_SCORES_PATH, "w") as f:
+                        json.dump(out, f, indent=2)
+                        f.write("\n")
+                    clear_affinity_scores_cache()
+                    st.warning("Supabase unavailable — saved to local file only.")
+                except Exception as e:
+                    st.error(f"Save failed: {e}")
 
     with col_l:
         st.code(json.dumps(out, indent=2), language="json")

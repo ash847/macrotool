@@ -84,6 +84,31 @@ def log_feedback(
     _client.table("feedback").insert(row).execute()
 
 
+def fetch_config(key: str) -> dict | None:
+    if _client is None:
+        return None
+    try:
+        result = _client.table("config").select("value").eq("key", key).single().execute()
+        data = result.data.get("value") if result.data else None
+        return data if data else None
+    except Exception:
+        return None
+
+
+def save_config(key: str, value: dict) -> bool:
+    if _client is None:
+        return False
+    try:
+        _client.table("config").upsert({
+            "key": key,
+            "value": value,
+            "updated_at": "now()",
+        }).execute()
+        return True
+    except Exception:
+        return False
+
+
 def fetch_queries() -> list[dict]:
     if _client is None:
         return []
