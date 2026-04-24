@@ -163,7 +163,7 @@ def _render_dim(scores_cfg: dict, dim: str) -> None:
     # Colour preview (read-only styled view below the editor)
     st.caption("Colour preview")
     st.dataframe(
-        edited.style.applymap(_color_score),
+        edited.style.map(_color_score),
         use_container_width=True,
     )
 
