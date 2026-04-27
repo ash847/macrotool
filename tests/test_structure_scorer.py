@@ -91,19 +91,20 @@ class TestRanking:
         primaries = [s for s in result.shortlist if not s.is_exotic]
         assert primaries[0].structure_id == "vanilla"
 
-    def test_spread_wins_extended_target_high_carry(self):
-        # carry regime 2 (c=1.0), target at 2.0σ (extended) → 1x1_spread should top
+    def test_vanilla_wins_far_target_high_carry(self):
+        # carry regime 2 (c=1.0), target at 2.0σ (far) → vanilla tops due to far=3.0
+        # plus carry_regime and carry_alignment scores added in user tuning
         ms = _ms(c=1.0, target_z=2.0)
         result = score_structures(ms)
         primaries = [s for s in result.shortlist if not s.is_exotic]
-        assert primaries[0].structure_id == "1x1_spread"
+        assert primaries[0].structure_id == "vanilla"
 
-    def test_risk_reversal_in_shortlist_no_target_moderate_carry(self):
-        # regime 1, no target → risk_reversal should appear (it has no target gate)
+    def test_risk_reversal_permanently_gated(self):
+        # risk_reversal has target_z_abs_min=999 gate — never eligible
         ms = _ms(c=0.60)
         result = score_structures(ms)
-        ids = [s.structure_id for s in result.shortlist if not s.is_exotic]
-        assert "risk_reversal" in ids
+        ids = [s.structure_id for s in result.shortlist]
+        assert "risk_reversal" not in ids
 
     def test_primary_count_capped_at_three(self):
         ms = _ms(c=0.60, target_z=1.5)
