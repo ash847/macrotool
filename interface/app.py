@@ -536,7 +536,7 @@ else:
         _primary_items = [s for s in flow.selector_result.shortlist if not s.is_exotic][:3]
 
         _any_variants = any(
-            _price_variants(ms, s.structure_id, target=_target, is_call=_is_call)
+            _price_variants(ms, s.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
             for s in _primary_items
         )
         if _any_variants:
@@ -559,7 +559,7 @@ else:
                 "european_digital_rko": f"{_base_ccy} {_long_leg} digital + KO",
             }
             for _i, _item in enumerate(_primary_items):
-                _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call)
+                _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
                 if not _pvs:
                     continue
                 _title = _variant_title.get(_item.structure_id, _item.display_name)
@@ -569,21 +569,12 @@ else:
                     _has_wing    = any(pv.wing_ratio is not None for pv in _pvs)
                     for pv in _pvs:
                         _payoff = pv.payoff_at_target_pct
-                        # Risk at stop: for premium structures = full premium (max loss).
-                        # For zero-cost seagull = loss on short wing if stop price hits that leg.
-                        if _payoff and _payoff > 1e-6:
-                            if pv.is_zero_cost and _stop_price is not None and len(pv.strikes) >= 3:
-                                _K_wing = pv.strikes[2]
-                                _w = pv.wing_ratio or 0.0
-                                _loss_at_stop = (
-                                    max(_K_wing - _stop_price, 0.0) * _w / ms.spot if _is_call
-                                    else max(_stop_price - _K_wing, 0.0) * _w / ms.spot
-                                )
-                                _risk_per_1 = f"${_loss_at_stop / _payoff:.2f}"
-                            elif not pv.is_zero_cost:
-                                _risk_per_1 = f"${pv.net_premium_pct / _payoff:.2f}"
-                            else:
-                                _risk_per_1 = "—"
+                        # Risk/$1: max_loss (per unit notional) / payoff_at_target (per unit notional)
+                        # = cost in risk per $1 of target payoff, after scaling the notional.
+                        if _payoff and _payoff > 1e-6 and pv.max_loss_pct > 0:
+                            _risk_per_1 = f"${pv.max_loss_pct / _payoff:.2f}"
+                        elif _payoff and _payoff > 1e-6:
+                            _risk_per_1 = "$0.00"
                         else:
                             _risk_per_1 = "—"
                         r = {

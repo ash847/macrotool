@@ -50,6 +50,7 @@ def price_variants(
     structure_id: str,
     target: float | None = None,
     is_call: bool = True,
+    stop_price: float | None = None,
 ) -> list[PricedVariant]:
     """Price all defined variants for a structure. Returns [] if no variants defined."""
     cfg = _load_variants()
@@ -66,7 +67,7 @@ def price_variants(
     if structure_id == "1x1_spread":
         return _spread(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     if structure_id == "seagull":
-        return _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+        return _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price)
     if structure_id == "european_digital":
         return _digital(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     if structure_id == "european_digital_rko":
@@ -175,7 +176,7 @@ def _spread(
 # ---------------------------------------------------------------------------
 
 def _seagull(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
@@ -202,14 +203,19 @@ def _seagull(
         spread_cost = prem1 - prem2
         wing_ratio = (spread_cost / prem3) if prem3 > 1e-8 else 0.0
 
-        # Max loss at a tail scenario (not at expiry — ignores time value before expiry).
-        # Short put (bull seagull): max loss when spot → 0. Capped at K3 × wing_ratio.
-        # Short call (bear seagull): unbounded; shown at 3σ tail move as practical reference.
-        if is_call:
-            max_loss = K3 * wing_ratio / spot
+        # Max loss: full seagull P&L at stop_price at expiry (consistent with premium structures).
+        # All three legs evaluated at stop — could be zero if wing is OTM at stop.
+        if stop_price is not None:
+            if is_call:
+                sp_pnl   = min(max(stop_price - K1, 0.0), K2 - K1)
+                wing_pnl = -max(K3 - stop_price, 0.0) * wing_ratio  # short put
+            else:
+                sp_pnl   = min(max(K1 - stop_price, 0.0), K1 - K2)
+                wing_pnl = -max(stop_price - K3, 0.0) * wing_ratio  # short call
+            # abs(min(..., 0)) avoids -0.0 when both legs are OTM at stop
+            max_loss = abs(min(sp_pnl + wing_pnl, 0.0)) / spot
         else:
-            tail_spot = F * math.exp(3.0 * vol_sqrtT)
-            max_loss = max(tail_spot - K3, 0.0) * wing_ratio / spot
+            max_loss = 0.0
 
         payoff_pct = None
         if target is not None:
