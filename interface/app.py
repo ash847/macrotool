@@ -518,6 +518,44 @@ else:
         )
         st.dataframe(styled, use_container_width=True)
 
+        # Structure variants
+        from analytics.structure_pricer import price_variants as _price_variants
+        _is_call = flow.view.direction == "base_higher"
+        _target = _target_price(flow)
+        _primary_items = [s for s in flow.selector_result.shortlist if not s.is_exotic][:3]
+
+        _any_variants = any(
+            _price_variants(ms, s.structure_id, target=_target, is_call=_is_call)
+            for s in _primary_items
+        )
+        if _any_variants:
+            st.subheader("Structure variants")
+            st.caption("Indicative pricing — flat ATM vol for all strikes. Premium and payoff as % of spot.")
+            for _i, _item in enumerate(_primary_items):
+                _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call)
+                if not _pvs:
+                    continue
+                with st.expander(f"{_item.display_name}", expanded=(_i == 0)):
+                    _rows = []
+                    _has_barrier = any(pv.barrier is not None for pv in _pvs)
+                    _has_wing    = any(pv.wing_ratio is not None for pv in _pvs)
+                    for pv in _pvs:
+                        r = {
+                            "Variant":    pv.variant_label,
+                            "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
+                            "Premium":    "zero cost" if pv.is_zero_cost else f"{pv.net_premium_pct:.1%}",
+                            "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
+                            "Payoff @ tgt": f"{pv.payoff_at_target_pct:.0%}" if pv.payoff_at_target_pct is not None else "—",
+                            "R:R":        f"{pv.rr_at_target:.1f}×" if pv.rr_at_target else "—",
+                            "Max loss":   f"{pv.max_loss_pct:.1%}",
+                        }
+                        if _has_barrier:
+                            r["Barrier"] = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
+                        if _has_wing:
+                            r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
+                        _rows.append(r)
+                    st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+
     # Feedback form (only after a view is active)
     if flow.view:
         try:

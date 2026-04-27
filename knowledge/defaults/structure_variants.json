@@ -1,0 +1,30 @@
+{
+  "_note": "Parametric variant definitions. Priced at runtime using σ-approximation (ATM vol for all legs).",
+
+  "vanilla": [
+    {"label": "ATMF (50Δ)", "delta": 0.50},
+    {"label": "25Δ OTM",    "delta": 0.25},
+    {"label": "15Δ OTM",    "delta": 0.15}
+  ],
+
+  "1x1_spread": [
+    {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25},
+    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10},
+    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15}
+  ],
+
+  "seagull": [
+    {"label": "ATMF/25Δ + 25Δ wing", "spread_long": 0.50, "spread_short": 0.25, "wing_delta": 0.25},
+    {"label": "25Δ/10Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.10, "wing_delta": 0.25},
+    {"label": "25Δ/15Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.15, "wing_delta": 0.25}
+  ],
+
+  "european_digital": [
+    {"label": "~15% prem", "target_prem_pct": 0.15}
+  ],
+
+  "european_digital_rko": [
+    {"label": "~25% prem + KO", "target_prem_pct": 0.25, "barrier_sigmas": 2.0},
+    {"label": "~10% prem + KO", "target_prem_pct": 0.10, "barrier_sigmas": 2.0}
+  ]
+}
