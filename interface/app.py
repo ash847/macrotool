@@ -428,6 +428,8 @@ else:
 
         ms = flow.market_state
         h = flow.view.horizon_days
+        _is_call = flow.view.direction == "base_higher"
+        _target = _target_price(flow)
         st.subheader("Market state")
 
         c1, c2, c3, c4 = st.columns(4)
@@ -464,6 +466,17 @@ else:
         except Exception:
             c3.metric("25d RR", "—")
             c4.metric("25d Fly", "—")
+
+        _move_pct = _stop_pct = _stop_price = None
+        if _target is not None:
+            _move_pct = abs(_target - ms.fwd) / ms.fwd
+            _stop_pct = _move_pct / flow.target_rr
+            _stop_price = ms.fwd * (1 - _stop_pct) if _is_call else ms.fwd * (1 + _stop_pct)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
+            c2.metric(f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}", help="move_to_target / R:R — acceptable reversal from fwd before stopping out")
+            c3.metric("Stop price", f"{_stop_price:.4f}", help="fwd level implying the stop loss")
+            c4.metric("", "")
 
         st.subheader("Structure scores")
         rows = get_scoring_detail(ms)
@@ -520,8 +533,6 @@ else:
 
         # Structure variants
         from analytics.structure_pricer import price_variants as _price_variants
-        _is_call = flow.view.direction == "base_higher"
-        _target = _target_price(flow)
         _primary_items = [s for s in flow.selector_result.shortlist if not s.is_exotic][:3]
 
         _any_variants = any(
@@ -530,7 +541,11 @@ else:
         )
         if _any_variants:
             st.subheader("Structure variants")
-            st.caption("Indicative pricing — flat ATM vol for all strikes. Premium and payoff as % of spot.")
+            st.caption(
+                "Indicative pricing — flat ATM vol for all strikes. "
+                "Premium and payoff as % of spot. "
+                "**Risk/$1**: premium (or stop-loss for zero-cost) required to generate $1 of payoff at target."
+            )
             for _i, _item in enumerate(_primary_items):
                 _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call)
                 if not _pvs:
@@ -540,14 +555,33 @@ else:
                     _has_barrier = any(pv.barrier is not None for pv in _pvs)
                     _has_wing    = any(pv.wing_ratio is not None for pv in _pvs)
                     for pv in _pvs:
+                        _payoff = pv.payoff_at_target_pct
+                        # Risk at stop: for premium structures = full premium (max loss).
+                        # For zero-cost seagull = loss on short wing if stop price hits that leg.
+                        if _payoff and _payoff > 1e-6:
+                            if pv.is_zero_cost and _stop_price is not None and len(pv.strikes) >= 3:
+                                _K_wing = pv.strikes[2]
+                                _w = pv.wing_ratio or 0.0
+                                _loss_at_stop = (
+                                    max(_K_wing - _stop_price, 0.0) * _w / ms.spot if _is_call
+                                    else max(_stop_price - _K_wing, 0.0) * _w / ms.spot
+                                )
+                                _risk_per_1 = f"${_loss_at_stop / _payoff:.2f}"
+                            elif not pv.is_zero_cost:
+                                _risk_per_1 = f"${pv.net_premium_pct / _payoff:.2f}"
+                            else:
+                                _risk_per_1 = "—"
+                        else:
+                            _risk_per_1 = "—"
                         r = {
                             "Variant":    pv.variant_label,
                             "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
                             "Premium":    "zero cost" if pv.is_zero_cost else f"{pv.net_premium_pct:.1%}",
                             "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
-                            "Payoff @ tgt": f"{pv.payoff_at_target_pct:.0%}" if pv.payoff_at_target_pct is not None else "—",
+                            "Payoff @ tgt": f"{_payoff:.0%}" if _payoff is not None else "—",
                             "R:R":        f"{pv.rr_at_target:.1f}×" if pv.rr_at_target else "—",
                             "Max loss":   f"{pv.max_loss_pct:.1%}",
+                            "Risk/$1":    _risk_per_1,
                         }
                         if _has_barrier:
                             r["Barrier"] = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
