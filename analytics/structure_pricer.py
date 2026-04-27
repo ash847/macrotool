@@ -202,13 +202,14 @@ def _seagull(
         spread_cost = prem1 - prem2
         wing_ratio = (spread_cost / prem3) if prem3 > 1e-8 else 0.0
 
-        # Max loss: wing sold at wing_ratio, loss if deep OTM
+        # Max loss at a tail scenario (not at expiry — ignores time value before expiry).
+        # Short put (bull seagull): max loss when spot → 0. Capped at K3 × wing_ratio.
+        # Short call (bear seagull): unbounded; shown at 3σ tail move as practical reference.
         if is_call:
-            # Short put K3 at wing_ratio: loss if spot → 0, but practically capped at K3 × wing_ratio
             max_loss = K3 * wing_ratio / spot
         else:
-            # Short call K3 at wing_ratio: theoretically unbounded, show K3 × wing_ratio as reference
-            max_loss = K3 * wing_ratio / spot
+            tail_spot = F * math.exp(3.0 * vol_sqrtT)
+            max_loss = max(tail_spot - K3, 0.0) * wing_ratio / spot
 
         payoff_pct = None
         if target is not None:

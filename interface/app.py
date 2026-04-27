@@ -544,13 +544,26 @@ else:
             st.caption(
                 "Indicative pricing — flat ATM vol for all strikes. "
                 "Premium and payoff as % of spot. "
-                "**Risk/$1**: premium (or stop-loss for zero-cost) required to generate $1 of payoff at target."
+                "**Risk/$1**: premium required per $1 of payoff at target (zero-cost seagull: "
+                "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
+                "Seagull max loss shown at 3σ tail move."
             )
+            _base_ccy, _quote_ccy = flow.view.pair[:3], flow.view.pair[3:]
+            _long_leg  = "call" if _is_call else "put"
+            _short_leg = "put"  if _is_call else "call"
+            _variant_title = {
+                "vanilla":              f"{_base_ccy} {_long_leg}",
+                "1x1_spread":           f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread",
+                "seagull":              f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread + sold {_base_ccy} {_short_leg}",
+                "european_digital":     f"{_base_ccy} {_long_leg} digital",
+                "european_digital_rko": f"{_base_ccy} {_long_leg} digital + KO",
+            }
             for _i, _item in enumerate(_primary_items):
                 _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call)
                 if not _pvs:
                     continue
-                with st.expander(f"{_item.display_name}", expanded=(_i == 0)):
+                _title = _variant_title.get(_item.structure_id, _item.display_name)
+                with st.expander(_title, expanded=(_i == 0)):
                     _rows = []
                     _has_barrier = any(pv.barrier is not None for pv in _pvs)
                     _has_wing    = any(pv.wing_ratio is not None for pv in _pvs)
