@@ -74,7 +74,7 @@
     "max_loss": "premium_only",
     "path_dependent": true,
     "requires_target": false,
-    "overlay_only": true,
+    "overlay_only": false,
     "optimal_for": "Very high payout ratio when the PM has strong conviction the move will be directional and clean — spot will not trade through the knock-out barrier before reaching the target",
     "major_risk": "Spot touches the knock-out barrier at any point during the option life — the trade ceases to exist immediately, regardless of where spot finishes at expiry; path matters more than the final level",
     "structuring_guidelines": "Knock-out barrier set beyond the target in the direction of the view. Wider barrier = lower payout ratio but more resilient. Narrower barrier = higher payout ratio but fragile. Cross-check: barrier must be set above a level the market is unlikely to trade through before the target is reached. Payout ratio needs to be higher than 2.25 to be interesting"
@@ -113,7 +113,7 @@
     "max_loss": "premium_only",
     "path_dependent": true,
     "requires_target": false,
-    "overlay_only": true,
+    "overlay_only": false,
     "optimal_for": "Lowest-premium binary expression; PM has strong conviction that spot will not trade through the knock-out barrier during the life and will finish through the digital strike at expiry",
     "major_risk": "Two independent ways to lose: spot touches the knock-out barrier at any point (trade dies immediately), or spot finishes on the wrong side of the digital strike at expiry; the combined barrier and binary risk makes this the most fragile structure",
     "structuring_guidelines": "Digital strike at the target level or key threshold. Knock-out barrier set beyond the target in the direction of the view — same logic as a standalone RKO. Premium materially lower than a standalone digital at the same strike. Use as a pricing reference to illustrate the cost of stacking barrier and binary risk; rarely appropriate as a primary trade."

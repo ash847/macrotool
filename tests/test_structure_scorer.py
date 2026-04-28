@@ -124,28 +124,16 @@ class TestRanking:
 # ---------------------------------------------------------------------------
 
 class TestOverlays:
-    def test_overlays_appear_after_primaries(self):
+    def test_no_structures_are_exotic(self):
         ms = _ms(c=0.60, target_z=1.0)
         result = score_structures(ms)
-        seen_overlay = False
+        assert all(not item.is_exotic for item in result.shortlist)
+
+    def test_rko_not_exotic_if_present(self):
+        ms = _ms(c=0.60, target_z=1.0)
+        result = score_structures(ms)
         for item in result.shortlist:
-            if item.is_exotic:
-                seen_overlay = True
-            else:
-                assert not seen_overlay, "Primary appeared after overlay"
-
-    def test_overlays_present_in_shortlist(self):
-        ms = _ms(c=0.60, target_z=1.0)
-        result = score_structures(ms)
-        overlay_ids = {s.structure_id for s in result.shortlist if s.is_exotic}
-        assert len(overlay_ids) > 0
-
-    def test_rko_is_overlay(self):
-        ms = _ms(c=0.60, target_z=1.0)
-        result = score_structures(ms)
-        rko_items = [s for s in result.shortlist if s.structure_id == "rko"]
-        assert len(rko_items) == 1
-        assert rko_items[0].is_exotic is True
+            assert item.is_exotic is False
 
 
 # ---------------------------------------------------------------------------

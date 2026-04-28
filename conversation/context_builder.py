@@ -191,9 +191,8 @@ def build_structure_rec_prompt(
 
     shortlist_lines = [f"Rules fired: {', '.join(selector_result.rules_fired)}\n"]
     for item in selector_result.shortlist:
-        exotic_tag = " [EXOTIC — comparison only]" if item.is_exotic else ""
         shortlist_lines.append(
-            f"{item.rank}. {item.display_name}{exotic_tag}\n"
+            f"{item.rank}. {item.display_name}\n"
             f"   Optimised for: {item.optimised_for}\n"
             f"   Rationale: {textwrap.fill(item.rationale, 70, subsequent_indent='   ')}"
         )
@@ -207,9 +206,8 @@ def build_structure_rec_prompt(
 
     shortlist_block = _block("STRUCTURE SHORTLIST", "\n".join(shortlist_lines))
 
-    # Scenario matrix for top non-exotic structure
     scenario_block = ""
-    top_non_exotic = next((i for i in selector_result.shortlist if not i.is_exotic), None)
+    top_non_exotic = selector_result.shortlist[0] if selector_result.shortlist else None
     if top_non_exotic and top_non_exotic.structure_id not in ("spot", "forward"):
         try:
             rate_ctx = rate_context_for_snapshot(ccy, tenor_to_years("3M"))
@@ -263,7 +261,7 @@ def build_sizing_prompt(
     step = _load("sizing.txt")
 
     shortlist_summary = ", ".join(
-        f"{i.rank}. {i.display_name}" for i in selector_result.shortlist if not i.is_exotic
+        f"{i.rank}. {i.display_name}" for i in selector_result.shortlist
     )
     context_block = _block(
         "TRADE CONTEXT",
@@ -289,10 +287,10 @@ def build_entry_exit_prompt(
     base = _build_base(overridable_fields_description())
     step = _load("entry_exit.txt")
 
-    shortlist_lines = []
-    for item in selector_result.shortlist:
-        if not item.is_exotic:
-            shortlist_lines.append(f"{item.rank}. {item.display_name} — {item.rationale}")
+    shortlist_lines = [
+        f"{item.rank}. {item.display_name} — {item.rationale}"
+        for item in selector_result.shortlist
+    ]
 
     context_block = _block(
         "TRADE CONTEXT",

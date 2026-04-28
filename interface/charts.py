@@ -40,7 +40,7 @@ def build_scenario_heatmap(flow: ConversationFlow) -> go.Figure | None:
     if not (view and ccy and selector):
         return None
 
-    top = next((i for i in selector.shortlist if not i.is_exotic), None)
+    top = selector.shortlist[0] if selector.shortlist else None
     if not top or top.structure_id in ("spot", "forward"):
         return None
 
