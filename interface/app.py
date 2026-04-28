@@ -254,6 +254,15 @@ def _extract_view(prompt: str) -> str | None:
         except Exception as e:
             log_error("_run_engines", e)
             raise
+        if (
+            flow.market_state
+            and flow.market_state.target_z is not None
+            and abs(flow.market_state.target_z) < 0.25
+        ):
+            flow.market_state = None
+            flow.selector_result = None
+            return ("ERROR: Target is less than 0.25σ from the forward — "
+                    "the move is not large enough to structure an option trade.")
         try:
             _log_query(
                 prompt=prompt,
@@ -538,7 +547,6 @@ else:
         # Structure variants
         from analytics.structure_pricer import price_variants as _price_variants
         _primary_items = flow.selector_result.shortlist[:3]
-        st.caption(f"DEBUG shortlist[:3]: {[s.structure_id for s in _primary_items]}")
 
         _any_variants = any(
             _price_variants(ms, s.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
@@ -627,9 +635,13 @@ else:
                         st.session_state[f"{_fb_key}_submitted"] = True
                         st.rerun()
 
-    # Clarification message
+    # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
-        st.info(st.session_state.clarification)
+        msg = st.session_state.clarification
+        if msg.startswith("ERROR:"):
+            st.error(msg[6:].strip())
+        else:
+            st.info(msg)
         st.session_state.clarification = ""
 
     # Input (only on Trade View page)
