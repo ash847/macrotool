@@ -33,6 +33,12 @@ st.caption(
     "The shape tells you which option structure fits."
 )
 
+with st.expander("Testing guidelines", expanded=True):
+    st.markdown(
+        "Does this make it easy for you to describe a view? "
+        "Is there some information we are not capturing through this interface?"
+    )
+
 st.divider()
 
 # ── Market inputs ────────────────────────────────────────────────────────────
