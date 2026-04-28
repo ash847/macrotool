@@ -36,8 +36,8 @@ def score_structures(
 
     buckets = _compute_buckets(market_state, thresholds)
 
-    primary: list[tuple[int, str]] = []   # (total_score, struct_id)
-    overlays: list[tuple[int, str]] = []
+    primary: list[tuple[float, str]] = []
+    overlays: list[tuple[float, str]] = []
 
     for struct_id, score_cfg in struct_scores.items():
         if struct_id not in profiles:

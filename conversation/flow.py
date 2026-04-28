@@ -126,6 +126,7 @@ class ConversationFlow:
         self.messages = []
         self.session_overrides = SessionOverrides()
         self.cfg = load_config()
+        self.target_rr = None
         self.view = None
         self.ccy = None
         self.market_state = None

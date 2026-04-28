@@ -68,7 +68,10 @@ def compute_market_state(
 
     c = math.log(fwd / spot) / vol_sqrt_T
 
-    cuts = carry_regime_cuts if carry_regime_cuts is not None else [0.4, 0.8]
+    if carry_regime_cuts is None:
+        from knowledge_engine.loader import load_affinity_scores
+        carry_regime_cuts = load_affinity_scores()["thresholds"]["carry_regime"]
+    cuts = carry_regime_cuts
     abs_c = abs(c)
     if abs_c < cuts[0]:
         carry_regime = 0
