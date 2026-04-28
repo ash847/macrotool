@@ -580,7 +580,6 @@ else:
                     st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
                     continue
                 if not _pvs:
-                    st.caption(f"DEBUG {_item.structure_id}: empty (id={_item.structure_id!r}, is_exotic={_item.is_exotic})")
                     continue
                 _title = _variant_title.get(_item.structure_id, _item.display_name)
                 with st.expander(_title, expanded=(_i == 0)):
