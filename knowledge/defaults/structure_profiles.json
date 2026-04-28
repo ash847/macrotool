@@ -100,7 +100,7 @@
     "max_loss": "premium_only",
     "path_dependent": false,
     "requires_target": false,
-    "overlay_only": true,
+    "overlay_only": false,
     "optimal_for": "Fixed known payout if spot finishes through the strike at expiry; useful as a comparison to quantify the binary value of a threshold being breached",
     "major_risk": "Binary gamma near expiry makes the position extremely sensitive to small moves at the strike; all-or-nothing payout is difficult to manage into expiry; overpriced vs vanilla for large moves",
     "structuring_guidelines": "Strike set at the target level or at a key threshold (e.g. a round number or technical level). Payout fixed in USD notional terms. Premium typically lower than vanilla at same strike but payout is fixed — compare premium vs expected payout to assess EV. Looking for sub 13% premium to be interesting."
