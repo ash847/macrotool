@@ -177,6 +177,11 @@ def rate_context_for_snapshot(snapshot: CurrencySnapshot, T_years: float) -> Rat
     EURPLN: r_f = EUR (from eur_df_curve), r_d = PLN implied.
     """
     base_ccy = snapshot.pair[:3]
-    df_curve = snapshot.eur_df_curve if base_ccy == "EUR" else snapshot.usd_df_curve
+    if base_ccy == "EUR":
+        df_curve = snapshot.eur_df_curve
+    elif base_ccy == "GBP":
+        df_curve = snapshot.gbp_df_curve
+    else:
+        df_curve = snapshot.usd_df_curve
     r_f = interpolate_df_rate(df_curve, T_years)
     return build_rate_context(snapshot, T_years, r_d=0.0, r_f=r_f)

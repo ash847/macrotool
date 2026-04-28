@@ -63,6 +63,7 @@ class CurrencySnapshot(BaseModel):
     vol_surface: list[VolSurfaceNode]
     usd_df_curve: list[DiscountFactor] = Field(default_factory=list)
     eur_df_curve: list[DiscountFactor] = Field(default_factory=list)
+    gbp_df_curve: list[DiscountFactor] = Field(default_factory=list)
 
     def get_forward(self, tenor: TenorLabel) -> ForwardPoint | None:
         return next((f for f in self.forwards if f.tenor == tenor), None)
@@ -83,6 +84,10 @@ class CurrencySnapshot(BaseModel):
 
     def get_eur_df(self, tenor: TenorLabel) -> float | None:
         node = next((d for d in self.eur_df_curve if d.tenor == tenor), None)
+        return node.df if node else None
+
+    def get_gbp_df(self, tenor: TenorLabel) -> float | None:
+        node = next((d for d in self.gbp_df_curve if d.tenor == tenor), None)
         return node.df if node else None
 
 

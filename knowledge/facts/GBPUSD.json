@@ -1,0 +1,54 @@
+{
+  "pair": "GBPUSD",
+  "base_currency": "GBP",
+  "term_currency": "USD",
+  "instrument_type": "Deliverable",
+  "quotation": "USD per GBP",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": ["GBP", "USD"]
+  },
+  "deliverable": {
+    "settlement_currency": "USD",
+    "settlement_type": "physical_delivery",
+    "delivery_notes": [
+      "Physical USD delivery; standard correspondent banking settlement",
+      "No fixing lag — settles T+2 on standard basis",
+      "Most liquid G10 pair after EURUSD; tight bid-offer in spot and options"
+    ]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "spot_delta",
+    "premium_included_in_delta": false,
+    "cut": "New York 10:00",
+    "expiry_to_settlement_lag_days": 2,
+    "smile_convention": "25D_RR_BF",
+    "delta_label_convention": "Delta labels (25DC, 25DP, 10DC, 10DP) refer to the BASE currency, GBP. 25DC = 25-delta GBP call (USD put); 25DP = 25-delta GBP put (USD call).",
+    "liquid_tenors": ["1W", "1M", "3M", "6M", "1Y"],
+    "liquid_strikes": "ATM through 10D in normal conditions",
+    "illiquidity_note": "Deep and liquid across the curve; 1Y tradeable in size with tight spreads"
+  },
+  "carry": {
+    "direction": "positive_for_long_GBP",
+    "notes": [
+      "GBP rates (SONIA) modestly above USD rates (SOFR), giving mild positive carry for GBP long",
+      "Carry is small relative to EM pairs; forward points are slightly negative (GBP at forward discount)",
+      "BoE and Fed rate differential is the primary carry driver"
+    ]
+  },
+  "market_structure": {
+    "vol_character": "low_to_moderate",
+    "skew_character": "mild_negative",
+    "skew_driver": "GBP downside tail risk (political, fiscal, current account); historically elevated post-Brexit",
+    "typical_participants": ["Global macro funds", "UK corporates hedging USD revenues", "Real money accounts", "Central banks", "Commodity-linked flows"],
+    "liquidity_profile": "Extremely liquid; second most traded G10 pair; institutional size executable with minimal market impact"
+  },
+  "risk_notes": [
+    "UK fiscal credibility: Gilt market sensitivity can cause rapid GBP repricing (cf. Sep 2022 LDI crisis)",
+    "Current account deficit: UK runs a structural current account deficit, leaving GBP vulnerable to risk-off flows",
+    "BoE policy uncertainty: BoE credibility has been periodically challenged; surprises move GBP sharply",
+    "Commodity sensitivity: GBP has mild positive correlation with risk assets and commodity prices",
+    "Brexit legacy: reduced liquidity in some corporate hedging flows; ongoing trade friction uncertainty"
+  ]
+}

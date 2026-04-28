@@ -4,435 +4,1911 @@
     "USDBRL": {
       "pair": "USDBRL",
       "instrument_type": "NDF",
-      "spot": 5.7850,
+      "spot": 5.785,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": 85.0,   "outright": 5.7935 },
-        { "tenor": "1M",  "points": 370.0,  "outright": 5.8220 },
-        { "tenor": "2M",  "points": 745.0,  "outright": 5.8595 },
-        { "tenor": "3M",  "points": 1120.0, "outright": 5.8970 },
-        { "tenor": "6M",  "points": 2250.0, "outright": 6.0100 },
-        { "tenor": "1Y",  "points": 4500.0, "outright": 6.2350 }
+        {
+          "tenor": "1W",
+          "points": 85.0,
+          "outright": 5.7935
+        },
+        {
+          "tenor": "1M",
+          "points": 370.0,
+          "outright": 5.822
+        },
+        {
+          "tenor": "2M",
+          "points": 745.0,
+          "outright": 5.8595
+        },
+        {
+          "tenor": "3M",
+          "points": 1120.0,
+          "outright": 5.897
+        },
+        {
+          "tenor": "6M",
+          "points": 2250.0,
+          "outright": 6.01
+        },
+        {
+          "tenor": "1Y",
+          "points": 4500.0,
+          "outright": 6.235
+        }
       ],
       "vol_surface": [
-        { "tenor": "1W",  "delta": "10DP",  "vol": 0.222 },
-        { "tenor": "1W",  "delta": "25DP",  "vol": 0.210 },
-        { "tenor": "1W",  "delta": "ATM",   "vol": 0.200 },
-        { "tenor": "1W",  "delta": "25DC",  "vol": 0.235 },
-        { "tenor": "1W",  "delta": "10DC",  "vol": 0.268 },
-        { "tenor": "1M",  "delta": "10DP",  "vol": 0.203 },
-        { "tenor": "1M",  "delta": "25DP",  "vol": 0.192 },
-        { "tenor": "1M",  "delta": "ATM",   "vol": 0.182 },
-        { "tenor": "1M",  "delta": "25DC",  "vol": 0.218 },
-        { "tenor": "1M",  "delta": "10DC",  "vol": 0.252 },
-        { "tenor": "2M",  "delta": "10DP",  "vol": 0.199 },
-        { "tenor": "2M",  "delta": "25DP",  "vol": 0.188 },
-        { "tenor": "2M",  "delta": "ATM",   "vol": 0.178 },
-        { "tenor": "2M",  "delta": "25DC",  "vol": 0.214 },
-        { "tenor": "2M",  "delta": "10DC",  "vol": 0.248 },
-        { "tenor": "3M",  "delta": "10DP",  "vol": 0.196 },
-        { "tenor": "3M",  "delta": "25DP",  "vol": 0.185 },
-        { "tenor": "3M",  "delta": "ATM",   "vol": 0.175 },
-        { "tenor": "3M",  "delta": "25DC",  "vol": 0.210 },
-        { "tenor": "3M",  "delta": "10DC",  "vol": 0.244 },
-        { "tenor": "6M",  "delta": "10DP",  "vol": 0.193 },
-        { "tenor": "6M",  "delta": "25DP",  "vol": 0.182 },
-        { "tenor": "6M",  "delta": "ATM",   "vol": 0.172 },
-        { "tenor": "6M",  "delta": "25DC",  "vol": 0.206 },
-        { "tenor": "6M",  "delta": "10DC",  "vol": 0.240 },
-        { "tenor": "1Y",  "delta": "10DP",  "vol": 0.191 },
-        { "tenor": "1Y",  "delta": "25DP",  "vol": 0.180 },
-        { "tenor": "1Y",  "delta": "ATM",   "vol": 0.170 },
-        { "tenor": "1Y",  "delta": "25DC",  "vol": 0.202 },
-        { "tenor": "1Y",  "delta": "10DC",  "vol": 0.236 }
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.222
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.21
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.2
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.235
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.268
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.203
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.192
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.182
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.218
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.252
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.199
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.188
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.178
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.214
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.248
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.196
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.185
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.175
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.21
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.244
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.193
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.182
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.172
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.206
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.24
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.191
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.18
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.17
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.202
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.236
+        }
       ],
       "usd_df_curve": [
-        { "tenor": "1W",  "df": 0.9991 },
-        { "tenor": "1M",  "df": 0.9963 },
-        { "tenor": "2M",  "df": 0.9926 },
-        { "tenor": "3M",  "df": 0.9888 },
-        { "tenor": "6M",  "df": 0.9777 },
-        { "tenor": "1Y",  "df": 0.9560 }
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9963
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9926
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9888
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9777
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.956
+        }
       ],
       "eur_df_curve": [
-        { "tenor": "1W",  "df": 0.9995 },
-        { "tenor": "1M",  "df": 0.9979 },
-        { "tenor": "2M",  "df": 0.9959 },
-        { "tenor": "3M",  "df": 0.9938 },
-        { "tenor": "6M",  "df": 0.9876 },
-        { "tenor": "1Y",  "df": 0.9753 }
+        {
+          "tenor": "1W",
+          "df": 0.9995
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9979
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9959
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9938
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9876
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9753
+        }
       ]
     },
     "USDTRY": {
       "pair": "USDTRY",
       "instrument_type": "NDF",
-      "spot": 38.450,
+      "spot": 38.45,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": 650.0,    "outright": 39.100 },
-        { "tenor": "1M",  "points": 2800.0,   "outright": 41.250 },
-        { "tenor": "2M",  "points": 5600.0,   "outright": 44.050 },
-        { "tenor": "3M",  "points": 8400.0,   "outright": 46.850 },
-        { "tenor": "6M",  "points": 17000.0,  "outright": 55.450 },
-        { "tenor": "1Y",  "points": 34000.0,  "outright": 72.450 }
+        {
+          "tenor": "1W",
+          "points": 650.0,
+          "outright": 39.1
+        },
+        {
+          "tenor": "1M",
+          "points": 2800.0,
+          "outright": 41.25
+        },
+        {
+          "tenor": "2M",
+          "points": 5600.0,
+          "outright": 44.05
+        },
+        {
+          "tenor": "3M",
+          "points": 8400.0,
+          "outright": 46.85
+        },
+        {
+          "tenor": "6M",
+          "points": 17000.0,
+          "outright": 55.45
+        },
+        {
+          "tenor": "1Y",
+          "points": 34000.0,
+          "outright": 72.45
+        }
       ],
       "vol_surface": [
-        { "tenor": "1W",  "delta": "10DP",  "vol": 0.285 },
-        { "tenor": "1W",  "delta": "25DP",  "vol": 0.255 },
-        { "tenor": "1W",  "delta": "ATM",   "vol": 0.235 },
-        { "tenor": "1W",  "delta": "25DC",  "vol": 0.278 },
-        { "tenor": "1W",  "delta": "10DC",  "vol": 0.330 },
-        { "tenor": "1M",  "delta": "10DP",  "vol": 0.265 },
-        { "tenor": "1M",  "delta": "25DP",  "vol": 0.238 },
-        { "tenor": "1M",  "delta": "ATM",   "vol": 0.220 },
-        { "tenor": "1M",  "delta": "25DC",  "vol": 0.265 },
-        { "tenor": "1M",  "delta": "10DC",  "vol": 0.320 },
-        { "tenor": "2M",  "delta": "10DP",  "vol": 0.260 },
-        { "tenor": "2M",  "delta": "25DP",  "vol": 0.233 },
-        { "tenor": "2M",  "delta": "ATM",   "vol": 0.215 },
-        { "tenor": "2M",  "delta": "25DC",  "vol": 0.260 },
-        { "tenor": "2M",  "delta": "10DC",  "vol": 0.312 },
-        { "tenor": "3M",  "delta": "10DP",  "vol": 0.257 },
-        { "tenor": "3M",  "delta": "25DP",  "vol": 0.230 },
-        { "tenor": "3M",  "delta": "ATM",   "vol": 0.212 },
-        { "tenor": "3M",  "delta": "25DC",  "vol": 0.256 },
-        { "tenor": "3M",  "delta": "10DC",  "vol": 0.308 },
-        { "tenor": "6M",  "delta": "10DP",  "vol": 0.252 },
-        { "tenor": "6M",  "delta": "25DP",  "vol": 0.226 },
-        { "tenor": "6M",  "delta": "ATM",   "vol": 0.208 },
-        { "tenor": "6M",  "delta": "25DC",  "vol": 0.250 },
-        { "tenor": "6M",  "delta": "10DC",  "vol": 0.300 },
-        { "tenor": "1Y",  "delta": "10DP",  "vol": 0.246 },
-        { "tenor": "1Y",  "delta": "25DP",  "vol": 0.220 },
-        { "tenor": "1Y",  "delta": "ATM",   "vol": 0.202 },
-        { "tenor": "1Y",  "delta": "25DC",  "vol": 0.244 },
-        { "tenor": "1Y",  "delta": "10DC",  "vol": 0.292 }
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.285
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.255
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.235
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.278
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.33
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.265
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.238
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.22
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.265
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.32
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.26
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.233
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.215
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.26
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.312
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.257
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.23
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.212
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.256
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.308
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.252
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.226
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.208
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.25
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.3
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.246
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.22
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.202
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.244
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.292
+        }
       ],
       "usd_df_curve": [
-        { "tenor": "1W",  "df": 0.9991 },
-        { "tenor": "1M",  "df": 0.9963 },
-        { "tenor": "2M",  "df": 0.9926 },
-        { "tenor": "3M",  "df": 0.9888 },
-        { "tenor": "6M",  "df": 0.9777 },
-        { "tenor": "1Y",  "df": 0.9560 }
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9963
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9926
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9888
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9777
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.956
+        }
       ],
       "eur_df_curve": [
-        { "tenor": "1W",  "df": 0.9995 },
-        { "tenor": "1M",  "df": 0.9979 },
-        { "tenor": "2M",  "df": 0.9959 },
-        { "tenor": "3M",  "df": 0.9938 },
-        { "tenor": "6M",  "df": 0.9876 },
-        { "tenor": "1Y",  "df": 0.9753 }
+        {
+          "tenor": "1W",
+          "df": 0.9995
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9979
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9959
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9938
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9876
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9753
+        }
       ]
     },
     "EURPLN": {
       "pair": "EURPLN",
       "instrument_type": "Deliverable",
-      "spot": 4.2150,
+      "spot": 4.215,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": 3.0,   "outright": 4.2180 },
-        { "tenor": "1M",  "points": 11.0,  "outright": 4.2260 },
-        { "tenor": "2M",  "points": 23.0,  "outright": 4.2380 },
-        { "tenor": "3M",  "points": 34.0,  "outright": 4.2490 },
-        { "tenor": "6M",  "points": 69.0,  "outright": 4.2840 },
-        { "tenor": "1Y",  "points": 139.0, "outright": 4.3540 }
+        {
+          "tenor": "1W",
+          "points": 3.0,
+          "outright": 4.218
+        },
+        {
+          "tenor": "1M",
+          "points": 11.0,
+          "outright": 4.226
+        },
+        {
+          "tenor": "2M",
+          "points": 23.0,
+          "outright": 4.238
+        },
+        {
+          "tenor": "3M",
+          "points": 34.0,
+          "outright": 4.249
+        },
+        {
+          "tenor": "6M",
+          "points": 69.0,
+          "outright": 4.284
+        },
+        {
+          "tenor": "1Y",
+          "points": 139.0,
+          "outright": 4.354
+        }
       ],
       "vol_surface": [
-        { "tenor": "1W",  "delta": "10DP",  "vol": 0.085 },
-        { "tenor": "1W",  "delta": "25DP",  "vol": 0.077 },
-        { "tenor": "1W",  "delta": "ATM",   "vol": 0.070 },
-        { "tenor": "1W",  "delta": "25DC",  "vol": 0.077 },
-        { "tenor": "1W",  "delta": "10DC",  "vol": 0.085 },
-        { "tenor": "1M",  "delta": "10DP",  "vol": 0.079 },
-        { "tenor": "1M",  "delta": "25DP",  "vol": 0.072 },
-        { "tenor": "1M",  "delta": "ATM",   "vol": 0.065 },
-        { "tenor": "1M",  "delta": "25DC",  "vol": 0.072 },
-        { "tenor": "1M",  "delta": "10DC",  "vol": 0.079 },
-        { "tenor": "2M",  "delta": "10DP",  "vol": 0.077 },
-        { "tenor": "2M",  "delta": "25DP",  "vol": 0.070 },
-        { "tenor": "2M",  "delta": "ATM",   "vol": 0.063 },
-        { "tenor": "2M",  "delta": "25DC",  "vol": 0.070 },
-        { "tenor": "2M",  "delta": "10DC",  "vol": 0.077 },
-        { "tenor": "3M",  "delta": "10DP",  "vol": 0.075 },
-        { "tenor": "3M",  "delta": "25DP",  "vol": 0.068 },
-        { "tenor": "3M",  "delta": "ATM",   "vol": 0.061 },
-        { "tenor": "3M",  "delta": "25DC",  "vol": 0.068 },
-        { "tenor": "3M",  "delta": "10DC",  "vol": 0.075 },
-        { "tenor": "6M",  "delta": "10DP",  "vol": 0.073 },
-        { "tenor": "6M",  "delta": "25DP",  "vol": 0.066 },
-        { "tenor": "6M",  "delta": "ATM",   "vol": 0.059 },
-        { "tenor": "6M",  "delta": "25DC",  "vol": 0.066 },
-        { "tenor": "6M",  "delta": "10DC",  "vol": 0.073 },
-        { "tenor": "1Y",  "delta": "10DP",  "vol": 0.072 },
-        { "tenor": "1Y",  "delta": "25DP",  "vol": 0.065 },
-        { "tenor": "1Y",  "delta": "ATM",   "vol": 0.058 },
-        { "tenor": "1Y",  "delta": "25DC",  "vol": 0.065 },
-        { "tenor": "1Y",  "delta": "10DC",  "vol": 0.072 }
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.085
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.077
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.07
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.077
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.085
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.079
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.072
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.065
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.072
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.079
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.077
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.07
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.063
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.07
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.077
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.075
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.068
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.061
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.068
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.075
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.073
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.066
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.059
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.066
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.073
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.072
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.065
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.058
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.065
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.072
+        }
       ],
       "usd_df_curve": [
-        { "tenor": "1W",  "df": 0.9991 },
-        { "tenor": "1M",  "df": 0.9963 },
-        { "tenor": "2M",  "df": 0.9926 },
-        { "tenor": "3M",  "df": 0.9888 },
-        { "tenor": "6M",  "df": 0.9777 },
-        { "tenor": "1Y",  "df": 0.9560 }
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9963
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9926
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9888
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9777
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.956
+        }
       ],
       "eur_df_curve": [
-        { "tenor": "1W",  "df": 0.9995 },
-        { "tenor": "1M",  "df": 0.9979 },
-        { "tenor": "2M",  "df": 0.9959 },
-        { "tenor": "3M",  "df": 0.9938 },
-        { "tenor": "6M",  "df": 0.9876 },
-        { "tenor": "1Y",  "df": 0.9753 }
+        {
+          "tenor": "1W",
+          "df": 0.9995
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9979
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9959
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9938
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9876
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9753
+        }
       ]
     },
     "EURUSD": {
       "pair": "EURUSD",
       "instrument_type": "Deliverable",
-      "spot": 1.0800,
+      "spot": 1.08,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": 4.0,    "outright": 1.0804 },
-        { "tenor": "1M",  "points": 18.0,   "outright": 1.0818 },
-        { "tenor": "2M",  "points": 36.0,   "outright": 1.0836 },
-        { "tenor": "3M",  "points": 54.0,   "outright": 1.0854 },
-        { "tenor": "6M",  "points": 108.0,  "outright": 1.0908 },
-        { "tenor": "1Y",  "points": 218.0,  "outright": 1.1018 }
+        {
+          "tenor": "1W",
+          "points": 4.0,
+          "outright": 1.0804
+        },
+        {
+          "tenor": "1M",
+          "points": 18.0,
+          "outright": 1.0818
+        },
+        {
+          "tenor": "2M",
+          "points": 36.0,
+          "outright": 1.0836
+        },
+        {
+          "tenor": "3M",
+          "points": 54.0,
+          "outright": 1.0854
+        },
+        {
+          "tenor": "6M",
+          "points": 108.0,
+          "outright": 1.0908
+        },
+        {
+          "tenor": "1Y",
+          "points": 218.0,
+          "outright": 1.1018
+        }
       ],
       "vol_surface": [
-        { "tenor": "1W",  "delta": "10DP",  "vol": 0.095 },
-        { "tenor": "1W",  "delta": "25DP",  "vol": 0.088 },
-        { "tenor": "1W",  "delta": "ATM",   "vol": 0.085 },
-        { "tenor": "1W",  "delta": "25DC",  "vol": 0.087 },
-        { "tenor": "1W",  "delta": "10DC",  "vol": 0.092 },
-        { "tenor": "1M",  "delta": "10DP",  "vol": 0.085 },
-        { "tenor": "1M",  "delta": "25DP",  "vol": 0.078 },
-        { "tenor": "1M",  "delta": "ATM",   "vol": 0.075 },
-        { "tenor": "1M",  "delta": "25DC",  "vol": 0.077 },
-        { "tenor": "1M",  "delta": "10DC",  "vol": 0.082 },
-        { "tenor": "2M",  "delta": "10DP",  "vol": 0.082 },
-        { "tenor": "2M",  "delta": "25DP",  "vol": 0.075 },
-        { "tenor": "2M",  "delta": "ATM",   "vol": 0.072 },
-        { "tenor": "2M",  "delta": "25DC",  "vol": 0.074 },
-        { "tenor": "2M",  "delta": "10DC",  "vol": 0.079 },
-        { "tenor": "3M",  "delta": "10DP",  "vol": 0.080 },
-        { "tenor": "3M",  "delta": "25DP",  "vol": 0.073 },
-        { "tenor": "3M",  "delta": "ATM",   "vol": 0.070 },
-        { "tenor": "3M",  "delta": "25DC",  "vol": 0.072 },
-        { "tenor": "3M",  "delta": "10DC",  "vol": 0.077 },
-        { "tenor": "6M",  "delta": "10DP",  "vol": 0.080 },
-        { "tenor": "6M",  "delta": "25DP",  "vol": 0.073 },
-        { "tenor": "6M",  "delta": "ATM",   "vol": 0.070 },
-        { "tenor": "6M",  "delta": "25DC",  "vol": 0.072 },
-        { "tenor": "6M",  "delta": "10DC",  "vol": 0.077 },
-        { "tenor": "1Y",  "delta": "10DP",  "vol": 0.085 },
-        { "tenor": "1Y",  "delta": "25DP",  "vol": 0.078 },
-        { "tenor": "1Y",  "delta": "ATM",   "vol": 0.075 },
-        { "tenor": "1Y",  "delta": "25DC",  "vol": 0.077 },
-        { "tenor": "1Y",  "delta": "10DC",  "vol": 0.082 }
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.095
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.088
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.085
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.087
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.092
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.085
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.078
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.075
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.077
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.082
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.082
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.075
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.072
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.074
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.079
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.08
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.073
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.07
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.072
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.077
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.08
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.073
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.07
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.072
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.077
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.085
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.078
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.075
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.077
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.082
+        }
       ],
       "usd_df_curve": [
-        { "tenor": "1W",  "df": 0.9991 },
-        { "tenor": "1M",  "df": 0.9963 },
-        { "tenor": "2M",  "df": 0.9926 },
-        { "tenor": "3M",  "df": 0.9888 },
-        { "tenor": "6M",  "df": 0.9777 },
-        { "tenor": "1Y",  "df": 0.9560 }
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9963
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9926
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9888
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9777
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.956
+        }
       ],
       "eur_df_curve": [
-        { "tenor": "1W",  "df": 0.9995 },
-        { "tenor": "1M",  "df": 0.9979 },
-        { "tenor": "2M",  "df": 0.9959 },
-        { "tenor": "3M",  "df": 0.9938 },
-        { "tenor": "6M",  "df": 0.9876 },
-        { "tenor": "1Y",  "df": 0.9753 }
+        {
+          "tenor": "1W",
+          "df": 0.9995
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9979
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9959
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9938
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9876
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9753
+        }
       ]
     },
     "USDCNH": {
       "pair": "USDCNH",
       "instrument_type": "Deliverable",
-      "spot": 7.2800,
+      "spot": 7.28,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": -21.0,   "outright": 7.2779 },
-        { "tenor": "1M",  "points": -90.0,   "outright": 7.2710 },
-        { "tenor": "2M",  "points": -179.0,  "outright": 7.2621 },
-        { "tenor": "3M",  "points": -272.0,  "outright": 7.2528 },
-        { "tenor": "6M",  "points": -542.0,  "outright": 7.2258 },
-        { "tenor": "1Y",  "points": -1084.0, "outright": 7.1716 }
+        {
+          "tenor": "1W",
+          "points": -21.0,
+          "outright": 7.2779
+        },
+        {
+          "tenor": "1M",
+          "points": -90.0,
+          "outright": 7.271
+        },
+        {
+          "tenor": "2M",
+          "points": -179.0,
+          "outright": 7.2621
+        },
+        {
+          "tenor": "3M",
+          "points": -272.0,
+          "outright": 7.2528
+        },
+        {
+          "tenor": "6M",
+          "points": -542.0,
+          "outright": 7.2258
+        },
+        {
+          "tenor": "1Y",
+          "points": -1084.0,
+          "outright": 7.1716
+        }
       ],
       "vol_surface": [
-        { "tenor": "1W",  "delta": "10DP",  "vol": 0.055 },
-        { "tenor": "1W",  "delta": "25DP",  "vol": 0.050 },
-        { "tenor": "1W",  "delta": "ATM",   "vol": 0.045 },
-        { "tenor": "1W",  "delta": "25DC",  "vol": 0.048 },
-        { "tenor": "1W",  "delta": "10DC",  "vol": 0.053 },
-        { "tenor": "1M",  "delta": "10DP",  "vol": 0.055 },
-        { "tenor": "1M",  "delta": "25DP",  "vol": 0.050 },
-        { "tenor": "1M",  "delta": "ATM",   "vol": 0.045 },
-        { "tenor": "1M",  "delta": "25DC",  "vol": 0.048 },
-        { "tenor": "1M",  "delta": "10DC",  "vol": 0.053 },
-        { "tenor": "2M",  "delta": "10DP",  "vol": 0.055 },
-        { "tenor": "2M",  "delta": "25DP",  "vol": 0.050 },
-        { "tenor": "2M",  "delta": "ATM",   "vol": 0.045 },
-        { "tenor": "2M",  "delta": "25DC",  "vol": 0.047 },
-        { "tenor": "2M",  "delta": "10DC",  "vol": 0.052 },
-        { "tenor": "3M",  "delta": "10DP",  "vol": 0.055 },
-        { "tenor": "3M",  "delta": "25DP",  "vol": 0.050 },
-        { "tenor": "3M",  "delta": "ATM",   "vol": 0.045 },
-        { "tenor": "3M",  "delta": "25DC",  "vol": 0.047 },
-        { "tenor": "3M",  "delta": "10DC",  "vol": 0.052 },
-        { "tenor": "6M",  "delta": "10DP",  "vol": 0.058 },
-        { "tenor": "6M",  "delta": "25DP",  "vol": 0.052 },
-        { "tenor": "6M",  "delta": "ATM",   "vol": 0.048 },
-        { "tenor": "6M",  "delta": "25DC",  "vol": 0.049 },
-        { "tenor": "6M",  "delta": "10DC",  "vol": 0.054 },
-        { "tenor": "1Y",  "delta": "10DP",  "vol": 0.062 },
-        { "tenor": "1Y",  "delta": "25DP",  "vol": 0.055 },
-        { "tenor": "1Y",  "delta": "ATM",   "vol": 0.050 },
-        { "tenor": "1Y",  "delta": "25DC",  "vol": 0.051 },
-        { "tenor": "1Y",  "delta": "10DC",  "vol": 0.057 }
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.055
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.05
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.045
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.048
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.053
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.055
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.05
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.045
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.048
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.053
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.055
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.05
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.045
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.047
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.052
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.055
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.05
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.045
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.047
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.052
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.058
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.052
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.048
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.049
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.054
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.062
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.055
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.05
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.051
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.057
+        }
       ],
       "usd_df_curve": [
-        { "tenor": "1W",  "df": 0.9991 },
-        { "tenor": "1M",  "df": 0.9963 },
-        { "tenor": "2M",  "df": 0.9926 },
-        { "tenor": "3M",  "df": 0.9888 },
-        { "tenor": "6M",  "df": 0.9777 },
-        { "tenor": "1Y",  "df": 0.9560 }
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9963
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9926
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9888
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9777
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.956
+        }
       ],
       "eur_df_curve": [
-        { "tenor": "1W",  "df": 0.9995 },
-        { "tenor": "1M",  "df": 0.9979 },
-        { "tenor": "2M",  "df": 0.9959 },
-        { "tenor": "3M",  "df": 0.9938 },
-        { "tenor": "6M",  "df": 0.9876 },
-        { "tenor": "1Y",  "df": 0.9753 }
+        {
+          "tenor": "1W",
+          "df": 0.9995
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9979
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9959
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9938
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9876
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9753
+        }
       ]
     },
     "USDMXN": {
       "pair": "USDMXN",
       "instrument_type": "Deliverable",
-      "spot": 20.500,
+      "spot": 20.5,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": 197.0,   "outright": 20.5197 },
-        { "tenor": "1M",  "points": 844.0,   "outright": 20.5844 },
-        { "tenor": "2M",  "points": 1692.0,  "outright": 20.6692 },
-        { "tenor": "3M",  "points": 2571.0,  "outright": 20.7571 },
-        { "tenor": "6M",  "points": 5175.0,  "outright": 21.0175 },
-        { "tenor": "1Y",  "points": 10511.0, "outright": 21.5511 }
+        {
+          "tenor": "1W",
+          "points": 197.0,
+          "outright": 20.5197
+        },
+        {
+          "tenor": "1M",
+          "points": 844.0,
+          "outright": 20.5844
+        },
+        {
+          "tenor": "2M",
+          "points": 1692.0,
+          "outright": 20.6692
+        },
+        {
+          "tenor": "3M",
+          "points": 2571.0,
+          "outright": 20.7571
+        },
+        {
+          "tenor": "6M",
+          "points": 5175.0,
+          "outright": 21.0175
+        },
+        {
+          "tenor": "1Y",
+          "points": 10511.0,
+          "outright": 21.5511
+        }
       ],
       "vol_surface": [
-        { "tenor": "1W",  "delta": "10DP",  "vol": 0.170 },
-        { "tenor": "1W",  "delta": "25DP",  "vol": 0.158 },
-        { "tenor": "1W",  "delta": "ATM",   "vol": 0.150 },
-        { "tenor": "1W",  "delta": "25DC",  "vol": 0.165 },
-        { "tenor": "1W",  "delta": "10DC",  "vol": 0.185 },
-        { "tenor": "1M",  "delta": "10DP",  "vol": 0.155 },
-        { "tenor": "1M",  "delta": "25DP",  "vol": 0.140 },
-        { "tenor": "1M",  "delta": "ATM",   "vol": 0.130 },
-        { "tenor": "1M",  "delta": "25DC",  "vol": 0.148 },
-        { "tenor": "1M",  "delta": "10DC",  "vol": 0.165 },
-        { "tenor": "2M",  "delta": "10DP",  "vol": 0.150 },
-        { "tenor": "2M",  "delta": "25DP",  "vol": 0.135 },
-        { "tenor": "2M",  "delta": "ATM",   "vol": 0.125 },
-        { "tenor": "2M",  "delta": "25DC",  "vol": 0.142 },
-        { "tenor": "2M",  "delta": "10DC",  "vol": 0.158 },
-        { "tenor": "3M",  "delta": "10DP",  "vol": 0.148 },
-        { "tenor": "3M",  "delta": "25DP",  "vol": 0.132 },
-        { "tenor": "3M",  "delta": "ATM",   "vol": 0.120 },
-        { "tenor": "3M",  "delta": "25DC",  "vol": 0.140 },
-        { "tenor": "3M",  "delta": "10DC",  "vol": 0.155 },
-        { "tenor": "6M",  "delta": "10DP",  "vol": 0.148 },
-        { "tenor": "6M",  "delta": "25DP",  "vol": 0.132 },
-        { "tenor": "6M",  "delta": "ATM",   "vol": 0.120 },
-        { "tenor": "6M",  "delta": "25DC",  "vol": 0.140 },
-        { "tenor": "6M",  "delta": "10DC",  "vol": 0.155 },
-        { "tenor": "1Y",  "delta": "10DP",  "vol": 0.155 },
-        { "tenor": "1Y",  "delta": "25DP",  "vol": 0.138 },
-        { "tenor": "1Y",  "delta": "ATM",   "vol": 0.125 },
-        { "tenor": "1Y",  "delta": "25DC",  "vol": 0.145 },
-        { "tenor": "1Y",  "delta": "10DC",  "vol": 0.160 }
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.17
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.158
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.15
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.165
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.185
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.155
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.14
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.13
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.148
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.165
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.15
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.135
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.125
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.142
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.158
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.148
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.132
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.12
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.14
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.155
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.148
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.132
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.12
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.14
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.155
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.155
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.138
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.125
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.145
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.16
+        }
       ],
       "usd_df_curve": [
-        { "tenor": "1W",  "df": 0.9991 },
-        { "tenor": "1M",  "df": 0.9963 },
-        { "tenor": "2M",  "df": 0.9926 },
-        { "tenor": "3M",  "df": 0.9888 },
-        { "tenor": "6M",  "df": 0.9777 },
-        { "tenor": "1Y",  "df": 0.9560 }
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9963
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9926
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9888
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9777
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.956
+        }
       ],
       "eur_df_curve": [
-        { "tenor": "1W",  "df": 0.9995 },
-        { "tenor": "1M",  "df": 0.9979 },
-        { "tenor": "2M",  "df": 0.9959 },
-        { "tenor": "3M",  "df": 0.9938 },
-        { "tenor": "6M",  "df": 0.9876 },
-        { "tenor": "1Y",  "df": 0.9753 }
+        {
+          "tenor": "1W",
+          "df": 0.9995
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9979
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9959
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9938
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9876
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9753
+        }
       ]
     },
     "USDJPY": {
       "pair": "USDJPY",
       "instrument_type": "Deliverable",
-      "spot": 150.50,
+      "spot": 150.5,
       "as_of": "2026-03-25",
       "forwards": [
-        { "tenor": "1W",  "points": -10.0,  "outright": 150.40 },
-        { "tenor": "1M",  "points": -43.0,  "outright": 150.07 },
-        { "tenor": "2M",  "points": -86.0,  "outright": 149.64 },
-        { "tenor": "3M",  "points": -131.0, "outright": 149.19 },
-        { "tenor": "6M",  "points": -260.0, "outright": 147.90 },
-        { "tenor": "1Y",  "points": -518.0, "outright": 145.32 }
+        {
+          "tenor": "1W",
+          "points": -10.0,
+          "outright": 150.4
+        },
+        {
+          "tenor": "1M",
+          "points": -43.0,
+          "outright": 150.07
+        },
+        {
+          "tenor": "2M",
+          "points": -86.0,
+          "outright": 149.64
+        },
+        {
+          "tenor": "3M",
+          "points": -131.0,
+          "outright": 149.19
+        },
+        {
+          "tenor": "6M",
+          "points": -260.0,
+          "outright": 147.9
+        },
+        {
+          "tenor": "1Y",
+          "points": -518.0,
+          "outright": 145.32
+        }
       ],
       "vol_surface": [
-        { "tenor": "1W",  "delta": "10DP",  "vol": 0.105 },
-        { "tenor": "1W",  "delta": "25DP",  "vol": 0.100 },
-        { "tenor": "1W",  "delta": "ATM",   "vol": 0.095 },
-        { "tenor": "1W",  "delta": "25DC",  "vol": 0.093 },
-        { "tenor": "1W",  "delta": "10DC",  "vol": 0.098 },
-        { "tenor": "1M",  "delta": "10DP",  "vol": 0.105 },
-        { "tenor": "1M",  "delta": "25DP",  "vol": 0.098 },
-        { "tenor": "1M",  "delta": "ATM",   "vol": 0.090 },
-        { "tenor": "1M",  "delta": "25DC",  "vol": 0.088 },
-        { "tenor": "1M",  "delta": "10DC",  "vol": 0.093 },
-        { "tenor": "2M",  "delta": "10DP",  "vol": 0.105 },
-        { "tenor": "2M",  "delta": "25DP",  "vol": 0.098 },
-        { "tenor": "2M",  "delta": "ATM",   "vol": 0.090 },
-        { "tenor": "2M",  "delta": "25DC",  "vol": 0.088 },
-        { "tenor": "2M",  "delta": "10DC",  "vol": 0.093 },
-        { "tenor": "3M",  "delta": "10DP",  "vol": 0.105 },
-        { "tenor": "3M",  "delta": "25DP",  "vol": 0.098 },
-        { "tenor": "3M",  "delta": "ATM",   "vol": 0.090 },
-        { "tenor": "3M",  "delta": "25DC",  "vol": 0.088 },
-        { "tenor": "3M",  "delta": "10DC",  "vol": 0.093 },
-        { "tenor": "6M",  "delta": "10DP",  "vol": 0.110 },
-        { "tenor": "6M",  "delta": "25DP",  "vol": 0.102 },
-        { "tenor": "6M",  "delta": "ATM",   "vol": 0.095 },
-        { "tenor": "6M",  "delta": "25DC",  "vol": 0.093 },
-        { "tenor": "6M",  "delta": "10DC",  "vol": 0.098 },
-        { "tenor": "1Y",  "delta": "10DP",  "vol": 0.115 },
-        { "tenor": "1Y",  "delta": "25DP",  "vol": 0.107 },
-        { "tenor": "1Y",  "delta": "ATM",   "vol": 0.100 },
-        { "tenor": "1Y",  "delta": "25DC",  "vol": 0.097 },
-        { "tenor": "1Y",  "delta": "10DC",  "vol": 0.103 }
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.105
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.1
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.095
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.093
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.098
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.105
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.098
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.09
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.088
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.093
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.105
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.098
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.09
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.088
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.093
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.105
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.098
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.09
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.088
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.093
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.11
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.102
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.095
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.093
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.098
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.115
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.107
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.1
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.097
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.103
+        }
       ],
       "usd_df_curve": [
-        { "tenor": "1W",  "df": 0.9991 },
-        { "tenor": "1M",  "df": 0.9963 },
-        { "tenor": "2M",  "df": 0.9926 },
-        { "tenor": "3M",  "df": 0.9888 },
-        { "tenor": "6M",  "df": 0.9777 },
-        { "tenor": "1Y",  "df": 0.9560 }
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9963
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9926
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9888
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9777
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.956
+        }
       ],
       "eur_df_curve": [
-        { "tenor": "1W",  "df": 0.9995 },
-        { "tenor": "1M",  "df": 0.9979 },
-        { "tenor": "2M",  "df": 0.9959 },
-        { "tenor": "3M",  "df": 0.9938 },
-        { "tenor": "6M",  "df": 0.9876 },
-        { "tenor": "1Y",  "df": 0.9753 }
+        {
+          "tenor": "1W",
+          "df": 0.9995
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9979
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9959
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9938
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9876
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9753
+        }
+      ]
+    },
+    "GBPUSD": {
+      "pair": "GBPUSD",
+      "instrument_type": "Deliverable",
+      "spot": 1.27,
+      "as_of": "2026-03-25",
+      "forwards": [
+        {
+          "tenor": "1W",
+          "points": -1,
+          "outright": 1.2699
+        },
+        {
+          "tenor": "1M",
+          "points": -5,
+          "outright": 1.2695
+        },
+        {
+          "tenor": "2M",
+          "points": -10,
+          "outright": 1.269
+        },
+        {
+          "tenor": "3M",
+          "points": -16,
+          "outright": 1.2684
+        },
+        {
+          "tenor": "6M",
+          "points": -32,
+          "outright": 1.2668
+        },
+        {
+          "tenor": "1Y",
+          "points": -63,
+          "outright": 1.2637
+        }
+      ],
+      "vol_surface": [
+        {
+          "tenor": "1W",
+          "delta": "10DP",
+          "vol": 0.095
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DP",
+          "vol": 0.082
+        },
+        {
+          "tenor": "1W",
+          "delta": "ATM",
+          "vol": 0.075
+        },
+        {
+          "tenor": "1W",
+          "delta": "25DC",
+          "vol": 0.08
+        },
+        {
+          "tenor": "1W",
+          "delta": "10DC",
+          "vol": 0.092
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DP",
+          "vol": 0.09
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DP",
+          "vol": 0.078
+        },
+        {
+          "tenor": "1M",
+          "delta": "ATM",
+          "vol": 0.071
+        },
+        {
+          "tenor": "1M",
+          "delta": "25DC",
+          "vol": 0.076
+        },
+        {
+          "tenor": "1M",
+          "delta": "10DC",
+          "vol": 0.088
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DP",
+          "vol": 0.088
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DP",
+          "vol": 0.076
+        },
+        {
+          "tenor": "2M",
+          "delta": "ATM",
+          "vol": 0.07
+        },
+        {
+          "tenor": "2M",
+          "delta": "25DC",
+          "vol": 0.074
+        },
+        {
+          "tenor": "2M",
+          "delta": "10DC",
+          "vol": 0.086
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DP",
+          "vol": 0.087
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DP",
+          "vol": 0.075
+        },
+        {
+          "tenor": "3M",
+          "delta": "ATM",
+          "vol": 0.069
+        },
+        {
+          "tenor": "3M",
+          "delta": "25DC",
+          "vol": 0.073
+        },
+        {
+          "tenor": "3M",
+          "delta": "10DC",
+          "vol": 0.085
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DP",
+          "vol": 0.09
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DP",
+          "vol": 0.078
+        },
+        {
+          "tenor": "6M",
+          "delta": "ATM",
+          "vol": 0.072
+        },
+        {
+          "tenor": "6M",
+          "delta": "25DC",
+          "vol": 0.076
+        },
+        {
+          "tenor": "6M",
+          "delta": "10DC",
+          "vol": 0.088
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DP",
+          "vol": 0.095
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DP",
+          "vol": 0.083
+        },
+        {
+          "tenor": "1Y",
+          "delta": "ATM",
+          "vol": 0.077
+        },
+        {
+          "tenor": "1Y",
+          "delta": "25DC",
+          "vol": 0.081
+        },
+        {
+          "tenor": "1Y",
+          "delta": "10DC",
+          "vol": 0.093
+        }
+      ],
+      "gbp_df_curve": [
+        {
+          "tenor": "1W",
+          "df": 0.9991
+        },
+        {
+          "tenor": "1M",
+          "df": 0.9961
+        },
+        {
+          "tenor": "2M",
+          "df": 0.9922
+        },
+        {
+          "tenor": "3M",
+          "df": 0.9882
+        },
+        {
+          "tenor": "6M",
+          "df": 0.9766
+        },
+        {
+          "tenor": "1Y",
+          "df": 0.9536
+        }
       ]
     }
   }

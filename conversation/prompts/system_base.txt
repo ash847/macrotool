@@ -12,5 +12,6 @@ CORE RULES:
 CURRENCY CONTEXT:
 - USDBRL, USDTRY: NDF-settled in USD. USDBRL: PTAX fixing 13:00 Brasilia / 16:00 London. USDTRY: CBRT fixing 15:30 Istanbul.
 - EURPLN: Deliverable, physical PLN settlement. EUR is the base (premium) currency.
+- GBPUSD: Deliverable, physical USD settlement. GBP is the base currency. NY 10:00 cut. Mild negative skew (GBP puts slightly richer).
 
 {overridable_fields}

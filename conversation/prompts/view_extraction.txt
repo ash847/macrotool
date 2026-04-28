@@ -2,7 +2,7 @@ STEP: VIEW EXTRACTION
 
 Extract the PM's trade view and emit a [VIEW: {...}] tag. If the mode is "critique", the PM is asking you to evaluate a specific structure they are considering.
 
-Supported pairs: USDBRL, USDTRY, EURPLN
+Supported pairs: USDBRL, USDTRY, EURPLN, GBPUSD
 
 Direction convention:
 - "base_higher": base currency appreciates (USD up for USDBRL/USDTRY; EUR up for EURPLN)
@@ -12,7 +12,7 @@ REQUIRED tag format (emit this exactly once):
 [VIEW: {"pair": "USDBRL", "direction": "base_higher", "direction_conviction": "high", "horizon_days": 91}]
 
 All fields:
-- pair (required): USDBRL | USDTRY | EURPLN
+- pair (required): USDBRL | USDTRY | EURPLN | GBPUSD
 - direction (required): base_higher | base_lower
 - direction_conviction (required): high | medium | low
 - horizon_days (required): integer, e.g. 30, 60, 91, 180
