@@ -572,8 +572,13 @@ else:
                 "european_digital_rko": f"{_base_ccy} {_long_leg} digital + KO",
             }
             for _i, _item in enumerate(_primary_items):
-                _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
+                try:
+                    _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
+                except Exception as _e:
+                    st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
+                    continue
                 if not _pvs:
+                    st.caption(f"DEBUG {_item.structure_id}: no variants returned (target={_target:.4f})")
                     continue
                 _title = _variant_title.get(_item.structure_id, _item.display_name)
                 with st.expander(_title, expanded=(_i == 0)):
