@@ -544,9 +544,8 @@ else:
             st.caption(
                 "Indicative pricing — flat ATM vol for all strikes. "
                 "Premium and payoff as % of spot. "
-                "**Risk/$1**: premium required per $1 of payoff at target (zero-cost seagull: "
-                "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
-                "Seagull max loss shown at 3σ tail move."
+                "**Payout/$1**: gross payoff at target per $1 of max loss (zero-cost seagull: "
+                "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
             )
             _base_ccy, _quote_ccy = flow.view.pair[:3], flow.view.pair[3:]
             _long_leg  = "call" if _is_call else "put"
@@ -569,23 +568,18 @@ else:
                     _has_wing    = any(pv.wing_ratio is not None for pv in _pvs)
                     for pv in _pvs:
                         _payoff = pv.payoff_at_target_pct
-                        # Risk/$1: max_loss (per unit notional) / payoff_at_target (per unit notional)
-                        # = cost in risk per $1 of target payoff, after scaling the notional.
                         if _payoff and _payoff > 1e-6 and pv.max_loss_pct > 0:
-                            _risk_per_1 = f"${pv.max_loss_pct / _payoff:.2f}"
-                        elif _payoff and _payoff > 1e-6:
-                            _risk_per_1 = "$0.00"
+                            _payout_per_1 = f"{_payoff / pv.max_loss_pct:.1f}×"
                         else:
-                            _risk_per_1 = "—"
+                            _payout_per_1 = "—"
                         r = {
                             "Variant":    pv.variant_label,
                             "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
                             "Premium":    "zero cost" if pv.is_zero_cost else f"{pv.net_premium_pct:.1%}",
                             "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
                             "Payoff @ tgt": f"{_payoff:.0%}" if _payoff is not None else "—",
-                            "R:R":        f"{pv.rr_at_target:.1f}×" if pv.rr_at_target else "—",
                             "Max loss":   f"{pv.max_loss_pct:.1%}",
-                            "Risk/$1":    _risk_per_1,
+                            "Payout/$1":  _payout_per_1,
                         }
                         if _has_barrier:
                             r["Barrier"] = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
