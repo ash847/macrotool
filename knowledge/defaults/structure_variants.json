@@ -19,8 +19,14 @@
     {"label": "25Δ/15Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.15, "wing_delta": 0.25}
   ],
 
+  "1x2_spread": [
+    {"label": "ATMF / 2× target",              "long_type": "atmf"},
+    {"label": "½σ toward target / 2× target",  "long_type": "half_sigma", "min_target_z": 0.5}
+  ],
+
   "european_digital": [
-    {"label": "~15% prem", "target_prem_pct": 0.15}
+    {"label": "~20% prem", "target_prem_pct": 0.20},
+    {"label": "~10% prem", "target_prem_pct": 0.10}
   ],
 
   "european_digital_rko": [

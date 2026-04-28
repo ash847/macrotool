@@ -31,7 +31,7 @@ from analytics.distributions import interpolate_vol
 from data.snapshot_loader import load_snapshot
 from interface.debug_log import (
     log_prompt, log_view_extracted, log_view_failed,
-    log_market_state, log_scorer_result, log_error, read_recent,
+    log_market_state, log_scorer_result, log_error,
 )
 
 # ---------------------------------------------------------------------------
@@ -537,7 +537,8 @@ else:
 
         # Structure variants
         from analytics.structure_pricer import price_variants as _price_variants
-        _primary_items = [s for s in flow.selector_result.shortlist if not s.is_exotic][:3]
+        _primary_items = flow.selector_result.shortlist[:3]
+        st.caption(f"DEBUG shortlist[:3]: {[s.structure_id for s in _primary_items]}")
 
         _any_variants = any(
             _price_variants(ms, s.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
@@ -557,6 +558,7 @@ else:
             _variant_title = {
                 "vanilla":              f"{_base_ccy} {_long_leg}",
                 "1x1_spread":           f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread",
+                "1x2_spread":           f"{_base_ccy} 1×2 {_long_leg} spread",
                 "seagull":              f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread + sold {_base_ccy} {_short_leg}",
                 "european_digital":     f"{_base_ccy} {_long_leg} digital",
                 "european_digital_rko": f"{_base_ccy} {_long_leg} digital + KO",
@@ -629,26 +631,6 @@ else:
     if "clarification" in st.session_state and st.session_state.clarification:
         st.info(st.session_state.clarification)
         st.session_state.clarification = ""
-
-    # Debug log panel
-    with st.expander("Debug log", expanded=False):
-        entries = read_recent(50)
-        if not entries:
-            st.caption("No log entries yet.")
-        else:
-            log_text = json.dumps(entries, indent=2, default=str)
-            col_copy, col_clear = st.columns([1, 1])
-            with col_copy:
-                st.code(log_text, language="json")
-            with col_clear:
-                if st.button("Clear log", key="clear_log"):
-                    try:
-                        from pathlib import Path as _P
-                        lp = _P(__file__).parent.parent / "logs" / "session.log"
-                        lp.write_text("")
-                    except Exception:
-                        pass
-                    st.rerun()
 
     # Input (only on Trade View page)
     prompt = st.chat_input("Describe your trade view (pair, direction, magnitude, horizon)...")
