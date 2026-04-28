@@ -578,7 +578,9 @@ else:
                     st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
                     continue
                 if not _pvs:
-                    st.caption(f"DEBUG {_item.structure_id}: no variants returned (target={_target:.4f})")
+                    from analytics.structure_pricer import _load_variants as _lv
+                    _cfg_keys = list(_lv().keys())
+                    st.caption(f"DEBUG {_item.structure_id}: no variants (target={_target:.4f}, cfg_keys={_cfg_keys})")
                     continue
                 _title = _variant_title.get(_item.structure_id, _item.display_name)
                 with st.expander(_title, expanded=(_i == 0)):
