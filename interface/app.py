@@ -347,17 +347,21 @@ def _render_market_data() -> None:
                 vol_df.index.name = "Tenor"
                 st.dataframe(vol_df, use_container_width=True)
 
-            # Discount curves (if present)
-            if ccy.usd_df_curve or ccy.eur_df_curve:
+            # Discount curve — base currency only
+            base_ccy = pair[:3]
+            base_curve_map = {
+                "USD": ccy.usd_df_curve,
+                "EUR": ccy.eur_df_curve,
+                "GBP": ccy.gbp_df_curve,
+            }
+            base_curve = base_curve_map.get(base_ccy, [])
+            if base_curve:
                 st.markdown("**Discount factors**")
-                df_cols = {}
-                if ccy.usd_df_curve:
-                    usd_map = {d.tenor: d.df for d in ccy.usd_df_curve}
-                    df_cols["USD DF"] = [usd_map.get(t, "") for t in tenors]
-                if ccy.eur_df_curve:
-                    eur_map = {d.tenor: d.df for d in ccy.eur_df_curve}
-                    df_cols["EUR DF"] = [eur_map.get(t, "") for t in tenors]
-                df_df = pd.DataFrame(df_cols, index=tenors)
+                df_map = {d.tenor: d.df for d in base_curve}
+                df_df = pd.DataFrame(
+                    {f"{base_ccy} DF": [df_map.get(t, "") for t in tenors]},
+                    index=tenors,
+                )
                 df_df.index.name = "Tenor"
                 st.dataframe(df_df, use_container_width=True)
 
