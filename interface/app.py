@@ -578,13 +578,6 @@ else:
                     st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
                     continue
                 if not _pvs:
-                    if _item.structure_id == "1x2_spread":
-                        import math as _math
-                        from analytics.structure_pricer import _load_variants as _lv, _1x2 as _1x2fn
-                        _vv = _lv()["1x2_spread"]
-                        _tz = abs(_math.log(_target / ms.fwd) / (ms.vol * _math.sqrt(ms.T))) if ms.vol * _math.sqrt(ms.T) > 0 else 0
-                        _direct = _1x2fn(_vv, ms.fwd, ms.vol, ms.T, _math.exp(-ms.r_d * ms.T), ms.r_d, ms.r_f, ms.spot, ms.vol * _math.sqrt(ms.T), _is_call, _target)
-                        st.caption(f"DEBUG 1x2 direct: target_z={_tz:.3f}, variants_in={len(_vv)}, result={len(_direct)}")
                     continue
                 _title = _variant_title.get(_item.structure_id, _item.display_name)
                 with st.expander(_title, expanded=(_i == 0)):
