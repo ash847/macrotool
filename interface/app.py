@@ -766,11 +766,31 @@ else:
                     for r in _ev_s["rows"]:
                         _ev_by_family.setdefault(r["family"], []).append(r)
 
+                    # Family summary table — average P&L per family
+                    _summary_rows = []
                     for _fam in _SC_FAMILIES:
                         if _fam not in _ev_by_family:
                             continue
-                        _fam_label = _fam.replace("_", " ").title()
-                        with st.expander(_fam_label, expanded=False):
+                        _fam_rows = _ev_by_family[_fam]
+                        _n = len(_fam_rows)
+                        _avg_pnl_pct = sum(r["pnl_pct"] for r in _fam_rows) / _n
+                        _ccy_vals = [r["pnl_ccy"] for r in _fam_rows if r["pnl_ccy"] is not None]
+                        _avg_pnl_ccy = (sum(_ccy_vals) / len(_ccy_vals)) if _ccy_vals else None
+                        _summary_rows.append({
+                            "Family":      _fam.replace("_", " ").title(),
+                            "Scenarios":   _n,
+                            "Avg P&L":     f"{_avg_pnl_pct:+.2%}  ({_fmt_ccy(_avg_pnl_ccy, _ev_base)})",
+                        })
+                    if _summary_rows:
+                        st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
+
+                    # Scenarios — full per-scenario detail, grouped by family (markdown headers, no nested expanders)
+                    with st.expander("Scenarios", expanded=False):
+                        for _fam in _SC_FAMILIES:
+                            if _fam not in _ev_by_family:
+                                continue
+                            _fam_label = _fam.replace("_", " ").title()
+                            st.markdown(f"**{_fam_label}**")
                             _fam_rows = _ev_by_family[_fam]
                             _fam_df = pd.DataFrame([{
                                 "Scenario":  r["scenario_id"],
