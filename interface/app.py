@@ -23,14 +23,14 @@ if str(_ROOT) not in sys.path:
 import streamlit as st
 import pandas as pd
 
-from conversation.flow import ConversationFlow, _parse_view_tag
-from conversation import context_builder
+from conversation.flow import ConversationFlow
 from interface.charts import build_distribution_fan, build_maturity_histogram
 from knowledge_engine.structure_scorer import get_scoring_detail
+from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
 from data.snapshot_loader import load_snapshot
 from interface.debug_log import (
-    log_prompt, log_view_extracted, log_view_failed,
+    log_prompt, log_view_extracted,
     log_market_state, log_scorer_result, log_error,
 )
 
@@ -107,6 +107,8 @@ if "page" not in st.session_state:
     st.session_state.page = "Trade View"
 if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
+if "clarification" not in st.session_state:
+    st.session_state.clarification = ""
 
 flow: ConversationFlow = st.session_state.flow
 
@@ -212,6 +214,7 @@ with st.sidebar:
         st.session_state.flow = ConversationFlow()
         st.session_state.submitted = False
         st.session_state.last_prompt = ""
+        st.session_state.clarification = ""
         st.rerun()
 
     with st.expander("Pair reference"):
@@ -254,57 +257,86 @@ def _sigma_sentence(flow: ConversationFlow, target: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# View extraction (one LLM call, no text displayed)
+# Structured intake helpers
 # ---------------------------------------------------------------------------
 
-def _extract_view(prompt: str) -> str | None:
-    log_prompt(prompt)
-    system = context_builder.build_intake_prompt(flow._snapshot)
-    full_text = ""
-    for chunk in flow._client.stream([{"role": "user", "content": prompt}], system):
-        full_text += chunk
+_HORIZON_OPTIONS: list[tuple[str, int]] = [
+    (f"{month}M", round(month * 365 / 12)) for month in range(1, 13)
+]
+_DIRECTION_OPTIONS = {
+    "Base higher": "base_higher",
+    "Base lower": "base_lower",
+}
 
-    view = _parse_view_tag(full_text)
-    if view:
-        flow.view = view
-        flow.ccy = flow._snapshot.get(view.pair)
-        try:
-            flow._run_engines()
-            log_view_extracted(view.__dict__)
-            if flow.market_state:
-                log_market_state(flow.market_state)
-            if flow.selector_result:
-                log_scorer_result(flow.selector_result)
-        except Exception as e:
-            log_error("_run_engines", e)
-            raise
-        if (
-            flow.market_state
-            and flow.market_state.target_z is not None
-            and abs(flow.market_state.target_z) < 0.25
-        ):
-            flow.market_state = None
-            flow.selector_result = None
-            return ("ERROR: Target is less than 0.25σ from the forward — "
-                    "the move is not large enough to structure an option trade.")
-        try:
-            _log_query(
-                prompt=prompt,
-                pair=view.pair,
-                direction=view.direction,
-                magnitude_pct=view.magnitude_pct,
-                horizon_days=view.horizon_days,
-                target_z=flow.market_state.target_z if flow.market_state else None,
-                carry_regime=flow.market_state.carry_regime if flow.market_state else None,
-                top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
-                llm_response=full_text,
-            )
-        except Exception as e:
-            log_error("supabase_log_query", e)
-        return None
-    else:
-        log_view_failed(full_text)
-        return full_text
+
+def _build_prompt_summary(pair: str, direction: str, horizon_days: int, target: float) -> str:
+    direction_label = "Long" if direction == "base_higher" else "Short"
+    return f"{direction_label} {pair}, target {target:.4f}, {horizon_days}d"
+
+
+def _submit_structured_view(pair: str, direction: str, horizon_days: int, target: float) -> str | None:
+    direction_label = "base higher" if direction == "base_higher" else "base lower"
+    prompt = f"pair={pair}; direction={direction_label}; target={target:.4f}; horizon_days={horizon_days}"
+    log_prompt(prompt)
+
+    ccy = flow._snapshot.get(pair)
+    if ccy is None:
+        return f"ERROR: Unsupported pair {pair}."
+
+    if direction == "base_higher" and target <= ccy.spot:
+        return "ERROR: For `Base higher`, target must be above spot."
+    if direction == "base_lower" and target >= ccy.spot:
+        return "ERROR: For `Base lower`, target must be below spot."
+
+    magnitude_pct = abs(target / ccy.spot - 1.0) * 100.0
+    view = TradeView(
+        pair=pair,
+        direction=direction,
+        direction_conviction="medium",
+        horizon_days=horizon_days,
+        magnitude_pct=magnitude_pct,
+    )
+
+    flow.view = view
+    flow.ccy = ccy
+    try:
+        flow._run_engines()
+        log_view_extracted(view.__dict__)
+        if flow.market_state:
+            log_market_state(flow.market_state)
+        if flow.selector_result:
+            log_scorer_result(flow.selector_result)
+    except Exception as e:
+        log_error("_run_engines", e)
+        raise
+
+    if (
+        flow.market_state
+        and flow.market_state.target_z is not None
+        and abs(flow.market_state.target_z) < 0.25
+    ):
+        flow.market_state = None
+        flow.selector_result = None
+        return ("ERROR: Target is less than 0.25σ from the forward — "
+                "the move is not large enough to structure an option trade.")
+
+    try:
+        _log_query(
+            prompt=prompt,
+            pair=view.pair,
+            direction=view.direction,
+            magnitude_pct=view.magnitude_pct,
+            horizon_days=view.horizon_days,
+            target_z=flow.market_state.target_z if flow.market_state else None,
+            carry_regime=flow.market_state.carry_regime if flow.market_state else None,
+            top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
+            llm_response="",
+        )
+    except Exception as e:
+        log_error("supabase_log_query", e)
+
+    st.session_state.last_prompt = _build_prompt_summary(pair, direction, horizon_days, target)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -460,8 +492,8 @@ else:
             if sentence:
                 st.markdown(sentence)
     else:
-        st.markdown("### Describe your trade view")
-        st.caption("e.g. *\"Long USDBRL, 5% move, 3 months, high conviction\"*")
+        st.markdown("### Enter trade view")
+        st.caption("Select the pair, direction, horizon, and target level.")
 
     # Structure recommendation
     if flow.market_state and flow.selector_result and flow.selector_result.shortlist:
@@ -892,22 +924,57 @@ else:
             st.info(msg)
         st.session_state.clarification = ""
 
-    # Input (only on Trade View page)
-    prompt = st.chat_input("Describe your trade view (pair, direction, magnitude, horizon)...")
-
-    if prompt:
-        api_configured = bool(
-            os.environ.get("ANTHROPIC_API_KEY")
-            or (hasattr(flow._client._client, "api_key") and flow._client._client.api_key)
+    # Structured input (only on Trade View page)
+    with st.form("trade_view_form", clear_on_submit=False):
+        _pair_options = list(flow._snapshot.currencies.keys())
+        _default_pair = flow.view.pair if flow.view else _pair_options[0]
+        _pair_ix = _pair_options.index(_default_pair) if _default_pair in _pair_options else 0
+        _dir_label_default = (
+            "Base higher"
+            if not flow.view or flow.view.direction == "base_higher"
+            else "Base lower"
         )
-        if not api_configured:
-            st.error("Please enter your Anthropic API key in the sidebar.")
-            st.stop()
+        _horizon_days_default = flow.view.horizon_days if flow.view else _HORIZON_OPTIONS[2][1]
+        _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
+        _horizon_values = [days for _, days in _HORIZON_OPTIONS]
+        _h_ix = _horizon_values.index(_horizon_days_default) if _horizon_days_default in _horizon_values else 2
 
-        st.session_state.last_prompt = prompt
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            form_pair = st.selectbox("Pair", _pair_options, index=_pair_ix)
+        with c2:
+            form_direction_label = st.selectbox(
+                "Direction",
+                list(_DIRECTION_OPTIONS.keys()),
+                index=list(_DIRECTION_OPTIONS.keys()).index(_dir_label_default),
+            )
+        with c3:
+            form_horizon_label = st.selectbox("Horizon", _horizon_labels, index=_h_ix)
+        with c4:
+            _pair_spot = flow._snapshot.get(_default_pair).spot
+            _fallback_target = _pair_spot * (1.05 if _dir_label_default == "Base higher" else 0.95)
+            _active_target = _target_price(flow)
+            _default_target = _active_target if _active_target is not None else _fallback_target
+            form_target = st.number_input(
+                "Target",
+                min_value=0.0001,
+                value=float(_default_target),
+                step=0.0001,
+                format="%.4f",
+            )
+
+        submitted = st.form_submit_button("Run trade view", type="primary", use_container_width=True)
+
+    if submitted:
         flow.target_rr = st.session_state.target_rr
-        with st.spinner("Reading view..."):
-            clarification = _extract_view(prompt)
+        st.session_state.clarification = ""
+        with st.spinner("Running trade view..."):
+            clarification = _submit_structured_view(
+                pair=form_pair,
+                direction=_DIRECTION_OPTIONS[form_direction_label],
+                horizon_days=dict(_HORIZON_OPTIONS)[form_horizon_label],
+                target=form_target,
+            )
 
         if clarification:
             st.session_state.clarification = clarification
