@@ -699,18 +699,27 @@ else:
                 "Scenario MtM as % of entry spot.  P&L vs entry premium."
             )
 
-            _ev_df = pd.DataFrame([{
-                "Scenario":   r["scenario_id"],
-                "Family":     r["family"].replace("_", " ").title(),
-                "T%":         f"{r['time_fraction']:.0%}",
-                "Fwd":        f"{r['scenario_fwd']:.4f}",
-                "Spot":       f"{r['scenario_spot']:.4f}",
-                "Vol shift":  f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
-                "Vol":        f"{r['scenario_vol']:.1%}",
-                "Price":      f"{r['price_pct']:.2%}",
-                "P&L":        f"{r['pnl_pct']:+.2%}",
-            } for r in _ev_rows])
-            st.dataframe(_ev_df, use_container_width=True, hide_index=True)
+            from analytics.scenario_generator import FAMILIES as _SC_FAMILIES
+            _ev_by_family = {}
+            for r in _ev_rows:
+                _ev_by_family.setdefault(r["family"], []).append(r)
+
+            for _fam in _SC_FAMILIES:
+                if _fam not in _ev_by_family:
+                    continue
+                st.markdown(f"**{_fam.replace('_', ' ').title()}**")
+                _fam_rows = _ev_by_family[_fam]
+                _fam_df = pd.DataFrame([{
+                    "Scenario":  r["scenario_id"],
+                    "T%":        f"{r['time_fraction']:.0%}",
+                    "Fwd":       f"{r['scenario_fwd']:.4f}",
+                    "Spot":      f"{r['scenario_spot']:.4f}",
+                    "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
+                    "Vol":       f"{r['scenario_vol']:.1%}",
+                    "Price":     f"{r['price_pct']:.2%}",
+                    "P&L":       f"{r['pnl_pct']:+.2%}",
+                } for r in _fam_rows])
+                st.dataframe(_fam_df, use_container_width=True, hide_index=True)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
