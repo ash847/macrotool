@@ -679,7 +679,7 @@ else:
                         st.session_state[f"{_fb_key}_submitted"] = True
                         st.rerun()
 
-    # Structure Evaluation — scenario table for first variant of top-ranked structure
+    # Structure Evaluation — scenario tables for all shortlisted structures
     if (
         flow.market_state
         and flow.selector_result
@@ -692,76 +692,97 @@ else:
         _ev_move = abs(_ev_target - _ev_ms.fwd) / _ev_ms.fwd
         _ev_stop_pct = _ev_move / flow.target_rr
         _ev_stop = _ev_ms.fwd * (1 - _ev_stop_pct) if _ev_is_call else _ev_ms.fwd * (1 + _ev_stop_pct)
-
-        _ev_top = flow.selector_result.shortlist[0]
         _ev_loss_budget = LINEAR_NOTIONAL * _ev_stop_pct
+
         from analytics.structure_pricer import price_variants as _pv_fn
-        _ev_pvs = _pv_fn(_ev_ms, _ev_top.structure_id, target=_ev_target, is_call=_ev_is_call, stop_price=_ev_stop, loss_budget=_ev_loss_budget)
+        from analytics.scenario_generator import generate_scenarios as _gen_sc, FAMILIES as _SC_FAMILIES
+        from analytics.scenario_pricer import price_scenarios as _price_sc
 
-        if _ev_pvs:
-            from analytics.scenario_generator import generate_scenarios as _gen_sc
-            from analytics.scenario_pricer import price_scenarios as _price_sc
+        _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
+        _ev_long = "call" if _ev_is_call else "put"
+        _ev_short = "put" if _ev_is_call else "call"
+        _ev_vtitles = {
+            "vanilla":              f"{_ev_base} {_ev_long}",
+            "1x1_spread":           f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread",
+            "1x2_spread":           f"{_ev_base} 1×2 {_ev_long} spread",
+            "seagull":              f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread + sold {_ev_base} {_ev_short}",
+            "european_digital":     f"{_ev_base} {_ev_long} digital",
+            "european_digital_rko": f"{_ev_base} {_ev_long} digital + KO",
+        }
 
-            _ev_inputs = {
-                "spot": _ev_ms.spot,
-                "forward": _ev_ms.fwd,
-                "implied_vol": _ev_ms.vol,
-                "tenor_years": _ev_ms.T,
-                "target": _ev_target,
-                "r_d": _ev_ms.r_d,
-                "r_f": _ev_ms.r_f,
-            }
-            _ev_scenarios = _gen_sc(_ev_inputs)
-            _ev_rows = _price_sc(_ev_pvs[0], _ev_top.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call)
-            st.session_state["last_scenario_results"] = _ev_rows
+        _ev_inputs = {
+            "spot": _ev_ms.spot,
+            "forward": _ev_ms.fwd,
+            "implied_vol": _ev_ms.vol,
+            "tenor_years": _ev_ms.T,
+            "target": _ev_target,
+            "r_d": _ev_ms.r_d,
+            "r_f": _ev_ms.r_f,
+        }
+        _ev_scenarios = _gen_sc(_ev_inputs)  # same scenario set for all structures
 
-            _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
-            _ev_long = "call" if _ev_is_call else "put"
-            _ev_short = "put" if _ev_is_call else "call"
-            _ev_vtitles = {
-                "vanilla":              f"{_ev_base} {_ev_long}",
-                "1x1_spread":           f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread",
-                "1x2_spread":           f"{_ev_base} 1×2 {_ev_long} spread",
-                "seagull":              f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread + sold {_ev_base} {_ev_short}",
-                "european_digital":     f"{_ev_base} {_ev_long} digital",
-                "european_digital_rko": f"{_ev_base} {_ev_long} digital + KO",
-            }
-            _ev_struct_label = _ev_vtitles.get(_ev_top.structure_id, _ev_top.display_name)
+        # Build per-structure data (skip structures with no priceable variants)
+        _ev_structs = []
+        for _ev_item in flow.selector_result.shortlist[:3]:
+            try:
+                _ev_pvs = _pv_fn(
+                    _ev_ms, _ev_item.structure_id,
+                    target=_ev_target, is_call=_ev_is_call,
+                    stop_price=_ev_stop, loss_budget=_ev_loss_budget,
+                )
+            except Exception:
+                continue
+            if not _ev_pvs:
+                continue
+            _ev_rows = _price_sc(
+                _ev_pvs[0], _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
+            )
+            _ev_structs.append({
+                "item":    _ev_item,
+                "pvs":     _ev_pvs,
+                "rows":    _ev_rows,
+                "label":   _ev_vtitles.get(_ev_item.structure_id, _ev_item.display_name),
+            })
+
+        if _ev_structs:
+            # persist last results for debug / future scoring
+            st.session_state["last_scenario_results"] = _ev_structs[-1]["rows"]
 
             st.subheader("Structure Evaluation")
-
-            _ev_notional_str = (
-                _fmt_ccy(_ev_pvs[0].structure_notional, _ev_base)
-                if _ev_pvs[0].structure_notional is not None else None
-            )
-            _ev_struct_heading = f"{_ev_struct_label} — {_ev_pvs[0].variant_label}"
-            if _ev_notional_str:
-                _ev_struct_heading += f"  ·  Notional: {_ev_notional_str}"
-            st.subheader(_ev_struct_heading)
             st.caption("Scenario MtM as % of entry spot.  P&L vs entry premium.")
 
-            from analytics.scenario_generator import FAMILIES as _SC_FAMILIES
-            _ev_by_family = {}
-            for r in _ev_rows:
-                _ev_by_family.setdefault(r["family"], []).append(r)
+            for _ev_s in _ev_structs:
+                _pv0 = _ev_s["pvs"][0]
+                _notional_str = (
+                    _fmt_ccy(_pv0.structure_notional, _ev_base)
+                    if _pv0.structure_notional is not None else None
+                )
+                _struct_title = f"{_ev_s['label']} — {_pv0.variant_label}"
+                if _notional_str:
+                    _struct_title += f"  ·  Notional: {_notional_str}"
 
-            for _fam in _SC_FAMILIES:
-                if _fam not in _ev_by_family:
-                    continue
-                _fam_label = _fam.replace("_", " ").title()
-                with st.expander(_fam_label, expanded=False):
-                    _fam_rows = _ev_by_family[_fam]
-                    _fam_df = pd.DataFrame([{
-                        "Scenario":  r["scenario_id"],
-                        "T%":        f"{r['time_fraction']:.0%}",
-                        "Fwd":       f"{r['scenario_fwd']:.4f}",
-                        "Spot":      f"{r['scenario_spot']:.4f}",
-                        "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
-                        "Vol":       f"{r['scenario_vol']:.1%}",
-                        "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
-                        "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
-                    } for r in _fam_rows])
-                    st.dataframe(_fam_df, use_container_width=True, hide_index=True)
+                with st.expander(_struct_title, expanded=False):
+                    _ev_by_family: dict[str, list] = {}
+                    for r in _ev_s["rows"]:
+                        _ev_by_family.setdefault(r["family"], []).append(r)
+
+                    for _fam in _SC_FAMILIES:
+                        if _fam not in _ev_by_family:
+                            continue
+                        _fam_label = _fam.replace("_", " ").title()
+                        with st.expander(_fam_label, expanded=False):
+                            _fam_rows = _ev_by_family[_fam]
+                            _fam_df = pd.DataFrame([{
+                                "Scenario":  r["scenario_id"],
+                                "T%":        f"{r['time_fraction']:.0%}",
+                                "Fwd":       f"{r['scenario_fwd']:.4f}",
+                                "Spot":      f"{r['scenario_spot']:.4f}",
+                                "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
+                                "Vol":       f"{r['scenario_vol']:.1%}",
+                                "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
+                                "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
+                            } for r in _fam_rows])
+                            st.dataframe(_fam_df, use_container_width=True, hide_index=True)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
