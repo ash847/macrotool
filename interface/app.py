@@ -635,7 +635,7 @@ else:
                             "Notional":   _fmt_ccy(pv.structure_notional, _base_ccy),
                             "Premium":    _prem_cell,
                             "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
-                            "Payoff @ tgt": _payoff_cell,
+                            "Payout at target": _payoff_cell,
                             "Max loss":   f"{pv.max_loss_pct:.1%}  ({_fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
                             "Payout/$1":  _payout_per_1,
                         }
@@ -729,10 +729,16 @@ else:
             _ev_struct_label = _ev_vtitles.get(_ev_top.structure_id, _ev_top.display_name)
 
             st.subheader("Structure Evaluation")
-            st.caption(
-                f"{_ev_struct_label} — {_ev_pvs[0].variant_label}  ·  "
-                "Scenario MtM as % of entry spot.  P&L vs entry premium."
+
+            _ev_notional_str = (
+                _fmt_ccy(_ev_pvs[0].structure_notional, _ev_base)
+                if _ev_pvs[0].structure_notional is not None else None
             )
+            _ev_struct_heading = f"{_ev_struct_label} — {_ev_pvs[0].variant_label}"
+            if _ev_notional_str:
+                _ev_struct_heading += f"  ·  Notional: {_ev_notional_str}"
+            st.subheader(_ev_struct_heading)
+            st.caption("Scenario MtM as % of entry spot.  P&L vs entry premium.")
 
             from analytics.scenario_generator import FAMILIES as _SC_FAMILIES
             _ev_by_family = {}
@@ -742,19 +748,20 @@ else:
             for _fam in _SC_FAMILIES:
                 if _fam not in _ev_by_family:
                     continue
-                st.markdown(f"**{_fam.replace('_', ' ').title()}**")
-                _fam_rows = _ev_by_family[_fam]
-                _fam_df = pd.DataFrame([{
-                    "Scenario":  r["scenario_id"],
-                    "T%":        f"{r['time_fraction']:.0%}",
-                    "Fwd":       f"{r['scenario_fwd']:.4f}",
-                    "Spot":      f"{r['scenario_spot']:.4f}",
-                    "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
-                    "Vol":       f"{r['scenario_vol']:.1%}",
-                    "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
-                    "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
-                } for r in _fam_rows])
-                st.dataframe(_fam_df, use_container_width=True, hide_index=True)
+                _fam_label = _fam.replace("_", " ").title()
+                with st.expander(_fam_label, expanded=False):
+                    _fam_rows = _ev_by_family[_fam]
+                    _fam_df = pd.DataFrame([{
+                        "Scenario":  r["scenario_id"],
+                        "T%":        f"{r['time_fraction']:.0%}",
+                        "Fwd":       f"{r['scenario_fwd']:.4f}",
+                        "Spot":      f"{r['scenario_spot']:.4f}",
+                        "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
+                        "Vol":       f"{r['scenario_vol']:.1%}",
+                        "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
+                        "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
+                    } for r in _fam_rows])
+                    st.dataframe(_fam_df, use_container_width=True, hide_index=True)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
