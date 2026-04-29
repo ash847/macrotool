@@ -187,39 +187,6 @@ def _render_context_weights(cfg: dict) -> None:
             clear_scenario_weights_cache()
             st.rerun()
 
-    # Version history
-    st.divider()
-    with st.expander("Version history", expanded=False):
-        try:
-            from interface.supabase_logger import fetch_config_history as _hist
-            history = _hist("scenario_weights")
-        except Exception:
-            history = []
-
-        if not history:
-            st.caption("No saved versions yet (or Supabase not configured).")
-        else:
-            st.caption(f"{len(history)} version(s) stored, newest first.")
-            for i, entry in enumerate(history):
-                saved_at = entry.get("saved_at", "unknown time")
-                v_cfg = entry.get("value", {})
-                # Summarise non-default adjustments for this version
-                non_default = []
-                for ctx in v_cfg.get("contexts", []):
-                    adj = ctx.get("adjustments", {})
-                    if adj:
-                        summary = ", ".join(
-                            f"{f.replace('_',' ').title()} {d:+.2f}"
-                            for f, d in adj.items()
-                        )
-                        non_default.append(f"{ctx['id'].replace('_',' ')}: {summary}")
-                label = f"v{len(history) - i} — {saved_at}"
-                with st.expander(label, expanded=False):
-                    if non_default:
-                        for line in non_default:
-                            st.caption(line)
-                    else:
-                        st.caption("All families at baseline (no adjustments).")
 
 
 # ---------------------------------------------------------------------------
