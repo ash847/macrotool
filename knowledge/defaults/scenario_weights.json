@@ -1,0 +1,150 @@
+{
+  "_description": "Tier 1 scenario family weights. Maps a MarketState (carry regime, target distance, tenor, vol) to a weight per scenario family. Weights are then applied to per-family mean P&L to produce a single weighted P&L score per structure. Same architecture as affinity_scores.json: baseline + scaled adjustments, normalised, with a floor.",
+
+  "_what_the_weights_mean": "Each weight expresses how much we believe a given scenario family represents what the market is likely to do — given the trade view and the current market state. They are NOT structure-dependent: the same vector is applied to every shortlisted structure so that resulting scores are directly comparable.",
+
+  "_baseline_logic": "All 8 families start at 1/8 = 0.125 (equal-weighted, no view). Rules nudge individual families up or down based on conditions evaluated against MarketState. After all rules fire, weights are floored (no family below `floor`) and renormalised to sum to 1.",
+
+  "_families": [
+    "CORRECT_PATH",
+    "EARLY_TARGET",
+    "NO_MOVE",
+    "WRONG_WAY",
+    "OVERSHOOT",
+    "VOL_SENSITIVITY",
+    "SKEW_SENSITIVITY",
+    "EXPIRY"
+  ],
+
+  "_rule_schema": {
+    "id": "Stable identifier — used to surface which rules fired in the UI / logs.",
+    "comment": "Plain-English description of why this rule exists. Read this when tuning.",
+    "when": "Array of {field, op, value} — ALL must be true for the rule to fire. Supported fields: target_z_abs, carry_regime, with_carry, T, vol, atmfsratio. Supported ops: '>', '>=', '<', '<=', '==', '!='. If a referenced field is None on MarketState (e.g. target_z when no target supplied), the condition evaluates false.",
+    "family": "One of the 8 scenario families above.",
+    "adjustment": "Signed delta added to that family's baseline weight. Positive = bump up, negative = bump down."
+  },
+
+  "baseline": 0.125,
+  "floor": 0.02,
+
+  "rules": [
+
+    {
+      "id": "far_target_overshoot_up",
+      "comment": "Target is far from forward (>1.5σ). To get there, the market must move with conviction — and likely overshoot. Bump OVERSHOOT to reflect that fat-tail behaviour matters more here than an early stall at the target.",
+      "when": [{"field": "target_z_abs", "op": ">", "value": 1.5}],
+      "family": "OVERSHOOT",
+      "adjustment": 0.05
+    },
+    {
+      "id": "far_target_early_down",
+      "comment": "Mirror of the rule above: if the target is far away, the chance of hitting it early is lower than the baseline assumes. Trim EARLY_TARGET.",
+      "when": [{"field": "target_z_abs", "op": ">", "value": 1.5}],
+      "family": "EARLY_TARGET",
+      "adjustment": -0.04
+    },
+
+    {
+      "id": "near_target_early_up",
+      "comment": "Target is close to forward (<0.5σ) — easily reachable on normal random walk. The market is likely to oscillate around it; early touches and pull-backs become the dominant scenarios. Bump EARLY_TARGET.",
+      "when": [{"field": "target_z_abs", "op": "<", "value": 0.5}],
+      "family": "EARLY_TARGET",
+      "adjustment": 0.05
+    },
+    {
+      "id": "near_target_overshoot_down",
+      "comment": "Mirror: when the target is close, big overshoots are less informative — they're just noise around an easy level. Trim OVERSHOOT.",
+      "when": [{"field": "target_z_abs", "op": "<", "value": 0.5}],
+      "family": "OVERSHOOT",
+      "adjustment": -0.04
+    },
+
+    {
+      "id": "high_carry_with_correct_up",
+      "comment": "High carry (regime 2) trading with the carry: drift is your friend. CORRECT_PATH (smooth move toward target) is the most likely realised outcome.",
+      "when": [
+        {"field": "carry_regime", "op": "==", "value": 2},
+        {"field": "with_carry",   "op": "==", "value": true}
+      ],
+      "family": "CORRECT_PATH",
+      "adjustment": 0.05
+    },
+    {
+      "id": "high_carry_with_wrongway_down",
+      "comment": "High carry with the trade — wrong-way moves are heavily penalised by the drift. WRONG_WAY scenarios are less likely; trim their weight.",
+      "when": [
+        {"field": "carry_regime", "op": "==", "value": 2},
+        {"field": "with_carry",   "op": "==", "value": true}
+      ],
+      "family": "WRONG_WAY",
+      "adjustment": -0.04
+    },
+    {
+      "id": "high_carry_counter_wrongway_up",
+      "comment": "High carry against the trade: the carry is a constant headwind. The realised path is far more likely to drift the wrong way. Bump WRONG_WAY heavily — this is the family the PM should be paying attention to.",
+      "when": [
+        {"field": "carry_regime", "op": "==", "value": 2},
+        {"field": "with_carry",   "op": "==", "value": false}
+      ],
+      "family": "WRONG_WAY",
+      "adjustment": 0.06
+    },
+    {
+      "id": "high_carry_counter_nomove_up",
+      "comment": "High carry against the trade also raises the relative weight of NO_MOVE: a flat market with negative drift will close in adverse territory. Bump NO_MOVE.",
+      "when": [
+        {"field": "carry_regime", "op": "==", "value": 2},
+        {"field": "with_carry",   "op": "==", "value": false}
+      ],
+      "family": "NO_MOVE",
+      "adjustment": 0.04
+    },
+
+    {
+      "id": "noisy_carry_nomove_down",
+      "comment": "Carry regime 0 = noisy. With no clear drift, NO_MOVE is no longer the privileged scenario it would be under medium/high carry. Trim it slightly.",
+      "when": [{"field": "carry_regime", "op": "==", "value": 0}],
+      "family": "NO_MOVE",
+      "adjustment": -0.03
+    },
+    {
+      "id": "noisy_carry_vol_up",
+      "comment": "When carry signal is weak, vol-driven mean reversion dominates. Lift VOL_SENSITIVITY so PnL outcomes that hinge on the vol surface get appropriate weight.",
+      "when": [{"field": "carry_regime", "op": "==", "value": 0}],
+      "family": "VOL_SENSITIVITY",
+      "adjustment": 0.03
+    },
+
+    {
+      "id": "short_tenor_expiry_up",
+      "comment": "Tenor < 1m: theta and pin-risk dominate. EXPIRY (intrinsic value at maturity) is the family the PM should weight heaviest because there is no time for path scenarios to differentiate from terminal outcome.",
+      "when": [{"field": "T", "op": "<", "value": 0.083}],
+      "family": "EXPIRY",
+      "adjustment": 0.04
+    },
+    {
+      "id": "short_tenor_early_down",
+      "comment": "Conversely, with very short tenor there's barely time for a meaningful 'early target' touch to materially differ from terminal P&L. Trim EARLY_TARGET.",
+      "when": [{"field": "T", "op": "<", "value": 0.083}],
+      "family": "EARLY_TARGET",
+      "adjustment": -0.03
+    },
+
+    {
+      "id": "long_tenor_early_up",
+      "comment": "Tenor > 6m: lots of room for the spot to wander to the target and back. EARLY_TARGET (touching, then drifting away) becomes a real risk for capped structures. Bump it.",
+      "when": [{"field": "T", "op": ">", "value": 0.5}],
+      "family": "EARLY_TARGET",
+      "adjustment": 0.03
+    },
+
+    {
+      "id": "high_vol_volsens_up",
+      "comment": "ATM vol > 20%: vol moves materially affect option value beyond directional P&L. Lift VOL_SENSITIVITY so vega-rich structures (long gamma, long vol) get appropriately credited.",
+      "when": [{"field": "vol", "op": ">", "value": 0.20}],
+      "family": "VOL_SENSITIVITY",
+      "adjustment": 0.04
+    }
+
+  ]
+}

@@ -697,6 +697,13 @@ else:
         from analytics.structure_pricer import price_variants as _pv_fn
         from analytics.scenario_generator import generate_scenarios as _gen_sc, FAMILIES as _SC_FAMILIES
         from analytics.scenario_pricer import price_scenarios as _price_sc
+        from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
+        from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
+
+        # Tier 1 weights — derived from MarketState (already view-conditioned).
+        # Same weight vector applied to every structure → scores comparable.
+        _ev_weighter = _compute_w(_ev_ms)
+        _ev_weights  = _ev_weighter.weights
 
         _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
         _ev_long = "call" if _ev_is_call else "put"
@@ -737,10 +744,12 @@ else:
             _ev_rows = _price_sc(
                 _ev_pvs[0], _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
             )
+            _ev_score = _score_struct(_ev_rows, _ev_weights)
             _ev_structs.append({
                 "item":    _ev_item,
                 "pvs":     _ev_pvs,
                 "rows":    _ev_rows,
+                "score":   _ev_score,
                 "label":   _ev_vtitles.get(_ev_item.structure_id, _ev_item.display_name),
             })
 
@@ -749,40 +758,99 @@ else:
             st.session_state["last_scenario_results"] = _ev_structs[-1]["rows"]
 
             st.subheader("Structure Evaluation")
-            st.caption("Scenario MtM as % of entry spot.  P&L vs entry premium.")
+
+            # Scenario-context line: what view of the world is producing these
+            # weights? Lets the PM sense-check both the scenario choice and
+            # the resulting weight vector.
+            _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
+            _dir_lbl = "with-carry" if _ev_ms.with_carry else "counter-carry"
+            _tz_lbl = (
+                f"target {abs(_ev_ms.target_z):.2f}σ from forward"
+                if _ev_ms.target_z is not None else "no target"
+            )
+            _tenor_days = int(round(_ev_ms.T * 365))
+            _tenor_lbl = f"{_tenor_days}d tenor"
+            _vol_lbl = f"vol {_ev_ms.vol:.1%}"
+            st.caption(
+                f"**Context:** carry {_carry_lbl} ({_dir_lbl})  ·  {_tz_lbl}  ·  "
+                f"{_tenor_lbl}  ·  {_vol_lbl}.  "
+                "Scenario MtM as % of entry spot.  P&L vs entry premium."
+            )
+
+            # Show the family weights that come out of Tier 1, plus which
+            # rules fired — fully transparent.
+            with st.expander("Scenario weights for this trade", expanded=False):
+                _w_rows = [
+                    {
+                        "Family": _fam.replace("_", " ").title(),
+                        "Weight": f"{_ev_weights[_fam]:.1%}",
+                    }
+                    for _fam in _SC_FAMILIES
+                    if _fam in _ev_weights
+                ]
+                st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
+                if _ev_weighter.fired:
+                    st.markdown("**Rules that fired**")
+                    _rule_rows = [
+                        {
+                            "Rule":       r.id,
+                            "Family":     r.family.replace("_", " ").title(),
+                            "Δ":          f"{r.adjustment:+.2f}",
+                            "Reasoning":  r.comment,
+                        }
+                        for r in _ev_weighter.fired
+                    ]
+                    st.dataframe(pd.DataFrame(_rule_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.caption(
+                        "No rules fired — every family kept its baseline weight "
+                        f"of {_ev_weighter.baseline:.3f}."
+                    )
 
             for _ev_s in _ev_structs:
                 _pv0 = _ev_s["pvs"][0]
+                _score = _ev_s["score"]
                 _notional_str = (
                     _fmt_ccy(_pv0.structure_notional, _ev_base)
                     if _pv0.structure_notional is not None else None
                 )
+                _score_str = (
+                    f"{_score.score_pct:+.2%}"
+                    + (f"  ({_fmt_ccy(_score.score_ccy, _ev_base)})"
+                       if _score.score_ccy is not None else "")
+                )
                 _struct_title = f"{_ev_s['label']} — {_pv0.variant_label}"
                 if _notional_str:
                     _struct_title += f"  ·  Notional: {_notional_str}"
+                _struct_title += f"  ·  Weighted P&L: {_score_str}"
 
                 with st.expander(_struct_title, expanded=False):
-                    _ev_by_family: dict[str, list] = {}
-                    for r in _ev_s["rows"]:
-                        _ev_by_family.setdefault(r["family"], []).append(r)
+                    # Family summary — index breakdown by family for fast lookup
+                    _bd_by_family = {b.family: b for b in _score.families}
 
-                    # Family summary table — average P&L per family
                     _summary_rows = []
                     for _fam in _SC_FAMILIES:
-                        if _fam not in _ev_by_family:
+                        _bd = _bd_by_family.get(_fam)
+                        if _bd is None:
                             continue
-                        _fam_rows = _ev_by_family[_fam]
-                        _n = len(_fam_rows)
-                        _avg_pnl_pct = sum(r["pnl_pct"] for r in _fam_rows) / _n
-                        _ccy_vals = [r["pnl_ccy"] for r in _fam_rows if r["pnl_ccy"] is not None]
-                        _avg_pnl_ccy = (sum(_ccy_vals) / len(_ccy_vals)) if _ccy_vals else None
                         _summary_rows.append({
-                            "Family":      _fam.replace("_", " ").title(),
-                            "Scenarios":   _n,
-                            "Avg P&L":     f"{_avg_pnl_pct:+.2%}  ({_fmt_ccy(_avg_pnl_ccy, _ev_base)})",
+                            "Family":     _fam.replace("_", " ").title(),
+                            "Scenarios":  _bd.n_scenarios,
+                            "Avg P&L":    f"{_bd.avg_pnl_pct:+.2%}  ({_fmt_ccy(_bd.avg_pnl_ccy, _ev_base)})",
+                            "Weight":     f"{_bd.weight:.1%}",
+                            "Weighted contrib": (
+                                f"{_bd.contrib_pct:+.2%}"
+                                + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})"
+                                   if _bd.contrib_ccy is not None else "")
+                            ),
                         })
                     if _summary_rows:
                         st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
+
+                    # Reconstruct family-grouped row map for the Scenarios expander.
+                    _ev_by_family: dict[str, list] = {}
+                    for r in _ev_s["rows"]:
+                        _ev_by_family.setdefault(r["family"], []).append(r)
 
                     # Scenarios — full per-scenario detail, grouped by family (markdown headers, no nested expanders)
                     with st.expander("Scenarios", expanded=False):
