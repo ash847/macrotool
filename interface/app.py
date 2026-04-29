@@ -35,6 +35,24 @@ from interface.debug_log import (
 )
 
 # ---------------------------------------------------------------------------
+# Sizing convention
+# ---------------------------------------------------------------------------
+
+LINEAR_NOTIONAL = 100.0   # base ccy units; equivalent linear-trade notional
+
+_CCY_SYM = {"USD": "$", "EUR": "€", "GBP": "£"}
+
+
+def _fmt_ccy(amount: float | None, ccy: str) -> str:
+    """Format a base-ccy amount. Raises on unknown ccy — fail loud, not silent."""
+    if amount is None:
+        return "—"
+    if ccy not in _CCY_SYM:
+        raise ValueError(f"No currency symbol mapping for base ccy {ccy!r}")
+    return f"{_CCY_SYM[ccy]}{amount:,.2f}"
+
+
+# ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 
@@ -486,16 +504,23 @@ else:
             c3.metric("25d RR", "—")
             c4.metric("25d Fly", "—")
 
-        _move_pct = _stop_pct = _stop_price = None
+        _move_pct = _stop_pct = _stop_price = _loss_budget = None
+        _base_ccy_top = flow.view.pair[:3]
         if _target is not None:
             _move_pct = abs(_target - ms.fwd) / ms.fwd
             _stop_pct = _move_pct / flow.target_rr
             _stop_price = ms.fwd * (1 - _stop_pct) if _is_call else ms.fwd * (1 + _stop_pct)
+            _loss_budget = LINEAR_NOTIONAL * _stop_pct
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
             c2.metric(f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}", help="move_to_target / R:R — acceptable reversal from fwd before stopping out")
             c3.metric("Stop price", f"{_stop_price:.4f}", help="fwd level implying the stop loss")
-            c4.metric("", "")
+            c4.metric(
+                "Loss budget",
+                _fmt_ccy(_loss_budget, _base_ccy_top),
+                help=f"Linear notional {_fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top)} × stop %. "
+                     "Each structure variant is sized so its max loss equals this.",
+            )
 
         st.subheader("Structure scores")
         rows = get_scoring_detail(ms)
@@ -555,7 +580,7 @@ else:
         _primary_items = flow.selector_result.shortlist[:3]
 
         _any_variants = any(
-            _price_variants(ms, s.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
+            _price_variants(ms, s.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price, loss_budget=_loss_budget)
             for s in _primary_items
         )
         if _any_variants:
@@ -579,7 +604,7 @@ else:
             }
             for _i, _item in enumerate(_primary_items):
                 try:
-                    _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price)
+                    _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price, loss_budget=_loss_budget)
                 except Exception as _e:
                     st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
                     continue
@@ -596,13 +621,22 @@ else:
                             _payout_per_1 = f"{_payoff / pv.max_loss_pct:.1f}×"
                         else:
                             _payout_per_1 = "—"
+                        _prem_cell = (
+                            "zero cost" if pv.is_zero_cost
+                            else f"{pv.net_premium_pct:.1%}  ({_fmt_ccy(pv.net_premium_ccy, _base_ccy)})"
+                        )
+                        _payoff_cell = (
+                            f"{_payoff:.0%}  ({_fmt_ccy(pv.payoff_at_target_ccy, _base_ccy)})"
+                            if _payoff is not None else "—"
+                        )
                         r = {
                             "Variant":    pv.variant_label,
                             "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
-                            "Premium":    "zero cost" if pv.is_zero_cost else f"{pv.net_premium_pct:.1%}",
+                            "Notional":   _fmt_ccy(pv.structure_notional, _base_ccy),
+                            "Premium":    _prem_cell,
                             "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
-                            "Payoff @ tgt": f"{_payoff:.0%}" if _payoff is not None else "—",
-                            "Max loss":   f"{pv.max_loss_pct:.1%}",
+                            "Payoff @ tgt": _payoff_cell,
+                            "Max loss":   f"{pv.max_loss_pct:.1%}  ({_fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
                             "Payout/$1":  _payout_per_1,
                         }
                         if _has_barrier:
@@ -660,8 +694,9 @@ else:
         _ev_stop = _ev_ms.fwd * (1 - _ev_stop_pct) if _ev_is_call else _ev_ms.fwd * (1 + _ev_stop_pct)
 
         _ev_top = flow.selector_result.shortlist[0]
+        _ev_loss_budget = LINEAR_NOTIONAL * _ev_stop_pct
         from analytics.structure_pricer import price_variants as _pv_fn
-        _ev_pvs = _pv_fn(_ev_ms, _ev_top.structure_id, target=_ev_target, is_call=_ev_is_call, stop_price=_ev_stop)
+        _ev_pvs = _pv_fn(_ev_ms, _ev_top.structure_id, target=_ev_target, is_call=_ev_is_call, stop_price=_ev_stop, loss_budget=_ev_loss_budget)
 
         if _ev_pvs:
             from analytics.scenario_generator import generate_scenarios as _gen_sc
@@ -716,8 +751,8 @@ else:
                     "Spot":      f"{r['scenario_spot']:.4f}",
                     "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
                     "Vol":       f"{r['scenario_vol']:.1%}",
-                    "Price":     f"{r['price_pct']:.2%}",
-                    "P&L":       f"{r['pnl_pct']:+.2%}",
+                    "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
+                    "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
                 } for r in _fam_rows])
                 st.dataframe(_fam_df, use_container_width=True, hide_index=True)
 

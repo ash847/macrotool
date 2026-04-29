@@ -297,9 +297,86 @@ class TestIntegration:
             "time_fraction", "fwd_rule", "vol_rule", "skew_rule", "tags",
             "elapsed_time", "remaining_time", "scenario_fwd", "scenario_spot",
             "vol_shift", "scenario_vol", "skew_multiplier", "price_pct", "pnl_pct",
+            "structure_notional", "price_ccy", "pnl_ccy",
         }
         v = _vanilla_variant()
         scenarios = generate_scenarios(_TRADE_INPUTS)
         rows = price_scenarios(v, "vanilla", scenarios, _TRADE_INPUTS, is_call=True)
         for r in rows:
             assert required.issubset(r.keys())
+
+
+# ---------------------------------------------------------------------------
+# Sizing — dollar amounts from loss budget
+# ---------------------------------------------------------------------------
+
+class TestSizing:
+    def test_variant_sizing_basic(self):
+        """structure_notional = loss_budget / max_loss_pct."""
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant(prem_pct=0.02)
+        v.payoff_at_target_pct = 0.12
+        _size_variant(v, loss_budget=4.0)
+        assert abs(v.structure_notional - 200.0) < 1e-9   # 4.0 / 0.02
+        assert abs(v.net_premium_ccy - 4.0) < 1e-9
+        assert abs(v.max_loss_ccy - 4.0) < 1e-9            # = loss_budget
+        assert abs(v.payoff_at_target_ccy - 24.0) < 1e-9   # 0.12 * 200
+
+    def test_size_variant_skips_zero_max_loss(self):
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant()
+        v.max_loss_pct = 0.0
+        _size_variant(v, loss_budget=4.0)
+        assert v.structure_notional is None
+        assert v.net_premium_ccy is None
+
+    def test_price_variants_passes_loss_budget(self):
+        """price_variants populates dollar fields when loss_budget given."""
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        pvs = price_variants(ms, "vanilla", target=5.30, is_call=True, loss_budget=4.0)
+        assert pvs
+        for pv in pvs:
+            assert pv.structure_notional is not None
+            assert pv.structure_notional > 0
+            assert abs(pv.max_loss_ccy - 4.0) < 1e-6     # sized to budget
+            # Premium $ = premium_pct * notional, where notional = budget / max_loss_pct.
+            # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == loss_budget.
+            assert abs(pv.net_premium_ccy - 4.0) < 1e-6
+
+    def test_price_variants_no_budget_leaves_fields_none(self):
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        pvs = price_variants(ms, "vanilla", target=5.30, is_call=True)  # no loss_budget
+        for pv in pvs:
+            assert pv.structure_notional is None
+            assert pv.net_premium_ccy is None
+
+    def test_scenario_rows_carry_dollar_amounts(self):
+        v = _vanilla_variant(prem_pct=0.02)
+        v.structure_notional = 200.0  # manually sized
+        scenarios = generate_scenarios(_TRADE_INPUTS)
+        rows = price_scenarios(v, "vanilla", scenarios, _TRADE_INPUTS, is_call=True)
+        for r in rows:
+            assert r["structure_notional"] == 200.0
+            assert r["price_ccy"] is not None
+            assert r["pnl_ccy"] is not None
+            assert abs(r["price_ccy"] - r["price_pct"] * 200.0) < 1e-9
+            assert abs(r["pnl_ccy"] - r["pnl_pct"] * 200.0) < 1e-9
+
+    def test_scenario_rows_dollar_none_when_notional_none(self):
+        v = _vanilla_variant()  # structure_notional defaults to None
+        scenarios = generate_scenarios(_TRADE_INPUTS)
+        rows = price_scenarios(v, "vanilla", scenarios, _TRADE_INPUTS, is_call=True)
+        for r in rows:
+            assert r["structure_notional"] is None
+            assert r["price_ccy"] is None
+            assert r["pnl_ccy"] is None

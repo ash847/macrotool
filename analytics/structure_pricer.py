@@ -43,6 +43,12 @@ class PricedVariant:
     max_loss_pct: float           # fraction of spot
     wing_ratio: float | None      # seagull only: units of wing sold per unit of spread
     is_zero_cost: bool
+    # Sizing — populated when loss_budget passed to price_variants(), else None.
+    # All amounts in BASE currency units (e.g. USD for USDBRL, EUR for EURPLN).
+    structure_notional: float | None = None    # base ccy notional sized so max loss = loss_budget
+    net_premium_ccy: float | None = None       # premium in base ccy
+    payoff_at_target_ccy: float | None = None  # gross payoff at target in base ccy
+    max_loss_ccy: float | None = None          # max loss in base ccy (= loss_budget by construction)
 
 
 def price_variants(
@@ -51,8 +57,16 @@ def price_variants(
     target: float | None = None,
     is_call: bool = True,
     stop_price: float | None = None,
+    loss_budget: float | None = None,
 ) -> list[PricedVariant]:
-    """Price all defined variants for a structure. Returns [] if no variants defined."""
+    """
+    Price all defined variants for a structure. Returns [] if no variants defined.
+
+    If loss_budget is provided (in base ccy units), each variant is sized so its
+    max loss equals the loss budget. The dollar-equivalent fields on PricedVariant
+    (structure_notional, net_premium_ccy, payoff_at_target_ccy, max_loss_ccy) are
+    populated. If loss_budget is None, those fields remain None.
+    """
     cfg = _load_variants()
     if structure_id not in cfg:
         return []
@@ -63,18 +77,42 @@ def price_variants(
     vol_sqrtT = vol * math.sqrt(T)
 
     if structure_id == "vanilla":
-        return _vanilla(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
-    if structure_id == "1x1_spread":
-        return _spread(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
-    if structure_id == "1x2_spread":
-        return _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
-    if structure_id == "seagull":
-        return _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price)
-    if structure_id == "european_digital":
-        return _digital(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
-    if structure_id == "european_digital_rko":
-        return _digital_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
-    return []
+        result = _vanilla(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+    elif structure_id == "1x1_spread":
+        result = _spread(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+    elif structure_id == "1x2_spread":
+        result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+    elif structure_id == "seagull":
+        result = _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price)
+    elif structure_id == "european_digital":
+        result = _digital(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+    elif structure_id == "european_digital_rko":
+        result = _digital_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+    else:
+        return []
+
+    if loss_budget is not None and loss_budget > 0:
+        for pv in result:
+            _size_variant(pv, loss_budget)
+
+    return result
+
+
+def _size_variant(pv: PricedVariant, loss_budget: float) -> None:
+    """Populate dollar-equivalent fields on a PricedVariant given a loss budget.
+
+    Scales the structure so its max loss (% of spot) equals loss_budget (in base
+    ccy units). All other dollar amounts are derived from the resulting notional.
+    Leaves dollar fields as None if max_loss_pct is too small to size against.
+    """
+    if pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
+        return
+    notional = loss_budget / pv.max_loss_pct
+    pv.structure_notional = notional
+    pv.net_premium_ccy = pv.net_premium_pct * notional
+    pv.max_loss_ccy = pv.max_loss_pct * notional   # = loss_budget by construction
+    if pv.payoff_at_target_pct is not None:
+        pv.payoff_at_target_ccy = pv.payoff_at_target_pct * notional
 
 
 # ---------------------------------------------------------------------------

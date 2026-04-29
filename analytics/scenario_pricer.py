@@ -37,6 +37,7 @@ def price_scenarios(
     r_d: float = trade_inputs["r_d"]
     r_f: float = trade_inputs["r_f"]
     entry_premium_pct: float = variant.net_premium_pct
+    notional: float | None = variant.structure_notional   # may be None
 
     results = []
     for sc in scenarios:
@@ -56,6 +57,8 @@ def price_scenarios(
 
         price_pct = raw / entry_spot
         pnl_pct = price_pct - entry_premium_pct
+        price_ccy = (price_pct * notional) if notional is not None else None
+        pnl_ccy = (pnl_pct * notional) if notional is not None else None
 
         results.append({
             "structure_id": structure_id,
@@ -74,8 +77,11 @@ def price_scenarios(
             "vol_shift": d["vol_shift"],
             "scenario_vol": scenario_vol,
             "skew_multiplier": d["skew_multiplier"],
+            "structure_notional": notional,
             "price_pct": price_pct,
             "pnl_pct": pnl_pct,
+            "price_ccy": price_ccy,
+            "pnl_ccy": pnl_ccy,
         })
 
     return results
