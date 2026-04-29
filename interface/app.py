@@ -415,9 +415,9 @@ def _render_market_data() -> None:
             # Discount curve — base currency only
             base_ccy = pair[:3]
             base_curve_map = {
-                "USD": ccy.usd_df_curve,
-                "EUR": ccy.eur_df_curve,
-                "GBP": ccy.gbp_df_curve,
+                "USD": getattr(ccy, "usd_df_curve", []),
+                "EUR": getattr(ccy, "eur_df_curve", []),
+                "GBP": getattr(ccy, "gbp_df_curve", []),
             }
             base_curve = base_curve_map.get(base_ccy, [])
             if base_curve:
@@ -924,58 +924,53 @@ else:
             st.info(msg)
         st.session_state.clarification = ""
 
-    # Structured input (only on Trade View page)
-    with st.form("trade_view_form", clear_on_submit=False):
-        _pair_options = list(flow._snapshot.currencies.keys())
-        _default_pair = flow.view.pair if flow.view else _pair_options[0]
-        _pair_ix = _pair_options.index(_default_pair) if _default_pair in _pair_options else 0
-        _dir_label_default = (
-            "Base higher"
-            if not flow.view or flow.view.direction == "base_higher"
-            else "Base lower"
-        )
-        _horizon_days_default = flow.view.horizon_days if flow.view else _HORIZON_OPTIONS[2][1]
-        _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
-        _horizon_values = [days for _, days in _HORIZON_OPTIONS]
-        _h_ix = _horizon_values.index(_horizon_days_default) if _horizon_days_default in _horizon_values else 2
+    if not flow.view:
+        # Structured input (only on Trade View page)
+        with st.form("trade_view_form", clear_on_submit=False):
+            _pair_options = list(flow._snapshot.currencies.keys())
+            _default_pair = _pair_options[0]
+            _pair_ix = 0
+            _dir_label_default = "Base higher"
+            _horizon_days_default = _HORIZON_OPTIONS[2][1]
+            _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
+            _horizon_values = [days for _, days in _HORIZON_OPTIONS]
+            _h_ix = _horizon_values.index(_horizon_days_default)
 
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            form_pair = st.selectbox("Pair", _pair_options, index=_pair_ix)
-        with c2:
-            form_direction_label = st.selectbox(
-                "Direction",
-                list(_DIRECTION_OPTIONS.keys()),
-                index=list(_DIRECTION_OPTIONS.keys()).index(_dir_label_default),
-            )
-        with c3:
-            form_horizon_label = st.selectbox("Horizon", _horizon_labels, index=_h_ix)
-        with c4:
-            _pair_spot = flow._snapshot.get(_default_pair).spot
-            _fallback_target = _pair_spot * (1.05 if _dir_label_default == "Base higher" else 0.95)
-            _active_target = _target_price(flow)
-            _default_target = _active_target if _active_target is not None else _fallback_target
-            form_target = st.number_input(
-                "Target",
-                min_value=0.0001,
-                value=float(_default_target),
-                step=0.0001,
-                format="%.4f",
-            )
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                form_pair = st.selectbox("Pair", _pair_options, index=_pair_ix)
+            with c2:
+                form_direction_label = st.selectbox(
+                    "Direction",
+                    list(_DIRECTION_OPTIONS.keys()),
+                    index=list(_DIRECTION_OPTIONS.keys()).index(_dir_label_default),
+                )
+            with c3:
+                form_horizon_label = st.selectbox("Horizon", _horizon_labels, index=_h_ix)
+            with c4:
+                _pair_spot = flow._snapshot.get(_default_pair).spot
+                _fallback_target = _pair_spot * 1.05
+                form_target = st.number_input(
+                    "Target",
+                    min_value=0.0001,
+                    value=float(_fallback_target),
+                    step=0.0001,
+                    format="%.4f",
+                )
 
-        submitted = st.form_submit_button("Run trade view", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Run trade view", type="primary", use_container_width=True)
 
-    if submitted:
-        flow.target_rr = st.session_state.target_rr
-        st.session_state.clarification = ""
-        with st.spinner("Running trade view..."):
-            clarification = _submit_structured_view(
-                pair=form_pair,
-                direction=_DIRECTION_OPTIONS[form_direction_label],
-                horizon_days=dict(_HORIZON_OPTIONS)[form_horizon_label],
-                target=form_target,
-            )
+        if submitted:
+            flow.target_rr = st.session_state.target_rr
+            st.session_state.clarification = ""
+            with st.spinner("Running trade view..."):
+                clarification = _submit_structured_view(
+                    pair=form_pair,
+                    direction=_DIRECTION_OPTIONS[form_direction_label],
+                    horizon_days=dict(_HORIZON_OPTIONS)[form_horizon_label],
+                    target=form_target,
+                )
 
-        if clarification:
-            st.session_state.clarification = clarification
-        st.rerun()
+            if clarification:
+                st.session_state.clarification = clarification
+            st.rerun()

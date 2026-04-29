@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 DeltaLabel = Literal["10DP", "25DP", "ATM", "25DC", "10DC"]
@@ -64,6 +64,21 @@ class CurrencySnapshot(BaseModel):
     usd_df_curve: list[DiscountFactor] = Field(default_factory=list)
     eur_df_curve: list[DiscountFactor] = Field(default_factory=list)
     gbp_df_curve: list[DiscountFactor] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_required_base_df_curve(self) -> "CurrencySnapshot":
+        base_ccy = self.pair[:3]
+        required_curve_map = {
+            "USD": self.usd_df_curve,
+            "EUR": self.eur_df_curve,
+            "GBP": self.gbp_df_curve,
+        }
+        required_curve = required_curve_map.get(base_ccy)
+        if required_curve is not None and not required_curve:
+            raise ValueError(
+                f"{self.pair} requires a {base_ccy.lower()}_df_curve for pricing, but none was provided."
+            )
+        return self
 
     def get_forward(self, tenor: TenorLabel) -> ForwardPoint | None:
         return next((f for f in self.forwards if f.tenor == tenor), None)

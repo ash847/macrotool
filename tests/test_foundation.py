@@ -8,8 +8,11 @@ Verifies:
   - Override detector parses [PREF_CHANGE] tags correctly
 """
 
+from datetime import date
+
 import pytest
 from data.snapshot_loader import load_snapshot
+from data.schema import CurrencySnapshot
 from config.loader import load_config, load_base_config
 from config.schema import SessionOverrides
 from config.resolver import resolve, explain_source
@@ -66,6 +69,23 @@ class TestMarketSnapshot:
         assert len(brl.usd_df_curve) == 6
         assert len(brl.eur_df_curve) == 6
         assert brl.get_usd_df("3M") == pytest.approx(0.9888)
+
+    def test_gbp_pair_has_required_gbp_curve(self):
+        snap = load_snapshot()
+        gbp = snap.get("GBPUSD")
+        assert len(gbp.gbp_df_curve) == 6
+        assert gbp.get_gbp_df("3M") == pytest.approx(0.9882)
+
+    def test_missing_required_base_curve_raises(self):
+        with pytest.raises(ValueError, match="requires a gbp_df_curve"):
+            CurrencySnapshot.model_validate({
+                "pair": "GBPUSD",
+                "instrument_type": "Deliverable",
+                "spot": 1.25,
+                "as_of": date(2026, 4, 29),
+                "forwards": [{"tenor": "1M", "points": 0.0, "outright": 1.25}],
+                "vol_surface": [{"tenor": "1M", "delta": "ATM", "vol": 0.1}],
+            })
 
     def test_missing_pair_raises(self):
         snap = load_snapshot()
