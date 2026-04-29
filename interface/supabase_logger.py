@@ -115,6 +115,24 @@ def save_config(key: str, value: dict) -> bool:
         return False
 
 
+def fetch_config_history(key: str, limit: int = 30) -> list[dict]:
+    """Return all saved versions of a config key, newest first."""
+    if _client is None:
+        return []
+    try:
+        result = (
+            _client.table("config_history")
+            .select("saved_at, value")
+            .eq("key", key)
+            .order("saved_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
+
+
 def fetch_queries() -> list[dict]:
     if _client is None:
         return []

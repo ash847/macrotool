@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 from analytics.market_state import MarketState
@@ -55,17 +54,36 @@ class WeighterResult:
 # Loading
 # ---------------------------------------------------------------------------
 
-@lru_cache(maxsize=1)
+_weights_cache: dict | None = None
+
+
 def load_scenario_weights_config() -> dict:
-    """Load and cache the contexts JSON. Process restart needed to pick up edits."""
+    """
+    Load scenario weight contexts. Checks Supabase first (so in-app edits
+    persist across sessions), falls back to the local JSON file.
+    Uses a module-level cache; call `clear_scenario_weights_cache()` after
+    a save to force the next call to re-fetch.
+    """
+    global _weights_cache
+    if _weights_cache is not None:
+        return _weights_cache
+    try:
+        from interface.supabase_logger import fetch_config
+        data = fetch_config("scenario_weights")
+        if data:
+            _weights_cache = data
+            return _weights_cache
+    except Exception:
+        pass
     with open(_WEIGHTS_PATH) as f:
-        data = json.load(f)
-    return data
+        _weights_cache = json.load(f)
+    return _weights_cache
 
 
 def clear_scenario_weights_cache() -> None:
-    """Invalidate the lru_cache (used in tests)."""
-    load_scenario_weights_config.cache_clear()
+    """Invalidate the cache so the next call re-fetches from Supabase / file."""
+    global _weights_cache
+    _weights_cache = None
 
 
 # ---------------------------------------------------------------------------
