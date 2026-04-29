@@ -143,7 +143,7 @@ with st.sidebar:
     st.divider()
 
     # Navigation
-    for label in ("Trade View", "Market Data", "Structure Selection", "Query log"):
+    for label in ("Trade View", "Market Data", "Structure Selection", "Context Rules", "Query log"):
         active = st.session_state.page == label
         if st.button(
             label,
@@ -412,6 +412,10 @@ elif st.session_state.page == "Query log":
 elif st.session_state.page == "Structure Selection":
     from interface.decision_parameters import render as _render_decision_params
     _render_decision_params()
+
+elif st.session_state.page == "Context Rules":
+    from interface.context_rules import render as _render_context_rules
+    _render_context_rules()
 
 else:
     # ---- Trade View page ----
