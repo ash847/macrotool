@@ -109,6 +109,12 @@ if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
 if "clarification" not in st.session_state:
     st.session_state.clarification = ""
+if "pref_primary_objective" not in st.session_state:
+    st.session_state.pref_primary_objective = "Balanced"
+if "pref_structure_constraint" not in st.session_state:
+    st.session_state.pref_structure_constraint = "No restriction"
+if "pref_trade_management" not in st.session_state:
+    st.session_state.pref_trade_management = "Standard hold"
 
 flow: ConversationFlow = st.session_state.flow
 
@@ -264,9 +270,27 @@ _HORIZON_OPTIONS: list[tuple[str, int]] = [
     (f"{month}M", round(month * 365 / 12)) for month in range(1, 13)
 ]
 _DIRECTION_OPTIONS = {
-    "Base higher": "base_higher",
-    "Base lower": "base_lower",
+    "Higher": "base_higher",
+    "Lower": "base_lower",
 }
+_PRIMARY_OBJECTIVE_OPTIONS = [
+    "Balanced",
+    "Keep upside if I'm very right",
+    "Keep cost low",
+    "Hold up if the path is slow/noisy",
+    "Keep risk clean",
+]
+_STRUCTURE_CONSTRAINT_OPTIONS = [
+    "No restriction",
+    "Avoid capped structures",
+    "Avoid complex structures",
+    "Avoid tail-risky structures",
+]
+_TRADE_MANAGEMENT_OPTIONS = [
+    "Standard hold",
+    "May monetise early",
+    "Need defendable mark-to-market",
+]
 
 
 def _build_prompt_summary(pair: str, direction: str, horizon_days: int, target: float) -> str:
@@ -930,7 +954,7 @@ else:
             _pair_options = list(flow._snapshot.currencies.keys())
             _default_pair = _pair_options[0]
             _pair_ix = 0
-            _dir_label_default = "Base higher"
+            _dir_label_default = "Higher"
             _horizon_days_default = _HORIZON_OPTIONS[2][1]
             _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
             _horizon_values = [days for _, days in _HORIZON_OPTIONS]
@@ -958,11 +982,37 @@ else:
                     format="%.4f",
                 )
 
+            st.markdown("**Trade preferences**")
+            st.caption("Optional for now — captured in the UI only, not yet applied to scoring.")
+
+            p1, p2, p3 = st.columns(3)
+            with p1:
+                form_primary_objective = st.selectbox(
+                    "Primary objective",
+                    _PRIMARY_OBJECTIVE_OPTIONS,
+                    index=_PRIMARY_OBJECTIVE_OPTIONS.index(st.session_state.pref_primary_objective),
+                )
+            with p2:
+                form_structure_constraint = st.selectbox(
+                    "Structure constraint",
+                    _STRUCTURE_CONSTRAINT_OPTIONS,
+                    index=_STRUCTURE_CONSTRAINT_OPTIONS.index(st.session_state.pref_structure_constraint),
+                )
+            with p3:
+                form_trade_management = st.selectbox(
+                    "Trade management style",
+                    _TRADE_MANAGEMENT_OPTIONS,
+                    index=_TRADE_MANAGEMENT_OPTIONS.index(st.session_state.pref_trade_management),
+                )
+
             submitted = st.form_submit_button("Run trade view", type="primary", use_container_width=True)
 
         if submitted:
             flow.target_rr = st.session_state.target_rr
             st.session_state.clarification = ""
+            st.session_state.pref_primary_objective = form_primary_objective
+            st.session_state.pref_structure_constraint = form_structure_constraint
+            st.session_state.pref_trade_management = form_trade_management
             with st.spinner("Running trade view..."):
                 clarification = _submit_structured_view(
                     pair=form_pair,

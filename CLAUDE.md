@@ -151,3 +151,25 @@ Session overrides are triggered by `[PREF_CHANGE: {"field_path": ..., "value": .
 GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys on push to `main`.
 
 **Important:** Python source changes require a `pyproject.toml` version bump to trigger Streamlit Cloud package reinstall. JSON file changes deploy immediately without a version bump.
+
+## PM preference roadmap
+
+Planned next step for the structured Trade View UI:
+
+1. **UI only** — add optional PM preference inputs to the intake form with no effect on scoring yet.
+   - `Primary objective`: `Balanced`, `Keep upside if I'm very right`, `Keep cost low`, `Hold up if the path is slow/noisy`, `Keep risk clean`
+   - `Structure constraint`: `No restriction`, `Avoid capped structures`, `Avoid complex structures`, `Avoid tail-risky structures`
+   - `Trade management style`: `Standard hold`, `May monetise early`, `Need defendable mark-to-market`
+
+2. **Context plumbing** — route `Primary objective` and `Trade management style` into the scenario/context weighting layer only.
+
+3. **Selection plumbing** — route `Structure constraint` into shortlist filtering / re-ranking only.
+
+Design intent:
+- `Balanced` remains the default and should preserve current behaviour when no PM preference is chosen.
+- PM inputs must be kept conceptually separate:
+  - selection-layer constraints
+  - context/evaluation-layer preferences
+- Reuse existing config surfaces when plumbing is added later:
+  - selection preferences alongside `affinity_scores.json`
+  - context preferences alongside `scenario_weights.json`
