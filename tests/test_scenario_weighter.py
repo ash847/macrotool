@@ -9,6 +9,7 @@ import pytest
 from analytics.market_state import MarketState
 from analytics.scenario_generator import FAMILIES
 from knowledge_engine.scenario_weighter import (
+    FiredContext,
     WeighterResult,
     compute_family_weights,
     load_scenario_weights_config,
@@ -141,9 +142,9 @@ class TestIndividualRules:
 # ---------------------------------------------------------------------------
 
 class TestNoneHandling:
-    def test_target_z_none_skips_target_rules(self):
-        # No target → no target_z rules should fire. Weights should equal a
-        # baseline state (with no other rules firing) — uniform.
+    def test_target_z_none_skips_target_contexts(self):
+        # No target → no target_z contexts should fire. Weights should equal a
+        # baseline state (with no other contexts firing) — uniform.
         r = compute_family_weights(_ms(target_z=None, carry_regime=1))
         for fam in FAMILIES:
             assert r.weights[fam] == pytest.approx(1.0 / len(FAMILIES))
@@ -158,23 +159,27 @@ class TestNoneHandling:
 # Fired-rules transparency
 # ---------------------------------------------------------------------------
 
-class TestFiredRules:
+class TestFiredContexts:
     def test_fired_records_match_weight_changes(self):
         r = compute_family_weights(_ms(target_z=2.0, carry_regime=2, with_carry=True, vol=0.25))
-        fired_ids = {rule.id for rule in r.fired}
-        # Expected rules: far_target_overshoot_up, far_target_early_down,
-        # high_carry_with_correct_up, high_carry_with_wrongway_down,
-        # high_vol_volsens_up.
-        assert "far_target_overshoot_up"     in fired_ids
-        assert "far_target_early_down"       in fired_ids
-        assert "high_carry_with_correct_up"  in fired_ids
-        assert "high_carry_with_wrongway_down" in fired_ids
-        assert "high_vol_volsens_up"         in fired_ids
+        fired_ids = {ctx.id for ctx in r.fired}
+        # Expected contexts: far_target, high_carry_with, high_vol
+        assert "far_target"      in fired_ids
+        assert "high_carry_with" in fired_ids
+        assert "high_vol"        in fired_ids
+        # Each context exposes all its family adjustments
+        far = next(c for c in r.fired if c.id == "far_target")
+        assert "OVERSHOOT"    in far.adjustments
+        assert "EARLY_TARGET" in far.adjustments
 
     def test_fired_carries_comment(self):
         r = compute_family_weights(_ms(target_z=2.0))
-        any_with_comment = any(rule.comment for rule in r.fired)
-        assert any_with_comment, "Fired rules should expose human-readable comments"
+        any_with_comment = any(ctx.comment for ctx in r.fired)
+        assert any_with_comment, "Fired contexts should expose human-readable comments"
+
+    def test_fired_context_is_FiredContext_type(self):
+        r = compute_family_weights(_ms(target_z=2.0))
+        assert all(isinstance(c, FiredContext) for c in r.fired)
 
 
 # ---------------------------------------------------------------------------
@@ -184,14 +189,15 @@ class TestFiredRules:
 class TestConfig:
     def test_config_targets_only_known_families(self):
         cfg = load_scenario_weights_config()
-        for rule in cfg["rules"]:
-            assert rule["family"] in FAMILIES, f"Rule {rule['id']} targets unknown family"
+        for ctx in cfg["contexts"]:
+            for family in ctx["adjustments"]:
+                assert family in FAMILIES, f"Context {ctx['id']} targets unknown family '{family}'"
 
     def test_config_uses_supported_fields_and_ops(self):
         from knowledge_engine.scenario_weighter import _FIELD_GETTERS, _OPS
         cfg = load_scenario_weights_config()
-        for rule in cfg["rules"]:
-            for cond in rule.get("when", []):
+        for ctx in cfg["contexts"]:
+            for cond in ctx.get("when", []):
                 assert cond["field"] in _FIELD_GETTERS
                 assert cond["op"]    in _OPS
 

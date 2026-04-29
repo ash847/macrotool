@@ -778,7 +778,7 @@ else:
             )
 
             # Show the family weights that come out of Tier 1, plus which
-            # rules fired — fully transparent.
+            # contexts fired — fully transparent.
             with st.expander("Scenario weights for this trade", expanded=False):
                 _w_rows = [
                     {
@@ -790,20 +790,22 @@ else:
                 ]
                 st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
                 if _ev_weighter.fired:
-                    st.markdown("**Rules that fired**")
-                    _rule_rows = [
-                        {
-                            "Rule":       r.id,
-                            "Family":     r.family.replace("_", " ").title(),
-                            "Δ":          f"{r.adjustment:+.2f}",
-                            "Reasoning":  r.comment,
-                        }
-                        for r in _ev_weighter.fired
-                    ]
-                    st.dataframe(pd.DataFrame(_rule_rows), use_container_width=True, hide_index=True)
+                    st.markdown("**Active contexts**")
+                    _ctx_rows = []
+                    for _ctx in _ev_weighter.fired:
+                        _adj_str = "  /  ".join(
+                            f"{_fam.replace('_', ' ').title()} {_delta:+.2f}"
+                            for _fam, _delta in _ctx.adjustments.items()
+                        )
+                        _ctx_rows.append({
+                            "Context":     _ctx.id.replace("_", " "),
+                            "Adjustments": _adj_str,
+                            "Reasoning":   _ctx.comment,
+                        })
+                    st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
                 else:
                     st.caption(
-                        "No rules fired — every family kept its baseline weight "
+                        "No contexts active — every family kept its baseline weight "
                         f"of {_ev_weighter.baseline:.3f}."
                     )
 
