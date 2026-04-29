@@ -117,11 +117,15 @@ if _key:
 
 with st.sidebar:
     st.title("MacroTool")
-    st.caption("EM FX price distribution")
+    try:
+        from importlib.metadata import version as _pkg_version
+        st.caption(f"EM FX price distribution · v{_pkg_version('macrotool')}")
+    except Exception:
+        st.caption("EM FX price distribution")
     st.divider()
 
     # Navigation
-    for label in ("Trade View", "Market Data", "Decision Parameters", "Query log"):
+    for label in ("Trade View", "Market Data", "Structure Selection", "Query log"):
         active = st.session_state.page == label
         if st.button(
             label,
@@ -387,7 +391,7 @@ if st.session_state.page == "Market Data":
 elif st.session_state.page == "Query log":
     _render_query_log()
 
-elif st.session_state.page == "Decision Parameters":
+elif st.session_state.page == "Structure Selection":
     from interface.decision_parameters import render as _render_decision_params
     _render_decision_params()
 
@@ -640,6 +644,73 @@ else:
                             pass
                         st.session_state[f"{_fb_key}_submitted"] = True
                         st.rerun()
+
+    # Structure Evaluation — scenario table for first variant of top-ranked structure
+    if (
+        flow.market_state
+        and flow.selector_result
+        and flow.selector_result.shortlist
+        and _target_price(flow) is not None
+    ):
+        _ev_ms = flow.market_state
+        _ev_is_call = flow.view.direction == "base_higher"
+        _ev_target = _target_price(flow)
+        _ev_move = abs(_ev_target - _ev_ms.fwd) / _ev_ms.fwd
+        _ev_stop_pct = _ev_move / flow.target_rr
+        _ev_stop = _ev_ms.fwd * (1 - _ev_stop_pct) if _ev_is_call else _ev_ms.fwd * (1 + _ev_stop_pct)
+
+        _ev_top = flow.selector_result.shortlist[0]
+        from analytics.structure_pricer import price_variants as _pv_fn
+        _ev_pvs = _pv_fn(_ev_ms, _ev_top.structure_id, target=_ev_target, is_call=_ev_is_call, stop_price=_ev_stop)
+
+        if _ev_pvs:
+            from analytics.scenario_generator import generate_scenarios as _gen_sc
+            from analytics.scenario_pricer import price_scenarios as _price_sc
+
+            _ev_inputs = {
+                "spot": _ev_ms.spot,
+                "forward": _ev_ms.fwd,
+                "implied_vol": _ev_ms.vol,
+                "tenor_years": _ev_ms.T,
+                "target": _ev_target,
+                "r_d": _ev_ms.r_d,
+                "r_f": _ev_ms.r_f,
+            }
+            _ev_scenarios = _gen_sc(_ev_inputs)
+            _ev_rows = _price_sc(_ev_pvs[0], _ev_top.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call)
+            st.session_state["last_scenario_results"] = _ev_rows
+
+            _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
+            _ev_long = "call" if _ev_is_call else "put"
+            _ev_short = "put" if _ev_is_call else "call"
+            _ev_vtitles = {
+                "vanilla":              f"{_ev_base} {_ev_long}",
+                "1x1_spread":           f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread",
+                "1x2_spread":           f"{_ev_base} 1×2 {_ev_long} spread",
+                "seagull":              f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread + sold {_ev_base} {_ev_short}",
+                "european_digital":     f"{_ev_base} {_ev_long} digital",
+                "european_digital_rko": f"{_ev_base} {_ev_long} digital + KO",
+            }
+            _ev_struct_label = _ev_vtitles.get(_ev_top.structure_id, _ev_top.display_name)
+
+            st.subheader("Structure Evaluation")
+            st.caption(
+                f"{_ev_struct_label} — {_ev_pvs[0].variant_label}  ·  "
+                "Scenario MtM as % of entry spot.  P&L vs entry premium."
+            )
+
+            _ev_df = pd.DataFrame([{
+                "Scenario":   r["scenario_id"],
+                "Family":     r["family"].replace("_", " ").title(),
+                "T%":         f"{r['time_fraction']:.0%}",
+                "Fwd":        f"{r['scenario_fwd']:.4f}",
+                "Spot":       f"{r['scenario_spot']:.4f}",
+                "Vol shift":  f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
+                "Vol":        f"{r['scenario_vol']:.1%}",
+                "Price":      f"{r['price_pct']:.2%}",
+                "P&L":        f"{r['pnl_pct']:+.2%}",
+            } for r in _ev_rows])
+            st.dataframe(_ev_df, use_container_width=True, hide_index=True)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
