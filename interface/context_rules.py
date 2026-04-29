@@ -103,15 +103,6 @@ def _rebuild_config(cfg: dict, edited_df: pd.DataFrame) -> dict:
     return new_cfg
 
 
-def _color(val: float) -> str:
-    if val > 1.0:
-        intensity = min(int((val - 1.0) * 1000), 120)
-        return f"background-color: rgba(0, 180, 80, {intensity / 255:.2f})"
-    if val < 1.0:
-        intensity = min(int((1.0 - val) * 1000), 120)
-        return f"background-color: rgba(220, 50, 50, {intensity / 255:.2f})"
-    return ""
-
 
 # ---------------------------------------------------------------------------
 # Tab 1 — Context weights (editable)
@@ -145,11 +136,6 @@ def _render_context_weights(cfg: dict) -> None:
             for col in fam_cols
         },
     )
-
-    # Colour preview of the edited state
-    styled = edited_df.style.map(_color).format("{:.2f}")
-    st.caption("Preview (colour only — not editable):")
-    st.dataframe(styled, use_container_width=True)
 
     st.caption(
         f"Baseline: **{cfg['baseline']:.3f}** (1/{len(FAMILIES)}).  "
