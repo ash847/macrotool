@@ -165,6 +165,10 @@ def compute_family_weights(ms: MarketState) -> WeighterResult:
     weights: dict[str, float] = {f: baseline for f in FAMILIES}
     fired: list[FiredContext] = []
 
+    # Selection: first match wins (contexts are priority-ordered in the JSON).
+    # `fired` holds at most one market-state context for now. When Tier 2
+    # (user preference contexts) is added, a second context will be appended
+    # here and the two weight vectors will be blended before normalisation.
     for ctx in cfg["contexts"]:
         if not _all_conditions_met(ctx.get("when", []), ms):
             continue
@@ -183,6 +187,7 @@ def compute_family_weights(ms: MarketState) -> WeighterResult:
             adjustments=adjustments,
             comment=ctx.get("comment", ""),
         ))
+        break  # first match — stop here
 
     # Floor (no family below `floor`) then renormalise.
     weights = {f: max(w, floor) for f, w in weights.items()}

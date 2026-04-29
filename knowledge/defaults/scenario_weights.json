@@ -1,9 +1,11 @@
 {
-  "_description": "Tier 1 scenario family weights. Maps a MarketState (carry regime, target distance, tenor, vol) to a weight per scenario family. Weights are then applied to per-family mean P&L to produce a single weighted P&L score per structure. Same architecture as affinity_scores.json: baseline + scaled adjustments, normalised, with a floor.",
+  "_description": "Tier 1 scenario family weights. Each trade activates at most one market-state context (first match in priority order). A second context will be added later from user preferences (Tier 2), and the two weight vectors will be blended. For now, one context fires and its adjustments are applied directly.",
 
-  "_what_the_weights_mean": "Each weight expresses how much we believe a given scenario family represents what the market is likely to do — given the trade view and the current market state. They are NOT structure-dependent: the same vector is applied to every shortlisted structure so that resulting scores are directly comparable.",
+  "_selection": "first_match — contexts are evaluated top-to-bottom; the first one whose conditions are all satisfied is applied. Order matters: more specific conditions should come before broader ones.",
 
-  "_baseline_logic": "All 8 families start at 1/8 = 0.125 (equal-weighted, no view). Contexts nudge individual families up or down based on conditions evaluated against MarketState. After all contexts fire, weights are floored (no family below `floor`) and renormalised to sum to 1.",
+  "_what_the_weights_mean": "Each weight expresses our prior belief about how much a scenario family contributes to the expected P&L of this trade type. Weights are NOT structure-dependent — the same vector is applied to every shortlisted structure so scores are directly comparable.",
+
+  "_baseline_logic": "All 8 families start at 1/8 = 0.125 (equal-weighted, no view). The active context adjusts individual families up or down. After adjustments, weights are floored (no family below `floor`) and renormalised to sum to 1. If no context fires, the baseline equal-weight vector is used unchanged.",
 
   "_families": [
     "CORRECT_PATH",
@@ -17,10 +19,10 @@
   ],
 
   "_context_schema": {
-    "id": "Stable identifier — surfaced in the UI so the PM can see which contexts are active for this trade.",
-    "comment": "Plain-English description of what this market state means and why the weights move as they do. This is the reasoning the PM reads when sense-checking.",
-    "when": "Array of {field, op, value} — ALL must be true for this context to apply. Supported fields: target_z_abs, carry_regime, with_carry, T, vol, atmfsratio. Supported ops: '>', '>=', '<', '<=', '==', '!='. If a referenced field is None on MarketState (e.g. target_z when no target supplied), the condition evaluates false and the context does not fire.",
-    "adjustments": "Object mapping family name → signed delta. All families listed here are adjusted simultaneously when the context fires. Positive = increase weight (this scenario matters more), negative = decrease (matters less)."
+    "id": "Stable identifier — used to display the active context in the UI and in version history.",
+    "comment": "Plain-English description of the trade archetype this context represents and why the weights are set as they are. This is the reasoning a PM reads when sense-checking.",
+    "when": "Array of {field, op, value} — ALL must be true for this context to be selected. Supported fields: target_z_abs, carry_regime, with_carry, T, vol, atmfsratio. Supported ops: '>', '>=', '<', '<=', '==', '!='. If a field is None on the MarketState (e.g. target_z when no target supplied), the condition evaluates false.",
+    "adjustments": "Object mapping family → signed delta. All families listed here are adjusted when this context is selected. Positive = this scenario matters more for this trade type, negative = less."
   },
 
   "baseline": 0.125,
@@ -29,8 +31,115 @@
   "contexts": [
 
     {
-      "id": "far_target",
-      "comment": "Target is far from forward (>1.5σ). Reaching it requires a sustained, conviction-driven move — which typically overshoots. Fat-tail outcomes deserve more weight. Conversely, the chance of touching the level early and reversing is low at this distance.",
+      "id": "short_dated",
+      "comment": "Tenor under 1 month: theta and pin risk dominate everything else. The terminal intrinsic value (EXPIRY) is what the PM should focus on — there is almost no time for path scenarios to develop independently from the final outcome. Early-touch scenarios are near-equivalent to expiry at this horizon and should be de-emphasised to avoid double-counting.",
+      "when": [{"field": "T", "op": "<", "value": 0.083}],
+      "adjustments": {
+        "EXPIRY":       0.07,
+        "EARLY_TARGET": -0.04,
+        "CORRECT_PATH": -0.02,
+        "WRONG_WAY":    -0.01
+      }
+    },
+
+    {
+      "id": "counter_carry",
+      "comment": "High carry (regime 2) trading against the carry: the carry is a structural, continuous headwind. Every day the trade is open, theta and the forward drift both work against the position. The dominant risk is an adverse drift (WRONG_WAY) and a flat market that bleeds premium (NO_MOVE). Getting to the target requires the market to fight its own structural tendency — CORRECT_PATH is the hardest outcome to achieve.",
+      "when": [
+        {"field": "carry_regime", "op": "==", "value": 2},
+        {"field": "with_carry",   "op": "==", "value": false}
+      ],
+      "adjustments": {
+        "WRONG_WAY":    0.08,
+        "NO_MOVE":      0.05,
+        "CORRECT_PATH": -0.05,
+        "OVERSHOOT":    -0.02
+      }
+    },
+
+    {
+      "id": "carry_momentum_extended",
+      "comment": "High carry, trading with the carry, targeting a distant level (>1.5σ from forward). The drift is your ally and the target requires a sustained, conviction-driven move. When these moves happen they often overshoot. The dominant paths are a smooth carry-driven advance (CORRECT_PATH) and an extension beyond the target (OVERSHOOT). Wrong-way moves are fighting both the drift and the market's natural tendency.",
+      "when": [
+        {"field": "carry_regime",  "op": "==", "value": 2},
+        {"field": "with_carry",    "op": "==", "value": true},
+        {"field": "target_z_abs",  "op": ">",  "value": 1.5}
+      ],
+      "adjustments": {
+        "CORRECT_PATH": 0.06,
+        "OVERSHOOT":    0.04,
+        "EARLY_TARGET": -0.04,
+        "WRONG_WAY":    -0.05
+      }
+    },
+
+    {
+      "id": "carry_capture",
+      "comment": "High carry, trading with the carry, targeting a level close to the forward (<0.5σ). This is essentially a carry-capture trade — the target is so close that normal market noise will touch it. The main risk is an early touch followed by a reversal before expiry (EARLY_TARGET). A sustained correct-path move is also likely. Overshoot is less meaningful at this distance.",
+      "when": [
+        {"field": "carry_regime",  "op": "==", "value": 2},
+        {"field": "with_carry",    "op": "==", "value": true},
+        {"field": "target_z_abs",  "op": "<",  "value": 0.5}
+      ],
+      "adjustments": {
+        "CORRECT_PATH": 0.05,
+        "EARLY_TARGET": 0.05,
+        "OVERSHOOT":    -0.03,
+        "WRONG_WAY":    -0.03
+      }
+    },
+
+    {
+      "id": "directional_with_carry",
+      "comment": "High carry, trading with the carry, moderate target distance. The drift is working in our favour. A smooth progression toward the target is the most likely path. Wrong-way moves require the market to work against both the direction of the trade and the carry, which is a double headwind for the adverse scenario.",
+      "when": [
+        {"field": "carry_regime", "op": "==", "value": 2},
+        {"field": "with_carry",   "op": "==", "value": true}
+      ],
+      "adjustments": {
+        "CORRECT_PATH": 0.05,
+        "WRONG_WAY":    -0.04
+      }
+    },
+
+    {
+      "id": "vol_dominated",
+      "comment": "Noisy carry (regime 0) with elevated vol (>20%): there is no reliable directional drift signal, and vol moves are large enough to materially affect option value independent of direction. The dominant driver of P&L is the vol surface, not the forward path. VOL_SENSITIVITY scenarios deserve heavy weight. A flat market (NO_MOVE) is less meaningful without carry pressure.",
+      "when": [
+        {"field": "carry_regime", "op": "==", "value": 0},
+        {"field": "vol",          "op": ">",  "value": 0.20}
+      ],
+      "adjustments": {
+        "VOL_SENSITIVITY": 0.07,
+        "CORRECT_PATH":    -0.03,
+        "NO_MOVE":         -0.04
+      }
+    },
+
+    {
+      "id": "directional_low_carry",
+      "comment": "Noisy carry (regime 0): the carry signal is weak relative to vol. The trade is a pure directional bet without a structural drift to support it. Vol-driven mean reversion is a larger factor than in high-carry regimes. NO_MOVE is less meaningful (there is no carry bleed), and VOL_SENSITIVITY deserves more weight.",
+      "when": [{"field": "carry_regime", "op": "==", "value": 0}],
+      "adjustments": {
+        "VOL_SENSITIVITY": 0.04,
+        "NO_MOVE":         -0.03
+      }
+    },
+
+    {
+      "id": "long_dated",
+      "comment": "Tenor over 6 months: there is a large window for the market to reach the target early and then drift away before expiry — a real risk for capped structures and spreads. EARLY_TARGET (touch-and-retrace) deserves elevated weight. Vol sensitivity also matters more because vol moves have more time to compound.",
+      "when": [{"field": "T", "op": ">", "value": 0.5}],
+      "adjustments": {
+        "EARLY_TARGET":    0.05,
+        "VOL_SENSITIVITY": 0.03,
+        "EXPIRY":          -0.02
+      }
+    },
+
+    {
+      "id": "speculative_far",
+      "comment": "Target is distant from the forward (>1.5σ) with moderate carry. Getting there requires a sustained move with conviction — which tends to overshoot. Early touches are unlikely at this distance. This applies when carry is not the dominant factor (carry_regime 0 or 1) so the signal is purely about the target distance.",
       "when": [{"field": "target_z_abs", "op": ">", "value": 1.5}],
       "adjustments": {
         "OVERSHOOT":    0.05,
@@ -39,76 +148,21 @@
     },
 
     {
-      "id": "near_target",
-      "comment": "Target is close to the forward (<0.5σ) — easily reachable on a normal random walk. The market is likely to oscillate around it; early touches and pull-backs are the dominant risk for capped structures. Overshooting a level this close is less informative.",
+      "id": "speculative_near",
+      "comment": "Target is close to the forward (<0.5σ) with moderate carry. The level is so easy to reach that random noise will touch it. The dominant risk for capped structures is an early touch followed by a pull-back — the trade gets triggered but then reverses. Overshooting a level this close is less informative.",
       "when": [{"field": "target_z_abs", "op": "<", "value": 0.5}],
       "adjustments": {
         "EARLY_TARGET": 0.05,
-        "OVERSHOOT":   -0.04
-      }
-    },
-
-    {
-      "id": "high_carry_with",
-      "comment": "High carry (regime 2), trading with the carry: drift is your friend. The forward is already pricing a smooth move toward the target. CORRECT_PATH is the most likely realised outcome; wrong-way scenarios require swimming against both drift and realised carry.",
-      "when": [
-        {"field": "carry_regime", "op": "==", "value": 2},
-        {"field": "with_carry",   "op": "==", "value": true}
-      ],
-      "adjustments": {
-        "CORRECT_PATH": 0.05,
-        "WRONG_WAY":   -0.04
-      }
-    },
-
-    {
-      "id": "high_carry_counter",
-      "comment": "High carry (regime 2), trading against the carry: the carry is a constant structural headwind. The most likely path is adverse drift, not the target. A flat market (no-move) is also bad because carry bleeds premium while the trade goes nowhere. The PM needs to stare at WRONG_WAY and NO_MOVE.",
-      "when": [
-        {"field": "carry_regime", "op": "==", "value": 2},
-        {"field": "with_carry",   "op": "==", "value": false}
-      ],
-      "adjustments": {
-        "WRONG_WAY": 0.06,
-        "NO_MOVE":   0.04
-      }
-    },
-
-    {
-      "id": "noisy_carry",
-      "comment": "Carry regime 0 = carry signal is weak relative to vol. With no clear drift, the market is more likely to be driven by vol mean-reversion than directional carry. NO_MOVE is less meaningful here (carry doesn't make flat bad), and vol-sensitive outcomes deserve more attention.",
-      "when": [{"field": "carry_regime", "op": "==", "value": 0}],
-      "adjustments": {
-        "VOL_SENSITIVITY": 0.03,
-        "NO_MOVE":        -0.03
-      }
-    },
-
-    {
-      "id": "short_tenor",
-      "comment": "Tenor < 1 month: theta and pin-risk dominate the trade. EXPIRY (intrinsic value at maturity) is what matters most because there is no time for mid-life path scenarios to differ meaningfully from the terminal outcome. EARLY_TARGET becomes nearly equivalent to EXPIRY at this horizon.",
-      "when": [{"field": "T", "op": "<", "value": 0.083}],
-      "adjustments": {
-        "EXPIRY":       0.04,
-        "EARLY_TARGET": -0.03
-      }
-    },
-
-    {
-      "id": "long_tenor",
-      "comment": "Tenor > 6 months: plenty of time for spot to wander to the target and then drift away before expiry. EARLY_TARGET (touching the level, then reversing) is a real structural risk for capped or spread structures over this horizon.",
-      "when": [{"field": "T", "op": ">", "value": 0.5}],
-      "adjustments": {
-        "EARLY_TARGET": 0.03
+        "OVERSHOOT":    -0.04
       }
     },
 
     {
       "id": "high_vol",
-      "comment": "ATM vol > 20%: large vol moves are a material source of P&L variation beyond directional outcome alone. Vega-rich structures (long gamma, long vol) benefit; short-vol structures are exposed. VOL_SENSITIVITY scenarios deserve more weight to surface this.",
+      "comment": "ATM vol above 20% with moderate carry (regime 1). Large vol moves are a meaningful source of P&L variation beyond directional outcomes. Vega-rich structures benefit; short-vol structures are exposed. Elevate VOL_SENSITIVITY to reflect this.",
       "when": [{"field": "vol", "op": ">", "value": 0.20}],
       "adjustments": {
-        "VOL_SENSITIVITY": 0.04
+        "VOL_SENSITIVITY": 0.05
       }
     }
 

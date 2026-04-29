@@ -763,9 +763,14 @@ else:
 
             st.subheader("Structure Evaluation")
 
-            # Scenario-context line: what view of the world is producing these
-            # weights? Lets the PM sense-check both the scenario choice and
-            # the resulting weight vector.
+            # Active context — show prominently so it's visible without expanding.
+            _active_ctx = (
+                _ev_weighter.fired[0].id.replace("_", " ").title()
+                if _ev_weighter.fired else "Baseline (equal weights)"
+            )
+            st.markdown(f"**Scenario context:** {_active_ctx}")
+
+            # Supporting market state detail for sense-checking.
             _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
             _dir_lbl = "with-carry" if _ev_ms.with_carry else "counter-carry"
             _tz_lbl = (
@@ -776,7 +781,7 @@ else:
             _tenor_lbl = f"{_tenor_days}d tenor"
             _vol_lbl = f"vol {_ev_ms.vol:.1%}"
             st.caption(
-                f"**Context:** carry {_carry_lbl} ({_dir_lbl})  ·  {_tz_lbl}  ·  "
+                f"carry {_carry_lbl} ({_dir_lbl})  ·  {_tz_lbl}  ·  "
                 f"{_tenor_lbl}  ·  {_vol_lbl}.  "
                 "Scenario MtM as % of entry spot.  P&L vs entry premium."
             )

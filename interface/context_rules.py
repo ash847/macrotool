@@ -204,10 +204,10 @@ def _render_context_weights(cfg: dict) -> None:
 
 def _render_choosing_a_context(cfg: dict) -> None:
     st.caption(
-        "Each context fires when **all** of its conditions are satisfied by the current "
-        "MarketState (which is already view-conditioned — it reflects both the market "
-        "snapshot and the trade direction/target/tenor you supplied). "
-        "Multiple contexts can fire simultaneously; their adjustments stack additively."
+        "Contexts are evaluated **top-to-bottom**. The first one whose conditions are all "
+        "satisfied is selected — at most one fires per trade right now. "
+        "Order matters: more specific conditions appear higher in the list and take priority. "
+        "A second context from user preferences (Tier 2) will be added later and blended with this one."
     )
 
     rows = []
