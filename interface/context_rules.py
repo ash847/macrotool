@@ -694,7 +694,7 @@ def render() -> None:
     cfg = load_scenario_weights_config()
 
     tab_weights, tab_conditions, tab_priority = st.tabs(
-        ["Context weights", "Choosing a context", "Priority & conditions"]
+        ["Context weights", "Context selection (read)", "Context selection (write)"]
     )
 
     with tab_weights:
