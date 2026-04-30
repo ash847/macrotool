@@ -585,23 +585,27 @@ else:
             )
 
         st.subheader("Structure scores")
-        rows = get_scoring_detail(ms)
+        _sc_pref = st.session_state.get("pref_structure_constraint", "No restriction")
+        rows = get_scoring_detail(ms, structure_constraint=_sc_pref)
+        _show_constraint = _sc_pref != "No restriction"
         table_data = []
         for r in rows:
             dims = r["dimensions"]
             eligible = r["eligible"]
             def _s(dim):
                 return dims[dim]["score"] if eligible else None
-            table_data.append({
+            row = {
                 "Structure":      r["display_name"],
                 "Target Z":       _s("target_z_abs"),
                 "Carry regime":   _s("carry_regime"),
                 "ATM/FS ratio":   _s("atmfsratio"),
                 "Carry align":    _s("carry_alignment"),
+                "Constraint":     _s("structure_constraint"),
                 "Total":          r["total_score"] if eligible else None,
                 "Overlay":        r["overlay_only"],
                 "Eligible":       eligible,
-            })
+            }
+            table_data.append(row)
 
         score_df = pd.DataFrame(table_data)
         score_df = score_df.sort_values(
@@ -617,7 +621,7 @@ else:
             except (TypeError, ValueError):
                 return ""
             if v > 0:
-                return f"color: #1a7a1a; font-weight: bold"
+                return "color: #1a7a1a; font-weight: bold"
             if v < 0:
                 return "color: #b00000; font-weight: bold"
             return "color: #888"
@@ -626,15 +630,25 @@ else:
         display_df["Status"] = score_df.apply(
             lambda r: ("overlay" if r["Overlay"] else "") if r["Eligible"] else "gated", axis=1
         )
-        display_df = display_df[["Structure", "Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total", "Status"]]
-        display_df[["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]] = (
-            display_df[["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]].astype(object)
-        )
+        _score_cols = ["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]
+        if _show_constraint:
+            _col_order = ["Structure", "Target Z", "Carry regime", "ATM/FS ratio",
+                          "Carry align", "Constraint", "Total", "Status"]
+            _score_cols = ["Target Z", "Carry regime", "ATM/FS ratio", "Carry align",
+                           "Constraint", "Total"]
+        else:
+            display_df = display_df.drop(columns=["Constraint"])
+            _col_order = ["Structure", "Target Z", "Carry regime", "ATM/FS ratio",
+                          "Carry align", "Total", "Status"]
+
+        display_df = display_df[_col_order]
+        display_df[_score_cols] = display_df[_score_cols].astype(object)
         display_df.fillna("—", inplace=True)
 
-        styled = display_df.style.map(
-            _color, subset=["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]
-        )
+        if _show_constraint:
+            st.caption(f"Constraint applied: **{_sc_pref}**")
+
+        styled = display_df.style.map(_color, subset=_score_cols)
         st.dataframe(styled, use_container_width=True)
 
         # Structure variants
