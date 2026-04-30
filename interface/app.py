@@ -587,7 +587,7 @@ else:
         st.subheader("Structure scores")
         _sc_pref = st.session_state.get("pref_structure_constraint", "No restriction")
         rows = get_scoring_detail(ms, structure_constraint=_sc_pref)
-        _show_constraint = _sc_pref != "No restriction"
+        _show_constraint = (_sc_pref != "No restriction")
         table_data = []
         for r in rows:
             dims = r["dimensions"]
@@ -630,16 +630,10 @@ else:
         display_df["Status"] = score_df.apply(
             lambda r: ("overlay" if r["Overlay"] else "") if r["Eligible"] else "gated", axis=1
         )
-        _score_cols = ["Target Z", "Carry regime", "ATM/FS ratio", "Carry align", "Total"]
-        if _show_constraint:
-            _col_order = ["Structure", "Target Z", "Carry regime", "ATM/FS ratio",
-                          "Carry align", "Constraint", "Total", "Status"]
-            _score_cols = ["Target Z", "Carry regime", "ATM/FS ratio", "Carry align",
-                           "Constraint", "Total"]
-        else:
-            display_df = display_df.drop(columns=["Constraint"])
-            _col_order = ["Structure", "Target Z", "Carry regime", "ATM/FS ratio",
-                          "Carry align", "Total", "Status"]
+        _col_order = ["Structure", "Target Z", "Carry regime", "ATM/FS ratio",
+                      "Carry align", "Constraint", "Total", "Status"]
+        _score_cols = ["Target Z", "Carry regime", "ATM/FS ratio", "Carry align",
+                       "Constraint", "Total"]
 
         display_df = display_df[_col_order]
         display_df[_score_cols] = display_df[_score_cols].astype(object)
