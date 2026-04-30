@@ -90,29 +90,35 @@ def clear_scenario_weights_cache() -> None:
 # Condition evaluation
 # ---------------------------------------------------------------------------
 
-# Map config field names → MarketState attribute getters. Keeps the JSON
-# decoupled from any private MarketState shape and makes explicit which
-# fields the context engine knows about.
+# Map config field names → getters. Two sources are exposed:
+#   • MarketState attributes (carry, vol, target distance …)
+#   • PM preferences passed through the pipeline (primary objective, trade mgmt)
+# Keeps the JSON decoupled from any private MarketState shape and makes explicit
+# which fields the context engine knows about.
 _FIELD_GETTERS = {
-    "target_z_abs": lambda ms: abs(ms.target_z) if ms.target_z is not None else None,
-    "carry_regime": lambda ms: ms.carry_regime,
-    "with_carry":   lambda ms: ms.with_carry,
-    "T":            lambda ms: ms.T,
-    "vol":          lambda ms: ms.vol,
-    "atmfsratio":   lambda ms: ms.atmfsratio,
+    "target_z_abs":      lambda ms, prefs: abs(ms.target_z) if ms.target_z is not None else None,
+    "carry_regime":      lambda ms, prefs: ms.carry_regime,
+    "with_carry":        lambda ms, prefs: ms.with_carry,
+    "T":                 lambda ms, prefs: ms.T,
+    "vol":               lambda ms, prefs: ms.vol,
+    "atmfsratio":        lambda ms, prefs: ms.atmfsratio,
+    "primary_objective": lambda ms, prefs: prefs.get("primary_objective"),
+    "trade_management":  lambda ms, prefs: prefs.get("trade_management"),
 }
 
 _OPS = {
-    ">":  lambda a, b: a > b,
-    ">=": lambda a, b: a >= b,
-    "<":  lambda a, b: a < b,
-    "<=": lambda a, b: a <= b,
-    "==": lambda a, b: a == b,
-    "!=": lambda a, b: a != b,
+    ">":   lambda a, b: a > b,
+    ">=":  lambda a, b: a >= b,
+    "<":   lambda a, b: a < b,
+    "<=":  lambda a, b: a <= b,
+    "==":  lambda a, b: a == b,
+    "!=":  lambda a, b: a != b,
+    # `in` accepts a list of allowed values — convenient for enums.
+    "in":  lambda a, b: a in b,
 }
 
 
-def _evaluate_condition(cond: dict, ms: MarketState) -> bool:
+def _evaluate_condition(cond: dict, ms: MarketState, prefs: dict) -> bool:
     field = cond["field"]
     op = cond["op"]
     value = cond["value"]
@@ -124,7 +130,7 @@ def _evaluate_condition(cond: dict, ms: MarketState) -> bool:
         raise ValueError(f"Unknown op '{op}' in scenario_weights context. "
                          f"Supported: {sorted(_OPS)}")
 
-    actual = _FIELD_GETTERS[field](ms)
+    actual = _FIELD_GETTERS[field](ms, prefs)
     if actual is None:
         # Fields that are None on this MarketState (e.g. target_z when no
         # target supplied) cause the condition to fail rather than raise.
@@ -132,17 +138,25 @@ def _evaluate_condition(cond: dict, ms: MarketState) -> bool:
     return _OPS[op](actual, value)
 
 
-def _all_conditions_met(when: list[dict], ms: MarketState) -> bool:
-    return all(_evaluate_condition(c, ms) for c in when)
+def _all_conditions_met(when: list[dict], ms: MarketState, prefs: dict) -> bool:
+    return all(_evaluate_condition(c, ms, prefs) for c in when)
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def compute_family_weights(ms: MarketState) -> WeighterResult:
+def compute_family_weights(
+    ms: MarketState,
+    primary_objective: str = "Balanced",
+    trade_management: str = "Standard hold",
+) -> WeighterResult:
     """
-    Compute scenario family weights from MarketState.
+    Compute scenario family weights from MarketState + PM preferences.
+
+    `primary_objective` and `trade_management` are PM preference enums
+    pulled through from the intake form.  Defaults preserve current
+    behaviour (Balanced / Standard hold) so existing callers are unchanged.
 
     Algorithm:
       1. Initialise every family at `baseline` (default 1/8 = 0.125).
@@ -162,15 +176,19 @@ def compute_family_weights(ms: MarketState) -> WeighterResult:
     baseline: float = cfg["baseline"]
     floor: float = cfg["floor"]
 
+    prefs = {
+        "primary_objective": primary_objective,
+        "trade_management":  trade_management,
+    }
+
     weights: dict[str, float] = {f: baseline for f in FAMILIES}
     fired: list[FiredContext] = []
 
     # Selection: first match wins (contexts are priority-ordered in the JSON).
-    # `fired` holds at most one market-state context for now. When Tier 2
-    # (user preference contexts) is added, a second context will be appended
-    # here and the two weight vectors will be blended before normalisation.
+    # `fired` holds at most one context — when both market-state and preference
+    # conditions are evaluated together, exactly one wins per trade.
     for ctx in cfg["contexts"]:
-        if not _all_conditions_met(ctx.get("when", []), ms):
+        if not _all_conditions_met(ctx.get("when", []), ms, prefs):
             continue
 
         adjustments: dict[str, float] = ctx["adjustments"]

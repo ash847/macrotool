@@ -325,6 +325,12 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
     flow.structure_constraint = st.session_state.get(
         "pref_structure_constraint", "No restriction"
     )
+    flow.primary_objective = st.session_state.get(
+        "pref_primary_objective", "Balanced"
+    )
+    flow.trade_management = st.session_state.get(
+        "pref_trade_management", "Standard hold"
+    )
     try:
         flow._run_engines()
         log_view_extracted(view.__dict__)
@@ -770,10 +776,16 @@ else:
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
 
-        # Tier 1 weights — derived from MarketState (already view-conditioned).
+        # Context weights — derived from MarketState + PM preferences.
         # Same weight vector applied to every structure → scores comparable.
-        _ev_weighter = _compute_w(_ev_ms)
+        _ev_weighter = _compute_w(
+            _ev_ms,
+            primary_objective=getattr(flow, "primary_objective", "Balanced"),
+            trade_management=getattr(flow, "trade_management", "Standard hold"),
+        )
         _ev_weights  = _ev_weighter.weights
+        # Baseline weights (equal-weighted) for side-by-side comparison.
+        _ev_baseline_weights = {f: 1.0 / len(_SC_FAMILIES) for f in _SC_FAMILIES}
 
         _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
         _ev_long = "call" if _ev_is_call else "put"
@@ -814,13 +826,15 @@ else:
             _ev_rows = _price_sc(
                 _ev_pvs[0], _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
             )
-            _ev_score = _score_struct(_ev_rows, _ev_weights)
+            _ev_score    = _score_struct(_ev_rows, _ev_weights)
+            _ev_score_bl = _score_struct(_ev_rows, _ev_baseline_weights)
             _ev_structs.append({
-                "item":    _ev_item,
-                "pvs":     _ev_pvs,
-                "rows":    _ev_rows,
-                "score":   _ev_score,
-                "label":   _ev_vtitles.get(_ev_item.structure_id, _ev_item.display_name),
+                "item":     _ev_item,
+                "pvs":      _ev_pvs,
+                "rows":     _ev_rows,
+                "score":    _ev_score,      # context-weighted
+                "score_bl": _ev_score_bl,   # baseline-weighted (1/8 each)
+                "label":    _ev_vtitles.get(_ev_item.structure_id, _ev_item.display_name),
             })
 
         if _ev_structs:
@@ -852,9 +866,10 @@ else:
                 "Scenario MtM as % of entry spot.  P&L vs entry premium."
             )
 
-            # Show the family weights that come out of Tier 1, plus which
-            # contexts fired — fully transparent.
-            with st.expander("Scenario weights for this trade", expanded=False):
+            # Show the family weights that come out of the context selection,
+            # plus which context fired — fully transparent.
+            _expander_label = f"Selected context weights — {_active_ctx}"
+            with st.expander(_expander_label, expanded=False):
                 _w_rows = [
                     {
                         "Family": _fam.replace("_", " ").title(),
@@ -886,20 +901,19 @@ else:
 
             for _ev_s in _ev_structs:
                 _pv0 = _ev_s["pvs"][0]
-                _score = _ev_s["score"]
+                _score    = _ev_s["score"]
+                _score_bl = _ev_s["score_bl"]
                 _notional_str = (
                     _fmt_ccy(_pv0.structure_notional, _ev_base)
                     if _pv0.structure_notional is not None else None
                 )
-                _score_str = (
-                    f"{_score.score_pct:+.2%}"
-                    + (f"  ({_fmt_ccy(_score.score_ccy, _ev_base)})"
-                       if _score.score_ccy is not None else "")
-                )
                 _struct_title = f"{_ev_s['label']} — {_pv0.variant_label}"
                 if _notional_str:
                     _struct_title += f"  ·  Notional: {_notional_str}"
-                _struct_title += f"  ·  Weighted P&L: {_score_str}"
+                _struct_title += (
+                    f"  ·  Weighted P&L (baseline): {_score_bl.score_pct:+.2%}"
+                    f"  ·  (context): {_score.score_pct:+.2%}"
+                )
 
                 with st.expander(_struct_title, expanded=False):
                     # Family summary — index breakdown by family for fast lookup

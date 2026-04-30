@@ -168,10 +168,14 @@ GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys o
    - `score_structures(market_state, structure_constraint=...)` — defaults to "No restriction" so all existing callers are unchanged.
    - `flow.structure_constraint` set from `pref_structure_constraint` session state before each engine run.
 
-3. **Context plumbing** — route `Primary objective` and `Trade management style` into the scenario/context weighting layer (Tier 2 contexts).
-   - `Primary objective` and `Trade management style` become Tier 2 contexts in `scenario_weights.json`.
-   - They are the second `FiredContext` slot already designed for in `WeighterResult.fired`.
-   - Blending logic: when both Tier 1 (market state) and Tier 2 (PM preference) contexts fire, blend the two weight vectors before normalisation.
+3. **Context plumbing** ✅ — `Primary objective` and `Trade management style` are routed into context selection.
+   - 5 preference-aware contexts at the top of `scenario_weights.json`: `classic_carry`, `cheap_carry`, `conservative_carry`, `delta_carry`, `big_move`. First-match selection — exactly one context fires per trade.
+   - New supported fields in conditions: `primary_objective`, `trade_management`. New `in` operator accepts a list of allowed values (used for enum prefs, e.g. `primary_objective in ["Balanced", "Hold up if the path is slow/noisy"]`).
+   - `compute_family_weights(ms, primary_objective="Balanced", trade_management="Standard hold")` — defaults preserve existing behaviour.
+   - `flow.primary_objective` / `flow.trade_management` set from session state before each engine run, alongside `flow.structure_constraint`.
+   - All 5 new contexts ship with empty `adjustments: {}` — they fire and surface in the UI but don't yet bend weights. Tune via the Context weights tab.
+   - Old market-state-only contexts are retained as fallbacks for cases the 5 don't cover (counter-carry, carry=0, no-target, edge tenors). The three that required `with_carry=true` (`carry_capture`, `directional_with_carry`, `carry_momentum_extended`) are unreachable for typical preferences and remain dormant.
+   - Trade View shows weighted P&L for each structure both **(baseline)** (1/8 each) and **(context)** (after the active context's adjustments) so the deviation is visible per structure.
 
 Design intent:
 - `Balanced` / `No restriction` / `Standard hold` remain the defaults — current behaviour unchanged when no PM preference is chosen.

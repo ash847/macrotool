@@ -58,9 +58,12 @@ class TestParseConditionValue:
         v = _parse_condition_value("0.083")
         assert abs(v - 0.083) < 1e-9
 
-    def test_invalid_raises(self):
-        with pytest.raises((ValueError, TypeError)):
-            _parse_condition_value("not_a_number")
+    def test_unparseable_returns_string(self):
+        # Strings that aren't bool/int/float are accepted as-is — used for
+        # enum fields like primary_objective ("Balanced", "Keep cost low" …).
+        v = _parse_condition_value("Balanced")
+        assert v == "Balanced"
+        assert isinstance(v, str)
 
     def test_whitespace_stripped(self):
         assert _parse_condition_value("  2  ") == 2
@@ -162,11 +165,31 @@ class TestDfToConditions:
         assert conds == []
         assert any("??" in e for e in errors)
 
-    def test_bad_value_error(self):
-        df = pd.DataFrame([{"field": "T", "op": "<", "value": "not_a_number"}])
+    def test_string_value_accepted_for_enum_fields(self):
+        # primary_objective accepts string values like "Balanced".
+        df = pd.DataFrame([{
+            "field": "primary_objective", "op": "==", "value": "Balanced",
+        }])
         conds, errors = _df_to_conditions(df)
-        assert conds == []
-        assert any("not_a_number" in e for e in errors)
+        assert errors == []
+        assert conds[0]["value"] == "Balanced"
+
+    def test_in_op_parses_comma_separated_list(self):
+        df = pd.DataFrame([{
+            "field": "carry_regime", "op": "in", "value": "1, 2",
+        }])
+        conds, errors = _df_to_conditions(df)
+        assert errors == []
+        assert conds[0]["value"] == [1, 2]
+
+    def test_in_op_parses_string_list(self):
+        df = pd.DataFrame([{
+            "field": "primary_objective", "op": "in",
+            "value": "Balanced, Keep cost low",
+        }])
+        conds, errors = _df_to_conditions(df)
+        assert errors == []
+        assert conds[0]["value"] == ["Balanced", "Keep cost low"]
 
     def test_blank_row_skipped(self):
         df = pd.DataFrame([{"field": "", "op": "", "value": ""}])

@@ -21,7 +21,7 @@
   "_context_schema": {
     "id": "Stable identifier — used to display the active context in the UI and in version history.",
     "comment": "Plain-English description of the trade archetype this context represents and why the weights are set as they are. This is the reasoning a PM reads when sense-checking.",
-    "when": "Array of {field, op, value} — ALL must be true for this context to be selected. Supported fields: target_z_abs, carry_regime, with_carry, T, vol, atmfsratio. Supported ops: '>', '>=', '<', '<=', '==', '!='. If a field is None on the MarketState (e.g. target_z when no target supplied), the condition evaluates false.",
+    "when": "Array of {field, op, value} — ALL must be true for this context to be selected. Supported fields: target_z_abs, carry_regime, with_carry, T, vol, atmfsratio, primary_objective, trade_management. Supported ops: '>', '>=', '<', '<=', '==', '!=', 'in'. The 'in' op takes a list of allowed values (useful for enum prefs). If a field is None on the MarketState (e.g. target_z when no target supplied), the condition evaluates false.",
     "adjustments": "Object mapping family → signed delta. All families listed here are adjusted when this context is selected. Positive = this scenario matters more for this trade type, negative = less."
   },
 
@@ -29,6 +29,67 @@
   "floor": 0.02,
 
   "contexts": [
+
+    {
+      "id": "classic_carry",
+      "comment": "Baseline carry trade: carry-to-vol H or M, moderate target distance, with carry, neutral PM preferences. The PM is collecting carry without a strong stylistic preference — start at baseline and tune adjustments to favour carry-collection scenarios.",
+      "when": [
+        {"field": "carry_regime",      "op": "in", "value": [1, 2]},
+        {"field": "target_z_abs",      "op": "<=", "value": 1.25},
+        {"field": "with_carry",        "op": "==", "value": true},
+        {"field": "primary_objective", "op": "in", "value": ["Balanced", "Hold up if the path is slow/noisy"]},
+        {"field": "trade_management",  "op": "in", "value": ["Standard hold", "Need defendable mark-to-market"]}
+      ],
+      "adjustments": {}
+    },
+
+    {
+      "id": "cheap_carry",
+      "comment": "Cost-focused carry trade: same setup as classic carry but PM wants to keep premium low. Penalise scenarios where premium decays without payout — particularly NO_MOVE and slow-bleed paths.",
+      "when": [
+        {"field": "carry_regime",      "op": "in", "value": [1, 2]},
+        {"field": "target_z_abs",      "op": "<=", "value": 1.25},
+        {"field": "with_carry",        "op": "==", "value": true},
+        {"field": "primary_objective", "op": "==", "value": "Keep cost low"},
+        {"field": "trade_management",  "op": "in", "value": ["Standard hold", "Need defendable mark-to-market"]}
+      ],
+      "adjustments": {}
+    },
+
+    {
+      "id": "conservative_carry",
+      "comment": "Risk-clean carry trade: same setup but PM wants no nasty tails. Penalise WRONG_WAY and OVERSHOOT heavily — clean exit beats marginal extra payout.",
+      "when": [
+        {"field": "carry_regime",      "op": "in", "value": [1, 2]},
+        {"field": "target_z_abs",      "op": "<=", "value": 1.25},
+        {"field": "with_carry",        "op": "==", "value": true},
+        {"field": "primary_objective", "op": "==", "value": "Keep risk clean"}
+      ],
+      "adjustments": {}
+    },
+
+    {
+      "id": "delta_carry",
+      "comment": "Carry trade where PM intends to monetise early. Penalise structures with low inception delta (i.e. structures whose value response to small moves early in the life is muted) — favour high-delta scenarios where mark-to-market moves quickly.",
+      "when": [
+        {"field": "carry_regime",      "op": "in", "value": [1, 2]},
+        {"field": "target_z_abs",      "op": "<=", "value": 1.25},
+        {"field": "with_carry",        "op": "==", "value": true},
+        {"field": "primary_objective", "op": "in", "value": ["Balanced", "Keep cost low", "Hold up if the path is slow/noisy"]},
+        {"field": "trade_management",  "op": "==", "value": "May monetise early"}
+      ],
+      "adjustments": {}
+    },
+
+    {
+      "id": "big_move",
+      "comment": "Large expected move (>1.25σ from forward), any carry, any direction. PM is positioned for a meaningful displacement — amplify reward scenarios (CORRECT_PATH, OVERSHOOT) and penalise WRONG_WAY heavily. Excludes the 'defendable MtM' style which prefers smaller, smoother trades.",
+      "when": [
+        {"field": "target_z_abs",     "op": ">",  "value": 1.25},
+        {"field": "trade_management", "op": "in", "value": ["Standard hold", "May monetise early"]}
+      ],
+      "adjustments": {}
+    },
 
     {
       "id": "short_dated",

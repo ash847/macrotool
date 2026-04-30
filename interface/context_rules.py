@@ -44,20 +44,24 @@ _COND_FIELDS = [
     "vol",
     "target_z_abs",
     "atmfsratio",
+    "primary_objective",
+    "trade_management",
 ]
-_COND_OPS = ["==", "!=", ">", ">=", "<", "<="]
+_COND_OPS = ["==", "!=", ">", ">=", "<", "<=", "in"]
 
 # ---------------------------------------------------------------------------
 # Shared helpers (used by Tab 2 and Tab 3)
 # ---------------------------------------------------------------------------
 
 _FIELD_LABELS = {
-    "target_z_abs": "Target distance (σ)",
-    "carry_regime": "Carry regime",
-    "with_carry":   "Direction vs carry",
-    "T":            "Tenor (years)",
-    "vol":          "ATM vol",
-    "atmfsratio":   "ATM/FS ratio",
+    "target_z_abs":      "Target distance (σ)",
+    "carry_regime":      "Carry regime",
+    "with_carry":        "Direction vs carry",
+    "T":                 "Tenor (years)",
+    "vol":               "ATM vol",
+    "atmfsratio":        "ATM/FS ratio",
+    "primary_objective": "Primary objective",
+    "trade_management":  "Trade management",
 }
 
 _VALUE_LABELS: dict = {
@@ -70,10 +74,12 @@ _VALUE_LABELS: dict = {
 
 
 def _fmt_value(field: str, value) -> str:
-    if field == "T":
+    if isinstance(value, list):
+        return "[" + ", ".join(_fmt_value(field, v) for v in value) + "]"
+    if field == "T" and isinstance(value, (int, float)) and not isinstance(value, bool):
         months = value * 12
         return f"{months:.0f}m ({value}y)"
-    if field == "vol":
+    if field == "vol" and isinstance(value, (int, float)) and not isinstance(value, bool):
         return f"{value:.0%}"
     if isinstance(value, bool):
         return _VALUE_LABELS.get(value, str(value))
@@ -245,8 +251,9 @@ def _init_priority_state(cfg: dict) -> list[dict]:
 
 def _parse_condition_value(s: str):
     """
-    Parse a string from the conditions editor into a typed Python value.
-    Raises ValueError if not parseable.
+    Parse a string from the conditions editor into a typed Python value:
+    bool / int / float if recognisable, otherwise the raw string (so enum
+    values like 'Balanced' or 'Keep cost low' are accepted as-is).
     """
     s = s.strip()
     if s.lower() == "true":
@@ -257,16 +264,34 @@ def _parse_condition_value(s: str):
         return int(s)
     except ValueError:
         pass
-    return float(s)
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    # Fallback: treat as string (used for enum fields like primary_objective).
+    return s
+
+
+def _format_value_for_editor(value) -> str:
+    """Render a stored value as the string the data_editor cell shows."""
+    if isinstance(value, list):
+        return ", ".join(_format_value_for_editor(v) for v in value)
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return str(value)
 
 
 def _conditions_to_df(when: list[dict]) -> pd.DataFrame:
     """Convert a `when` condition list to a DataFrame for st.data_editor."""
     rows = []
     for c in when:
-        raw = c["value"]
-        val_str = "true" if raw is True else "false" if raw is False else str(raw)
-        rows.append({"field": c["field"], "op": c["op"], "value": val_str})
+        rows.append({
+            "field": c["field"],
+            "op":    c["op"],
+            "value": _format_value_for_editor(c["value"]),
+        })
     return pd.DataFrame(rows, columns=["field", "op", "value"])
 
 
@@ -274,6 +299,7 @@ def _df_to_conditions(df: pd.DataFrame) -> tuple[list[dict], list[str]]:
     """
     Convert a data_editor DataFrame back to a `when` condition list.
     Returns (conditions, parse_errors).  Rows with all-empty cells are skipped.
+    For op == 'in', value is parsed as a comma-separated list.
     """
     conds: list[dict] = []
     errors: list[str] = []
@@ -294,11 +320,17 @@ def _df_to_conditions(df: pd.DataFrame) -> tuple[list[dict], list[str]]:
         if not val_s:
             errors.append(f"Row {idx + 1}: missing value")
             continue
-        try:
+
+        if op == "in":
+            # Comma-separated list of values; each parsed individually.
+            parts = [p.strip() for p in val_s.split(",") if p.strip()]
+            if not parts:
+                errors.append(f"Row {idx + 1}: 'in' op requires a comma-separated list")
+                continue
+            value = [_parse_condition_value(p) for p in parts]
+        else:
             value = _parse_condition_value(val_s)
-        except (ValueError, TypeError):
-            errors.append(f"Row {idx + 1}: cannot parse value '{val_s}'")
-            continue
+
         conds.append({"field": field, "op": op, "value": value})
     return conds, errors
 
@@ -357,25 +389,19 @@ def _simulate_context_fire(contexts: list[dict], field_values: dict) -> str | No
         ">=": lambda a, b: a >= b,
         "<":  lambda a, b: a < b,
         "<=": lambda a, b: a <= b,
+        "in": lambda a, b: a in b,
     }
-    _getters = {
-        "target_z_abs": lambda fv: fv.get("target_z_abs"),
-        "carry_regime": lambda fv: fv.get("carry_regime"),
-        "with_carry":   lambda fv: fv.get("with_carry"),
-        "T":            lambda fv: fv.get("T"),
-        "vol":          lambda fv: fv.get("vol"),
-        "atmfsratio":   lambda fv: fv.get("atmfsratio"),
-    }
+    _supported = set(_COND_FIELDS)
 
     for ctx in contexts:
         match = True
         for cond in ctx.get("when", []):
-            getter  = _getters.get(cond["field"])
-            op_fn   = _ops.get(cond["op"])
-            if getter is None or op_fn is None:
+            field = cond["field"]
+            op_fn = _ops.get(cond["op"])
+            if field not in _supported or op_fn is None:
                 match = False
                 break
-            actual = getter(field_values)
+            actual = field_values.get(field)
             if actual is None:
                 match = False
                 break
@@ -439,46 +465,70 @@ def _render_priority_conditions(cfg: dict) -> None:
         "Set market-state values to see which context fires under first-match selection."
     )
 
-    p = st.columns(6)
-    with p[0]:
+    _PRIM_OPTS = [
+        "Balanced",
+        "Keep cost low",
+        "Hold up if the path is slow/noisy",
+        "Keep risk clean",
+    ]
+    _MGMT_OPTS = [
+        "Standard hold",
+        "May monetise early",
+        "Need defendable mark-to-market",
+    ]
+
+    p1 = st.columns(6)
+    with p1[0]:
         prev_carry = st.selectbox(
             "Carry regime", [0, 1, 2], index=1, key="pv_carry",
             help="0 = noisy  /  1 = potential  /  2 = high"
         )
-    with p[1]:
+    with p1[1]:
         prev_wc = st.selectbox(
             "With carry", [True, False], index=0,
             format_func=lambda x: "with carry" if x else "counter carry",
             key="pv_wc",
         )
-    with p[2]:
+    with p1[2]:
         prev_T = st.number_input(
             "Tenor (yrs)", min_value=0.01, max_value=3.0,
             value=0.25, step=0.01, format="%.2f", key="pv_T",
         )
-    with p[3]:
+    with p1[3]:
         prev_vol = st.number_input(
             "ATM vol", min_value=0.01, max_value=1.0,
             value=0.12, step=0.01, format="%.2f", key="pv_vol",
         )
-    with p[4]:
+    with p1[4]:
         prev_tz = st.number_input(
             "Target |σ|", min_value=0.0, max_value=5.0,
             value=1.0, step=0.1, format="%.2f", key="pv_tz",
         )
-    with p[5]:
+    with p1[5]:
         prev_atmfs = st.number_input(
             "ATM/FS ratio", min_value=0.0, max_value=10.0,
             value=1.0, step=0.1, format="%.2f", key="pv_atmfs",
         )
 
+    p2 = st.columns(2)
+    with p2[0]:
+        prev_prim = st.selectbox(
+            "Primary objective", _PRIM_OPTS, index=0, key="pv_prim",
+        )
+    with p2[1]:
+        prev_mgmt = st.selectbox(
+            "Trade management", _MGMT_OPTS, index=0, key="pv_mgmt",
+        )
+
     field_values = {
-        "carry_regime":  prev_carry,
-        "with_carry":    prev_wc,
-        "T":             prev_T,
-        "vol":           prev_vol,
-        "target_z_abs":  prev_tz,
-        "atmfsratio":    prev_atmfs,
+        "carry_regime":      prev_carry,
+        "with_carry":        prev_wc,
+        "T":                 prev_T,
+        "vol":               prev_vol,
+        "target_z_abs":      prev_tz,
+        "atmfsratio":        prev_atmfs,
+        "primary_objective": prev_prim,
+        "trade_management":  prev_mgmt,
     }
     fired = _simulate_context_fire(contexts, field_values)
     if fired:
@@ -566,7 +616,11 @@ def _render_priority_conditions(cfg: dict) -> None:
                         help=(
                             "Booleans: true / false.  "
                             "carry_regime: 0 / 1 / 2.  "
-                            "vol / T / target_z_abs: decimal (e.g. 0.20, 0.083, 1.5)."
+                            "vol / T / target_z_abs: decimal (e.g. 0.20, 0.083, 1.5).  "
+                            "Enums (primary_objective / trade_management): the option string, "
+                            "e.g. 'Balanced'.  "
+                            "For op = 'in': comma-separated list, e.g. '1, 2' or "
+                            "'Balanced, Keep cost low'."
                         ),
                     ),
                 },

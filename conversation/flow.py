@@ -91,6 +91,8 @@ class ConversationFlow:
         self.cfg: ResolvedConfig = load_config()
         self.target_rr: float | None = None
         self.structure_constraint: str = "No restriction"
+        self.primary_objective: str = "Balanced"
+        self.trade_management: str = "Standard hold"
         self.view: TradeView | None = None
         self.ccy: CurrencySnapshot | None = None
         self.market_state: MarketState | None = None
@@ -129,6 +131,8 @@ class ConversationFlow:
         self.cfg = load_config()
         self.target_rr = None
         self.structure_constraint = "No restriction"
+        self.primary_objective = "Balanced"
+        self.trade_management = "Standard hold"
         self.view = None
         self.ccy = None
         self.market_state = None
