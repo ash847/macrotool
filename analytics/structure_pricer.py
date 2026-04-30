@@ -80,6 +80,8 @@ def price_variants(
         result = _vanilla(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     elif structure_id == "1x1_spread":
         result = _spread(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+    elif structure_id == "1x1.5_spread":
+        result = _1x1p5(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     elif structure_id == "1x2_spread":
         result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     elif structure_id == "seagull":
@@ -212,6 +214,66 @@ def _spread(
 
 
 # ---------------------------------------------------------------------------
+# 1x1.5 Spread  (long 1 × long leg, short 1.5 × target strike)
+# ---------------------------------------------------------------------------
+
+def _1x1p5(
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+) -> list[PricedVariant]:
+    """Same construction as the 1x2 but with a 1.5× short ratio.
+    Net premium is reduced vs a 1x1 spread but not fully zero.
+    Beyond the target the position is net short 0.5 options — tail risk is
+    present but half that of a 1x2."""
+    if target is None:
+        return []
+    target_z = abs(math.log(target / F) / vol_sqrtT) if vol_sqrtT > 0 else 0.0
+    result = []
+    for v in variants:
+        if target_z < v.get("min_target_z", 0.0):
+            continue
+
+        if v["long_type"] == "atmf":
+            K1 = F
+        else:  # half_sigma toward target
+            K1 = F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
+
+        K2 = target  # short strike (×1.5)
+
+        if is_call:
+            prem1 = black76_call(F, K1, T, vol, DF)
+            prem2 = black76_call(F, K2, T, vol, DF)
+            gross_at_target = max(target - K1, 0.0)
+        else:
+            prem1 = black76_put(F, K1, T, vol, DF)
+            prem2 = black76_put(F, K2, T, vol, DF)
+            gross_at_target = max(K1 - target, 0.0)
+
+        net_prem = prem1 - 1.5 * prem2
+        prem_pct = net_prem / spot
+        is_zero_cost = abs(net_prem) < 0.0001 * spot
+
+        breakeven = None
+        if not is_zero_cost and net_prem > 0:
+            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
+
+        payoff_pct = gross_at_target / spot
+        rr = (payoff_pct / prem_pct) if (not is_zero_cost and prem_pct > 1e-8) else None
+
+        result.append(PricedVariant(
+            variant_label=v["label"],
+            strikes=[K1, K2],
+            barrier=None,
+            net_premium_pct=prem_pct,
+            breakeven=breakeven,
+            payoff_at_target_pct=payoff_pct,
+            rr_at_target=rr,
+            max_loss_pct=max(prem_pct, 0.0),
+            wing_ratio=None,
+            is_zero_cost=is_zero_cost,
+        ))
+    return result
+
+
 # 1x2 Spread  (long 1 × long leg, short 2 × target strike)
 # ---------------------------------------------------------------------------
 

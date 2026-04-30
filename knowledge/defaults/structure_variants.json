@@ -19,6 +19,11 @@
     {"label": "25Δ/15Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.15, "wing_delta": 0.25}
   ],
 
+  "1x1.5_spread": [
+    {"label": "ATMF / 1.5× target",             "long_type": "atmf"},
+    {"label": "½σ toward target / 1.5× target", "long_type": "half_sigma", "min_target_z": 0.5}
+  ],
+
   "1x2_spread": [
     {"label": "ATMF / 2× target",              "long_type": "atmf"},
     {"label": "½σ toward target / 2× target",  "long_type": "half_sigma", "min_target_z": 0.5}

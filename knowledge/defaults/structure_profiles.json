@@ -80,6 +80,19 @@
     "structuring_guidelines": "Knock-out barrier set beyond the target in the direction of the view. Wider barrier = lower payout ratio but more resilient. Narrower barrier = higher payout ratio but fragile. Cross-check: barrier must be set above a level the market is unlikely to trade through before the target is reached. Payout ratio needs to be higher than 2.25 to be interesting"
   },
 
+  "1x1.5_spread": {
+    "display_name": "1x1.5 Spread (Call or Put)",
+    "premium_profile": "low",
+    "payout_type": "linear_capped_sold_wing",
+    "max_loss": "sold_leg_unlimited",
+    "path_dependent": false,
+    "requires_target": true,
+    "overlay_only": false,
+    "optimal_for": "Reduced-premium spread with moderate tail risk; sits between a 1x1 (fully capped, higher premium) and a 1x2 (near-zero premium, larger tail); PM accepts a net short 0.5 position beyond the target in exchange for a lower upfront cost",
+    "major_risk": "Spot moves well through the target — net short 0.5 position beyond target generates losses that increase with spot; less severe than a 1x2 but still open-ended; confirm PM understands the residual short above target",
+    "structuring_guidelines": "Buy 1 option at K1 (ATMF or ½σ toward target). Sell 1.5 options at the target level. Net premium lower than a 1x1 spread but not fully zero. Max profit at target. Beyond target the position is net short 0.5 options — smaller tail than a 1x2 but still present. Suitable when the PM wants meaningful cost reduction without fully committing to the 1x2 tail risk profile."
+  },
+
   "1x2_spread": {
     "display_name": "1x2 Spread (Call or Put)",
     "premium_profile": "near_zero",
