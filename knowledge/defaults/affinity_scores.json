@@ -30,8 +30,15 @@
       "counter_low",
       "counter_medium",
       "counter_high"
+    ],
+    "structure_constraint": [
+      "No restriction",
+      "Avoid capped structures",
+      "Avoid complex structures",
+      "Avoid tail-risky structures"
     ]
   },
+  "_structure_constraint_notes": "The bucket for this dimension is the PM's preference string directly. 'No restriction' scores 0 for all structures. Negative scores penalise structures incompatible with the PM's constraint. Values are tunable in the Structure Selection editor.",
   "thresholds": {
     "target_z_abs": [
       0.5,
@@ -74,6 +81,12 @@
         "counter_low": -1.0,
         "counter_medium": -1.5,
         "counter_high": -2.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": 0.0,
+        "Avoid complex structures": 0.0,
+        "Avoid tail-risky structures": 0.0
       }
     },
     "1x1_spread": {
@@ -104,6 +117,12 @@
         "counter_low": 2.0,
         "counter_medium": 1.0,
         "counter_high": 0.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": -5.0,
+        "Avoid complex structures": 0.0,
+        "Avoid tail-risky structures": 0.0
       }
     },
     "risk_reversal": {
@@ -135,6 +154,12 @@
         "counter_low": 2.0,
         "counter_medium": 0.0,
         "counter_high": -1.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": 0.0,
+        "Avoid complex structures": -5.0,
+        "Avoid tail-risky structures": 0.0
       }
     },
     "seagull": {
@@ -165,6 +190,12 @@
         "counter_low": 1.5,
         "counter_medium": 1.0,
         "counter_high": 0.5
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": -5.0,
+        "Avoid complex structures": -5.0,
+        "Avoid tail-risky structures": 0.0
       }
     },
     "1x2_spread": {
@@ -195,6 +226,12 @@
         "counter_low": 1.0,
         "counter_medium": 0.5,
         "counter_high": 0.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": -5.0,
+        "Avoid complex structures": -5.0,
+        "Avoid tail-risky structures": -5.0
       }
     },
     "rko": {
@@ -223,6 +260,12 @@
         "counter_low": 2.0,
         "counter_medium": 1.0,
         "counter_high": 0.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": 0.0,
+        "Avoid complex structures": -5.0,
+        "Avoid tail-risky structures": 0.0
       }
     },
     "european_digital": {
@@ -251,6 +294,12 @@
         "counter_low": 0.0,
         "counter_medium": 0.0,
         "counter_high": 0.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": -5.0,
+        "Avoid complex structures": -5.0,
+        "Avoid tail-risky structures": 0.0
       }
     },
     "european_digital_rko": {
@@ -279,6 +328,12 @@
         "counter_low": 1.0,
         "counter_medium": 1.0,
         "counter_high": 0.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": -5.0,
+        "Avoid complex structures": -5.0,
+        "Avoid tail-risky structures": 0.0
       }
     }
   }

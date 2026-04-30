@@ -19,13 +19,14 @@ import streamlit as st
 
 _SCORES_PATH = pathlib.Path(__file__).parent.parent / "knowledge" / "defaults" / "affinity_scores.json"
 
-_DIMS = ["target_z_abs", "carry_regime", "atmfsratio", "carry_alignment"]
+_DIMS = ["target_z_abs", "carry_regime", "atmfsratio", "carry_alignment", "structure_constraint"]
 
 _DIM_LABELS = {
-    "target_z_abs":    "Target Z (distance from forward)",
-    "carry_regime":    "Carry Regime",
-    "atmfsratio":      "ATM/F-S Ratio",
-    "carry_alignment": "Carry Alignment",
+    "target_z_abs":         "Target Z (distance from forward)",
+    "carry_regime":         "Carry Regime",
+    "atmfsratio":           "ATM/F-S Ratio",
+    "carry_alignment":      "Carry Alignment",
+    "structure_constraint": "Structure Constraint (PM preference)",
 }
 
 _BUCKET_ORDER = {
@@ -34,12 +35,18 @@ _BUCKET_ORDER = {
     "atmfsratio":      ["low", "medium", "high"],
     "carry_alignment": ["with_low", "with_medium", "with_high",
                         "counter_low", "counter_medium", "counter_high"],
+    "structure_constraint": [
+        "No restriction",
+        "Avoid capped structures",
+        "Avoid complex structures",
+        "Avoid tail-risky structures",
+    ],
 }
 
 _STRUCT_ORDER = ["vanilla", "risk_reversal", "1x1_spread", "seagull", "1x2_spread",
                  "rko", "european_digital", "european_digital_rko"]
 
-_SCORE_MIN, _SCORE_MAX = -3, 3
+_SCORE_MIN, _SCORE_MAX = -5, 3
 
 
 def _load() -> dict:
@@ -188,11 +195,12 @@ def render() -> None:
 
     working = copy.deepcopy(st.session_state.scores_cfg)
 
-    tab_tz, tab_cr, tab_atm, tab_ca, tab_gates, tab_thresh = st.tabs([
+    tab_tz, tab_cr, tab_atm, tab_ca, tab_sc, tab_gates, tab_thresh = st.tabs([
         "Target Z",
         "Carry Regime",
         "ATM/F-S Ratio",
         "Carry Alignment",
+        "Structure Constraint",
         "Gates",
         "Thresholds",
     ])
@@ -208,6 +216,15 @@ def render() -> None:
 
     with tab_ca:
         _render_dim(working, "carry_alignment")
+
+    with tab_sc:
+        st.caption(
+            "Scores applied when the PM selects a structure constraint in the intake form.  "
+            "**0** = no effect (use for structures compatible with that constraint).  "
+            "**Negative** = penalise (use to push incompatible structures down the shortlist).  "
+            "Default −5 is strong enough to reliably exclude a structure from the top 3."
+        )
+        _render_dim(working, "structure_constraint")
 
     with tab_gates:
         gates_df = _render_gates(working)

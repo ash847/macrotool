@@ -18,8 +18,18 @@ from knowledge_engine.loader import load_affinity_scores, load_structure_profile
 from knowledge_engine.models import StructureSelectionResult, StructureShortlistItem
 
 
+_SCORED_DIMS = (
+    "target_z_abs",
+    "carry_regime",
+    "atmfsratio",
+    "carry_alignment",
+    "structure_constraint",
+)
+
+
 def score_structures(
     market_state: MarketState,
+    structure_constraint: str = "No restriction",
     max_primary: int = 3,
 ) -> StructureSelectionResult:
     """
@@ -27,6 +37,11 @@ def score_structures(
 
     Primary structures (overlay_only=False) are capped at max_primary.
     Overlay structures are appended after, ranked by their own scores.
+
+    `structure_constraint` is the PM preference string from the intake form
+    (e.g. "Avoid capped structures").  Scores for this dimension live under
+    each structure's "structure_constraint" key in affinity_scores.json.
+    "No restriction" scores 0 for every structure (default behaviour unchanged).
     """
     profiles = load_structure_profiles()
     scores_cfg = load_affinity_scores()
@@ -34,7 +49,7 @@ def score_structures(
     thresholds = scores_cfg["thresholds"]
     struct_scores = scores_cfg["structures"]
 
-    buckets = _compute_buckets(market_state, thresholds)
+    buckets = _compute_buckets(market_state, thresholds, structure_constraint)
 
     primary: list[tuple[float, str]] = []
     overlays: list[tuple[float, str]] = []
@@ -49,7 +64,7 @@ def score_structures(
 
         total = sum(
             score_cfg.get(dim, {}).get(buckets[dim], 0)
-            for dim in ("target_z_abs", "carry_regime", "atmfsratio", "carry_alignment")
+            for dim in _SCORED_DIMS
         )
 
         if profile.get("overlay_only", False):
@@ -79,7 +94,10 @@ def score_structures(
 # Detail / debug
 # ---------------------------------------------------------------------------
 
-def get_scoring_detail(market_state: MarketState) -> list[dict]:
+def get_scoring_detail(
+    market_state: MarketState,
+    structure_constraint: str = "No restriction",
+) -> list[dict]:
     """
     Return the full per-structure score breakdown for display.
 
@@ -91,7 +109,7 @@ def get_scoring_detail(market_state: MarketState) -> list[dict]:
     scores_cfg = load_affinity_scores()
     thresholds = scores_cfg["thresholds"]
     struct_scores = scores_cfg["structures"]
-    buckets = _compute_buckets(market_state, thresholds)
+    buckets = _compute_buckets(market_state, thresholds, structure_constraint)
 
     rows = []
     for struct_id, score_cfg in struct_scores.items():
@@ -102,7 +120,7 @@ def get_scoring_detail(market_state: MarketState) -> list[dict]:
 
         dims = {}
         total = 0
-        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "carry_alignment"):
+        for dim in _SCORED_DIMS:
             bucket = buckets[dim]
             score = score_cfg.get(dim, {}).get(bucket, 0) if eligible else 0
             dims[dim] = {"bucket": bucket, "score": score}
@@ -149,7 +167,11 @@ def _passes_gates(
     return True
 
 
-def _compute_buckets(ms: MarketState, thresholds: dict) -> dict[str, str]:
+def _compute_buckets(
+    ms: MarketState,
+    thresholds: dict,
+    structure_constraint: str = "No restriction",
+) -> dict[str, str]:
     tz_cuts = thresholds["target_z_abs"]
     if ms.target_z is None:
         tz_bucket = "no_target"
@@ -175,10 +197,12 @@ def _compute_buckets(ms: MarketState, thresholds: dict) -> dict[str, str]:
     carry_alignment = f"with_{atm_bucket}" if ms.with_carry else f"counter_{atm_bucket}"
 
     return {
-        "target_z_abs": tz_bucket,
-        "carry_regime": str(ms.carry_regime),
-        "atmfsratio": atm_bucket,
-        "carry_alignment": carry_alignment,
+        "target_z_abs":       tz_bucket,
+        "carry_regime":       str(ms.carry_regime),
+        "atmfsratio":         atm_bucket,
+        "carry_alignment":    carry_alignment,
+        # structure_constraint bucket is the preference string directly — no numeric bucketing.
+        "structure_constraint": structure_constraint,
     }
 
 
@@ -193,7 +217,7 @@ def _make_item(
 ) -> StructureShortlistItem:
     breakdown = {
         dim: (buckets[dim], score_cfg.get(dim, {}).get(buckets[dim], 0))
-        for dim in ("target_z_abs", "carry_regime", "atmfsratio", "carry_alignment")
+        for dim in _SCORED_DIMS
     }
     rationale = _build_rationale(profile, breakdown)
     return StructureShortlistItem(

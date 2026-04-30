@@ -90,6 +90,7 @@ class ConversationFlow:
 
         self.cfg: ResolvedConfig = load_config()
         self.target_rr: float | None = None
+        self.structure_constraint: str = "No restriction"
         self.view: TradeView | None = None
         self.ccy: CurrencySnapshot | None = None
         self.market_state: MarketState | None = None
@@ -127,6 +128,7 @@ class ConversationFlow:
         self.session_overrides = SessionOverrides()
         self.cfg = load_config()
         self.target_rr = None
+        self.structure_constraint = "No restriction"
         self.view = None
         self.ccy = None
         self.market_state = None
@@ -330,7 +332,10 @@ class ConversationFlow:
             direction=self.view.direction,
             carry_regime_cuts=carry_regime_cuts,
         )
-        self.selector_result = score_structures(self.market_state)
+        self.selector_result = score_structures(
+            self.market_state,
+            structure_constraint=self.structure_constraint,
+        )
         top_structure = self.selector_result.shortlist[0] if self.selector_result.shortlist else None
         if top_structure:
             self.sizing = compute_sizing(self.view, self.ccy, top_structure, self.cfg)

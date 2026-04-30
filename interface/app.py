@@ -275,7 +275,6 @@ _DIRECTION_OPTIONS = {
 }
 _PRIMARY_OBJECTIVE_OPTIONS = [
     "Balanced",
-    "Keep upside if I'm very right",
     "Keep cost low",
     "Hold up if the path is slow/noisy",
     "Keep risk clean",
@@ -323,6 +322,9 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
 
     flow.view = view
     flow.ccy = ccy
+    flow.structure_constraint = st.session_state.get(
+        "pref_structure_constraint", "No restriction"
+    )
     try:
         flow._run_engines()
         log_view_extracted(view.__dict__)

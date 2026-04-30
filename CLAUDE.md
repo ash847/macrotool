@@ -154,22 +154,26 @@ GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys o
 
 ## PM preference roadmap
 
-Planned next step for the structured Trade View UI:
-
-1. **UI only** — add optional PM preference inputs to the intake form with no effect on scoring yet.
-   - `Primary objective`: `Balanced`, `Keep upside if I'm very right`, `Keep cost low`, `Hold up if the path is slow/noisy`, `Keep risk clean`
+1. **UI only** ✅ — PM preference inputs on the intake form.
+   - `Primary objective`: `Balanced`, `Keep cost low`, `Hold up if the path is slow/noisy`, `Keep risk clean`
    - `Structure constraint`: `No restriction`, `Avoid capped structures`, `Avoid complex structures`, `Avoid tail-risky structures`
    - `Trade management style`: `Standard hold`, `May monetise early`, `Need defendable mark-to-market`
+   - Note: "Keep upside if I'm very right" removed — redundant with "Avoid capped structures".
 
-2. **Context plumbing** — route `Primary objective` and `Trade management style` into the scenario/context weighting layer only.
+2. **Selection plumbing** ✅ — `Structure constraint` wired into affinity scoring as a 5th dimension.
+   - `structure_constraint` field added to every structure in `affinity_scores.json`.
+   - Bucket = the preference string directly (no numeric conversion needed).
+   - Default scores: 0 = compatible, −5 = penalised (reliable exclusion from top 3).
+   - Editable via **Structure Constraint** tab in the Structure Selection page.
+   - `score_structures(market_state, structure_constraint=...)` — defaults to "No restriction" so all existing callers are unchanged.
+   - `flow.structure_constraint` set from `pref_structure_constraint` session state before each engine run.
 
-3. **Selection plumbing** — route `Structure constraint` into shortlist filtering / re-ranking only.
+3. **Context plumbing** — route `Primary objective` and `Trade management style` into the scenario/context weighting layer (Tier 2 contexts).
+   - `Primary objective` and `Trade management style` become Tier 2 contexts in `scenario_weights.json`.
+   - They are the second `FiredContext` slot already designed for in `WeighterResult.fired`.
+   - Blending logic: when both Tier 1 (market state) and Tier 2 (PM preference) contexts fire, blend the two weight vectors before normalisation.
 
 Design intent:
-- `Balanced` remains the default and should preserve current behaviour when no PM preference is chosen.
-- PM inputs must be kept conceptually separate:
-  - selection-layer constraints
-  - context/evaluation-layer preferences
-- Reuse existing config surfaces when plumbing is added later:
-  - selection preferences alongside `affinity_scores.json`
-  - context preferences alongside `scenario_weights.json`
+- `Balanced` / `No restriction` / `Standard hold` remain the defaults — current behaviour unchanged when no PM preference is chosen.
+- Selection-layer constraints live alongside `affinity_scores.json`.
+- Context/evaluation-layer preferences will live alongside `scenario_weights.json`.
