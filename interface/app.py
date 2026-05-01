@@ -145,9 +145,9 @@ with st.sidebar:
     st.title("MacroTool")
     try:
         from importlib.metadata import version as _pkg_version
-        st.caption(f"EM FX price distribution · v{_pkg_version('macrotool')}")
+        st.caption(f"EM FX trade structuring · v{_pkg_version('macrotool')}")
     except Exception:
-        st.caption("EM FX price distribution")
+        st.caption("EM FX trade structuring")
     st.divider()
 
     # Navigation
