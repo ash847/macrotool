@@ -166,6 +166,8 @@ with st.sidebar:
         st.caption(f"EM FX trade structuring · v{_pkg_version('macrotool')}")
     except Exception:
         st.caption("EM FX trade structuring")
+    st.caption(f"Signed in as {USER_EMAIL}")
+    st.button("Sign out", on_click=st.logout, use_container_width=True)
     st.divider()
 
     nav_labels = ("Trade View", "Market Data", "Structure Selection", "Context Rules", "Query log") if IS_ADMIN else ("Trade View",)
@@ -187,12 +189,6 @@ with st.sidebar:
     else:
         st.error("Server Anthropic API key not configured.")
 
-    lf_connected, lf_error = _tracing.init_status()
-    if lf_connected:
-        st.success("Langfuse connected")
-    elif lf_error:
-        st.warning(f"Langfuse: {lf_error}")
-
     sb_connected, sb_error = _sb_status()
     if sb_connected:
         st.success("Supabase connected")
@@ -210,24 +206,6 @@ with st.sidebar:
         step=0.5,
         format="%.1f×",
     )
-
-    st.divider()
-    st.caption(f"Signed in as {USER_EMAIL}")
-    st.button("Sign out", on_click=st.logout, use_container_width=True)
-    st.divider()
-
-    if flow.view:
-        st.subheader("View")
-        st.write(f"**Pair:** {flow.view.pair}")
-        st.write(f"**Direction:** {flow.view.direction.replace('_', ' ')}")
-        st.write(f"**Horizon:** {flow.view.horizon_days}d")
-        if flow.view.magnitude_pct and flow.market_state:
-            sign = 1 if flow.view.direction == "base_higher" else -1
-            _t = flow.ccy.spot * (1 + sign * flow.view.magnitude_pct / 100)
-            move_from_fwd = (_t / flow.market_state.fwd - 1) * 100
-            st.write(f"**Target move from fwd:** {move_from_fwd:+.1f}%")
-        elif flow.view.magnitude_pct:
-            st.write(f"**Target move:** {flow.view.magnitude_pct:.1f}%")
 
     st.divider()
 
