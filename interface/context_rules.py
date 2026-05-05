@@ -1,20 +1,20 @@
 """
-Context Rules page — view and edit scenario_weights.json contexts.
+Scenario Weightings page — view and edit scenario_definitions.json weightings.
 
 Three tabs:
-  1. Context weights    — editable matrix of contexts × families.
+  1. Weighting matrix   — editable matrix of weightings × families.
      Each cell shows the relative weight multiplier (1.00 = no change,
      >1 = bumped up, <1 = reduced). Changes are saved to Supabase and
      every version is stored. The weighter picks up the latest version
      on the next trade query.
 
-  2. Choosing a context — read-only view of the conditions that cause
-     each context to fire, formatted in plain English.
+  2. Choosing a weighting — read-only view of the conditions that cause
+     each weighting to fire, formatted in plain English.
 
-  3. Priority & conditions — edit the context evaluation order and the
-     MarketState conditions attached to each context.  First-match
+  3. Priority & conditions — edit the weighting evaluation order and the
+     MarketState conditions attached to each weighting.  First-match
      selection means order is semantically important.  Live preview
-     shows which context fires for any set of market-state inputs.
+     shows which weighting fires for any set of market-state inputs.
 """
 
 from __future__ import annotations
@@ -107,22 +107,22 @@ def _fmt_conditions(when: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 def _build_matrix(cfg: dict) -> pd.DataFrame:
-    """Build a context × family multiplier matrix (1.0 = no change)."""
+    """Build a weighting × family multiplier matrix (1.0 = no change)."""
     rows = []
-    for ctx in cfg["contexts"]:
+    for ctx in cfg["weightings"]:
         adj = ctx["adjustments"]
-        row = {"Context": ctx["id"].replace("_", " ")}
+        row = {"Weighting": ctx["id"].replace("_", " ")}
         for fam in FAMILIES:
             delta = adj.get(fam, 0.0)
             row[fam.replace("_", " ").title()] = round(1.0 + delta, 3)
         rows.append(row)
-    return pd.DataFrame(rows).set_index("Context")
+    return pd.DataFrame(rows).set_index("Weighting")
 
 
 def _rebuild_config(cfg: dict, edited_df: pd.DataFrame) -> dict:
     """Reconstruct the full config dict from an edited weight matrix."""
     new_cfg = copy.deepcopy(cfg)
-    for ctx in new_cfg["contexts"]:
+    for ctx in new_cfg["weightings"]:
         ctx_label = ctx["id"].replace("_", " ")
         new_adj: dict[str, float] = {}
         for fam in FAMILIES:
@@ -136,15 +136,15 @@ def _rebuild_config(cfg: dict, edited_df: pd.DataFrame) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tab 1 — Context weights (editable)
+# Tab 1 — Weighting matrix (editable)
 # ---------------------------------------------------------------------------
 
 def _render_context_weights(cfg: dict) -> None:
     st.caption(
         "Each cell is the relative weight multiplier applied to a scenario family "
-        "when this context is active.  "
+        "when this weighting is active.  "
         "**1.00** = no change (baseline).  **> 1** = bumped up.  **< 1** = reduced.  "
-        "Weights are re-normalised after all contexts fire so the full vector sums to 1.  "
+        "Weights are re-normalised after all weightings fire so the full vector sums to 1.  "
         "Edit any cell and press **Save changes** — every version is stored."
     )
 
@@ -180,7 +180,7 @@ def _render_context_weights(cfg: dict) -> None:
             try:
                 from interface.supabase_logger import save_config as _save
                 new_cfg = _rebuild_config(cfg, edited_df)
-                ok = _save("scenario_weights", new_cfg, _admin=is_admin_user())
+                ok = _save("scenario_definitions", new_cfg, _admin=is_admin_user())
                 if ok:
                     clear_scenario_weights_cache()
                     st.success("Saved. New weights apply on the next trade query.")
@@ -197,19 +197,18 @@ def _render_context_weights(cfg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tab 2 — Choosing a context (read-only)
+# Tab 2 — Choosing a weighting (read-only)
 # ---------------------------------------------------------------------------
 
 def _render_choosing_a_context(cfg: dict) -> None:
     st.caption(
-        "Contexts are evaluated **top-to-bottom**. The first one whose conditions are all "
+        "Weightings are evaluated **top-to-bottom**. The first one whose conditions are all "
         "satisfied is selected — at most one fires per trade right now. "
-        "Order matters: more specific conditions appear higher in the list and take priority. "
-        "A second context from user preferences (Tier 2) will be added later and blended with this one."
+        "Order matters: more specific conditions appear higher in the list and take priority."
     )
 
     rows = []
-    for ctx in cfg["contexts"]:
+    for ctx in cfg["weightings"]:
         when_str = _fmt_conditions(ctx.get("when", []))
         adj = ctx["adjustments"]
         families_str = "  /  ".join(
@@ -217,7 +216,7 @@ def _render_choosing_a_context(cfg: dict) -> None:
             for f, d in adj.items()
         )
         rows.append({
-            "Context":    ctx["id"].replace("_", " "),
+            "Weighting":  ctx["id"].replace("_", " "),
             "Fires when": when_str,
             "Adjusts":    families_str,
             "Reasoning":  ctx.get("comment", ""),
@@ -228,7 +227,7 @@ def _render_choosing_a_context(cfg: dict) -> None:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Context":    st.column_config.TextColumn(width="small"),
+            "Weighting":  st.column_config.TextColumn(width="small"),
             "Fires when": st.column_config.TextColumn(width="medium"),
             "Adjusts":    st.column_config.TextColumn(width="medium"),
             "Reasoning":  st.column_config.TextColumn(width="large"),
@@ -241,9 +240,9 @@ def _render_choosing_a_context(cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _init_priority_state(cfg: dict) -> list[dict]:
-    """Deep-copy contexts from cfg and assign stable UIDs for widget keying."""
+    """Deep-copy weightings from cfg and assign stable UIDs for widget keying."""
     result = []
-    for ctx in cfg["contexts"]:
+    for ctx in cfg["weightings"]:
         c = copy.deepcopy(ctx)
         c["_uid"] = str(uuid.uuid4())
         result.append(c)
@@ -338,7 +337,7 @@ def _df_to_conditions(df: pd.DataFrame) -> tuple[list[dict], list[str]]:
 
 def _check_shadowing(contexts: list[dict]) -> list[str]:
     """
-    Detect obvious shadowing: context B is shadowed by an earlier context A
+    Detect obvious shadowing: weighting B is shadowed by an earlier weighting A
     when all of A's conditions are an exact subset of B's — meaning whenever
     B would fire, A fires first.  Returns warning strings (empty = none found).
     This is a heuristic; it catches copy-paste errors but not inequality bounds.
@@ -379,8 +378,8 @@ def _check_shadowing(contexts: list[dict]) -> list[str]:
 
 def _simulate_context_fire(contexts: list[dict], field_values: dict) -> str | None:
     """
-    Simulate first-match context selection from a dict of field values.
-    Returns the winning context id, or None if no context matches.
+    Simulate first-match weighting selection from a dict of field values.
+    Returns the winning weighting id, or None if no weighting matches.
     Used for the live preview — does not go through the full MarketState pipeline.
     """
     _ops = {
@@ -425,12 +424,12 @@ def _validate_contexts(contexts: list[dict]) -> list[str]:
 
     for i, ctx_id in enumerate(ids):
         if not ctx_id:
-            errors.append(f"Context #{i + 1} has an empty ID.")
+            errors.append(f"Weighting #{i + 1} has an empty ID.")
 
     seen: set[str] = set()
     for ctx_id in ids:
         if ctx_id and ctx_id in seen:
-            errors.append(f"Duplicate context ID: '{ctx_id}'.")
+            errors.append(f"Duplicate weighting ID: '{ctx_id}'.")
         seen.add(ctx_id)
 
     return errors
@@ -450,12 +449,12 @@ def _render_priority_conditions(cfg: dict) -> None:
     contexts: list[dict] = st.session_state[_PRIORITY_STATE_KEY]
 
     st.caption(
-        "Contexts are evaluated **top-to-bottom** — the first one whose conditions "
+        "Weightings are evaluated **top-to-bottom** — the first one whose conditions "
         "are all satisfied fires and applies its weight adjustments. "
         "Use **▲ / ▼** to change priority order. "
         "Edit conditions inline — add or delete rows using the table controls. "
         "Press **Save** to persist changes to Supabase. "
-        "Changes here do not affect the weight values edited in the **Context weights** tab."
+        "Changes here do not affect the weight values edited in the **Weighting matrix** tab."
     )
 
     # -----------------------------------------------------------------------
@@ -463,7 +462,7 @@ def _render_priority_conditions(cfg: dict) -> None:
     # -----------------------------------------------------------------------
     st.subheader("Live preview")
     st.caption(
-        "Set market-state values to see which context fires under first-match selection."
+        "Set market-state values to see which weighting fires under first-match selection."
     )
 
     _PRIM_OPTS = [
@@ -535,7 +534,7 @@ def _render_priority_conditions(cfg: dict) -> None:
     if fired:
         st.success(f"Fires: **{fired}**")
     else:
-        st.info("No context matches → **baseline (equal weights)**")
+        st.info("No weighting matches → **baseline (equal weights)**")
 
     st.divider()
 
@@ -546,7 +545,7 @@ def _render_priority_conditions(cfg: dict) -> None:
         st.warning(warn)
 
     # -----------------------------------------------------------------------
-    # Per-context cards
+    # Per-weighting cards
     # -----------------------------------------------------------------------
     for i, ctx in enumerate(contexts):
         uid = ctx.get("_uid", str(i))
@@ -577,7 +576,7 @@ def _render_priority_conditions(cfg: dict) -> None:
             id_col, cmt_col = st.columns([1, 2])
             with id_col:
                 new_id = st.text_input(
-                    "Context ID", value=ctx.get("id", ""), key=f"cid_{uid}",
+                    "Weighting ID", value=ctx.get("id", ""), key=f"cid_{uid}",
                     help="Stable identifier used in the UI and version history.",
                 )
                 ctx["id"] = new_id
@@ -593,7 +592,7 @@ def _render_priority_conditions(cfg: dict) -> None:
                 ctx["comment"] = new_comment
 
             # Conditions editor
-            st.write("**Conditions** — ALL must be true for this context to fire:")
+            st.write("**Conditions** — ALL must be true for this weighting to fire:")
             cond_df = _conditions_to_df(ctx.get("when", []))
             edited_df = st.data_editor(
                 cond_df,
@@ -633,11 +632,11 @@ def _render_priority_conditions(cfg: dict) -> None:
 
     st.divider()
 
-    # Add context
-    if st.button("➕ Add context", key="add_ctx_btn"):
+    # Add weighting
+    if st.button("➕ Add weighting", key="add_ctx_btn"):
         contexts.append({
             "_uid":        str(uuid.uuid4()),
-            "id":          f"new_context_{len(contexts) + 1}",
+            "id":          f"new_weighting_{len(contexts) + 1}",
             "comment":     "",
             "when":        [],
             "adjustments": {},
@@ -660,31 +659,31 @@ def _render_priority_conditions(cfg: dict) -> None:
                     from interface.supabase_logger import save_config as _save_cfg
 
                     # Re-fetch latest config so we don't overwrite adjustments
-                    # saved in Tab 1 (Context weights) during this session.
+                    # saved in Tab 1 (Weighting matrix) during this session.
                     clear_scenario_weights_cache()
                     latest_cfg = load_scenario_weights_config()
                     latest_adj: dict[str, dict] = {
                         c["id"]: c.get("adjustments", {})
-                        for c in latest_cfg.get("contexts", [])
+                        for c in latest_cfg.get("weightings", [])
                     }
 
                     new_cfg = copy.deepcopy(latest_cfg)
-                    new_cfg["contexts"] = []
+                    new_cfg["weightings"] = []
                     for ctx in contexts:
                         clean = {k: v for k, v in ctx.items()
                                  if not k.startswith("_")}
                         # Preserve adjustments from Supabase for matching IDs;
-                        # new contexts keep their (empty) adjustments.
+                        # new weightings keep their (empty) adjustments.
                         clean["adjustments"] = latest_adj.get(
                             clean["id"], clean.get("adjustments", {})
                         )
-                        new_cfg["contexts"].append(clean)
+                        new_cfg["weightings"].append(clean)
 
-                    ok = _save_cfg("scenario_weights", new_cfg, _admin=is_admin_user())
+                    ok = _save_cfg("scenario_definitions", new_cfg, _admin=is_admin_user())
                     if ok:
                         clear_scenario_weights_cache()
                         st.success(
-                            "Saved. Updated context rules apply on the next trade query."
+                            "Saved. Updated scenario weightings apply on the next trade query."
                         )
                     else:
                         st.error(
@@ -707,17 +706,17 @@ def _render_priority_conditions(cfg: dict) -> None:
 
 def render() -> None:
     assert_admin()
-    st.header("Context Rules")
+    st.header("Scenario Weightings")
     st.caption(
         "Scenario family weights derived from market state.  "
         "Edits are saved to Supabase and every version is retained.  "
-        "The local `scenario_weights.json` is the factory default."
+        "The local `scenario_definitions.json` is the factory default."
     )
 
     cfg = load_scenario_weights_config()
 
     tab_weights, tab_conditions, tab_priority = st.tabs(
-        ["Context weights", "Context selection (read)", "Context selection (write)"]
+        ["Weighting matrix", "Weighting selection (read)", "Weighting selection (write)"]
     )
 
     with tab_weights:

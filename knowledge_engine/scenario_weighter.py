@@ -2,17 +2,17 @@
 Tier 1 scenario family weighter.
 
 Pure function: MarketState (already view-conditioned by the pipeline) →
-{family: weight} summing to 1.0, plus a record of which contexts fired so
+{family: weight} summing to 1.0, plus a record of which weightings fired so
 the UI can explain the weights to the PM.
 
 The weights are NOT structure-dependent: the same vector is applied to every
 shortlisted structure when scoring, so weighted-P&L scores are directly
 comparable across structures.
 
-Contexts live in `knowledge/defaults/scenario_weights.json`. Tunable without
-code changes — see that file for the context schema and prose explaining each
-one. Each context may adjust multiple families simultaneously via the
-`adjustments` dict.
+Weightings live in `knowledge/defaults/scenario_definitions.json`. Tunable
+without code changes — see that file for the weighting schema and prose
+explaining each one. Each weighting may adjust multiple families
+simultaneously via the `adjustments` dict.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from analytics.market_state import MarketState
 from analytics.scenario_generator import FAMILIES
 
 _REPO_ROOT = Path(__file__).parent.parent
-_WEIGHTS_PATH = _REPO_ROOT / "knowledge" / "defaults" / "scenario_weights.json"
+_WEIGHTS_PATH = _REPO_ROOT / "knowledge" / "defaults" / "scenario_definitions.json"
 
 
 # ---------------------------------------------------------------------------
@@ -33,11 +33,15 @@ _WEIGHTS_PATH = _REPO_ROOT / "knowledge" / "defaults" / "scenario_weights.json"
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class FiredContext:
-    """A context that matched and was applied. Surfaced in the UI for transparency."""
+class FiredWeighting:
+    """A weighting that matched and was applied. Surfaced in the UI for transparency."""
     id: str
     adjustments: dict[str, float]    # family → delta that was applied
     comment: str
+
+
+# Backwards-compat alias
+FiredContext = FiredWeighting
 
 
 @dataclass(frozen=True)
@@ -45,7 +49,7 @@ class WeighterResult:
     """Output of `compute_family_weights`. `weights` always sums to ~1.0 with
     every family present (floor enforced)."""
     weights: dict[str, float]
-    fired: list[FiredContext]
+    fired: list[FiredWeighting]
     baseline: float
     floor: float
 
@@ -59,7 +63,7 @@ _weights_cache: dict | None = None
 
 def load_scenario_weights_config() -> dict:
     """
-    Load scenario weight contexts. Checks Supabase first (so in-app edits
+    Load scenario weightings. Checks Supabase first (so in-app edits
     persist across sessions), falls back to the local JSON file.
     Uses a module-level cache; call `clear_scenario_weights_cache()` after
     a save to force the next call to re-fetch.
@@ -69,7 +73,7 @@ def load_scenario_weights_config() -> dict:
         return _weights_cache
     try:
         from interface.supabase_logger import fetch_config_for_engine
-        data = fetch_config_for_engine("scenario_weights")
+        data = fetch_config_for_engine("scenario_definitions")
         if data:
             _weights_cache = data
             return _weights_cache
@@ -184,10 +188,10 @@ def compute_family_weights(
     weights: dict[str, float] = {f: baseline for f in FAMILIES}
     fired: list[FiredContext] = []
 
-    # Selection: first match wins (contexts are priority-ordered in the JSON).
-    # `fired` holds at most one context — when both market-state and preference
+    # Selection: first match wins (weightings are priority-ordered in the JSON).
+    # `fired` holds at most one weighting — when both market-state and preference
     # conditions are evaluated together, exactly one wins per trade.
-    for ctx in cfg["contexts"]:
+    for ctx in cfg["weightings"]:
         if not _all_conditions_met(ctx.get("when", []), ms, prefs):
             continue
 
@@ -200,7 +204,7 @@ def compute_family_weights(
                 )
             weights[family] += delta
 
-        fired.append(FiredContext(
+        fired.append(FiredWeighting(
             id=ctx["id"],
             adjustments=adjustments,
             comment=ctx.get("comment", ""),

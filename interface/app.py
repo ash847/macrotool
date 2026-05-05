@@ -170,7 +170,7 @@ with st.sidebar:
     st.button("Sign out", on_click=st.logout, use_container_width=True)
     st.divider()
 
-    nav_labels = ("Trade View", "Market Data", "Structure Selection", "Context Rules", "Query log") if IS_ADMIN else ("Trade View",)
+    nav_labels = ("Trade View", "Market Data", "Structure Selection", "Scenario Weightings", "Query log") if IS_ADMIN else ("Trade View",)
     # Navigation
     for label in nav_labels:
         active = st.session_state.page == label
@@ -715,7 +715,7 @@ elif st.session_state.page == "Structure Selection":
     from interface.decision_parameters import render as _render_decision_params
     _render_decision_params()
 
-elif st.session_state.page == "Context Rules":
+elif st.session_state.page == "Scenario Weightings":
     from interface.context_rules import render as _render_context_rules
     _render_context_rules()
 
@@ -891,7 +891,7 @@ else:
 
         # Structure variants
         from analytics.structure_pricer import price_variants as _price_variants
-        _primary_items = flow.selector_result.shortlist[:3]
+        _primary_items = flow.selector_result.shortlist
 
         _any_variants = any(
             _price_variants(ms, s.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price, loss_budget=_loss_budget)
@@ -1050,7 +1050,7 @@ else:
 
         # Build per-structure data (skip structures with no priceable variants)
         _ev_structs = []
-        for _ev_item in flow.selector_result.shortlist[:3]:
+        for _ev_item in flow.selector_result.shortlist:
             try:
                 _ev_pvs = _pv_fn(
                     _ev_ms, _ev_item.structure_id,
@@ -1081,12 +1081,12 @@ else:
 
             st.subheader("Structure Evaluation")
 
-            # Active context — show prominently so it's visible without expanding.
+            # Active weighting — show prominently so it's visible without expanding.
             _active_ctx = (
                 _ev_weighter.fired[0].id.replace("_", " ").title()
                 if _ev_weighter.fired else "Baseline (equal weights)"
             )
-            st.markdown(f"**Scenario context:** {_active_ctx}")
+            st.markdown(f"**Active scenario weighting:** {_active_ctx}")
 
             # Supporting market state detail for sense-checking.
             _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
@@ -1104,9 +1104,9 @@ else:
                 "Scenario MtM as % of entry spot.  P&L vs entry premium."
             )
 
-            # Show the family weights that come out of the context selection,
-            # plus which context fired — fully transparent.
-            _expander_label = f"Selected context weights — {_active_ctx}"
+            # Show the family weights that come out of the weighting selection,
+            # plus which weighting fired — fully transparent.
+            _expander_label = f"Selected scenario weights — {_active_ctx}"
             with st.expander(_expander_label, expanded=False):
                 _w_rows = [
                     {
@@ -1118,7 +1118,7 @@ else:
                 ]
                 st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
                 if _ev_weighter.fired:
-                    st.markdown("**Active contexts**")
+                    st.markdown("**Active weightings**")
                     _ctx_rows = []
                     for _ctx in _ev_weighter.fired:
                         _adj_str = "  /  ".join(
@@ -1126,14 +1126,14 @@ else:
                             for _fam, _delta in _ctx.adjustments.items()
                         )
                         _ctx_rows.append({
-                            "Context":     _ctx.id.replace("_", " "),
+                            "Weighting":   _ctx.id.replace("_", " "),
                             "Adjustments": _adj_str,
                             "Reasoning":   _ctx.comment,
                         })
                     st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
                 else:
                     st.caption(
-                        "No contexts active — every family kept its baseline weight "
+                        "No weightings active — every family kept its baseline weight "
                         f"of {_ev_weighter.baseline:.3f}."
                     )
 

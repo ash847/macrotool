@@ -10,7 +10,10 @@
   "1x1_spread": [
     {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25},
     {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10},
-    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15}
+    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15},
+    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "short_delta": 0.20},
+    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10},
+    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10}
   ],
 
   "seagull": [
@@ -30,6 +33,7 @@
   ],
 
   "european_digital": [
+    {"label": "~30% prem", "target_prem_pct": 0.30},
     {"label": "~20% prem", "target_prem_pct": 0.20},
     {"label": "~10% prem", "target_prem_pct": 0.10}
   ],

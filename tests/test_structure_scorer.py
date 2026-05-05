@@ -106,11 +106,11 @@ class TestRanking:
         ids = [s.structure_id for s in result.shortlist]
         assert "risk_reversal" not in ids
 
-    def test_primary_count_capped_at_three(self):
+    def test_no_hard_cap_on_primary_structures(self):
         ms = _ms(c=0.60, target_z=1.5)
-        result = score_structures(ms, max_primary=3)
+        result = score_structures(ms)
         primaries = [s for s in result.shortlist if not s.is_exotic]
-        assert len(primaries) <= 3
+        assert len(primaries) >= 1
 
     def test_ranks_are_sequential_from_one(self):
         ms = _ms(c=0.60, target_z=1.5)

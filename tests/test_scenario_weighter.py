@@ -22,7 +22,7 @@ import pytest
 from analytics.market_state import MarketState
 from analytics.scenario_generator import FAMILIES
 from knowledge_engine.scenario_weighter import (
-    FiredContext,
+    FiredWeighting,
     WeighterResult,
     compute_family_weights,
     load_scenario_weights_config,
@@ -276,14 +276,14 @@ class TestNoneHandling:
 
 
 # ---------------------------------------------------------------------------
-# FiredContext transparency
+# FiredWeighting transparency
 # ---------------------------------------------------------------------------
 
 class TestFiredContext:
-    def test_fired_is_FiredContext_type(self):
+    def test_fired_is_FiredWeighting_type(self):
         r = compute_family_weights(_ms(carry_regime=2))
         assert len(r.fired) == 1
-        assert isinstance(r.fired[0], FiredContext)
+        assert isinstance(r.fired[0], FiredWeighting)
 
     def test_fired_exposes_adjustments_dict(self):
         # New contexts have empty adjustments by default — assert the field is a dict.
@@ -300,16 +300,16 @@ class TestFiredContext:
 # ---------------------------------------------------------------------------
 
 class TestConfig:
-    def test_all_contexts_target_known_families(self):
+    def test_all_weightings_target_known_families(self):
         cfg = load_scenario_weights_config()
-        for ctx in cfg["contexts"]:
+        for ctx in cfg["weightings"]:
             for fam in ctx["adjustments"]:
-                assert fam in FAMILIES, f"Context '{ctx['id']}' targets unknown family '{fam}'"
+                assert fam in FAMILIES, f"Weighting '{ctx['id']}' targets unknown family '{fam}'"
 
     def test_conditions_use_supported_fields_and_ops(self):
         from knowledge_engine.scenario_weighter import _FIELD_GETTERS, _OPS
         cfg = load_scenario_weights_config()
-        for ctx in cfg["contexts"]:
+        for ctx in cfg["weightings"]:
             for cond in ctx.get("when", []):
                 assert cond["field"] in _FIELD_GETTERS, f"Unknown field '{cond['field']}'"
                 assert cond["op"]    in _OPS,           f"Unknown op '{cond['op']}'"

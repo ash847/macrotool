@@ -30,12 +30,11 @@ _SCORED_DIMS = (
 def score_structures(
     market_state: MarketState,
     structure_constraint: str = "No restriction",
-    max_primary: int = 3,
 ) -> StructureSelectionResult:
     """
     Score all eligible structures against the market state and return a ranked shortlist.
 
-    Primary structures (overlay_only=False) are capped at max_primary.
+    All non-gated primary structures with a positive score are included.
     Overlay structures are appended after, ranked by their own scores.
 
     `structure_constraint` is the PM preference string from the intake form
@@ -78,7 +77,8 @@ def score_structures(
     shortlist: list[StructureShortlistItem] = []
     score_notes: list[str] = []
 
-    for rank, (score, struct_id) in enumerate(primary[:max_primary] + overlays, start=1):
+    eligible_primary = [(s, sid) for s, sid in primary if s > 0]
+    for rank, (score, struct_id) in enumerate(eligible_primary + overlays, start=1):
         profile = profiles[struct_id]
         score_cfg = struct_scores[struct_id]
         shortlist.append(_make_item(rank, score, struct_id, profile, score_cfg, buckets, market_state))
