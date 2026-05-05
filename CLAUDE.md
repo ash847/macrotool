@@ -127,7 +127,9 @@ Other pairs in snapshot (EURUSD, USDCNH, USDMXN, USDJPY) are not yet wired into 
 ## Logging and observability
 
 - **Langfuse** — one trace per session, one generation per LLM call (step names: `INTAKE_view_extraction`, `INTAKE_validation`, `INTAKE_structure_rec`, `INTAKE_critique`, `DONE`). No-op safe if keys not set.
-- **Supabase** — query logging and feedback collection via `interface/supabase_logger.py`. No-op safe if keys not set.
+- **Supabase** — split client model in `interface/supabase_logger.py`:
+  - anon key for `queries` / `feedback` inserts
+  - service key for engine config reads and admin-only reads/writes
 - Both are initialised from Streamlit secrets injected into `os.environ` before session state init.
 
 ## Key invariants
@@ -150,7 +152,18 @@ Session overrides are triggered by `[PREF_CHANGE: {"field_path": ..., "value": .
 
 GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys on push to `main`.
 
-**Important:** Python source changes require a `pyproject.toml` version bump to trigger Streamlit Cloud package reinstall. JSON file changes deploy immediately without a version bump.
+Required Streamlit secrets:
+- `ANTHROPIC_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_KEY`
+- `[auth]` block with `redirect_uri`, `cookie_secret`, `client_id`, `client_secret`, `server_metadata_url`
+- `admin_emails = ["name@fund.com", ...]`
+
+Operational notes:
+- App auth is fail-closed. If the `[auth]` block is missing, `interface/security.py` stops the app at startup.
+- Adding or removing an admin requires editing `admin_emails` in Streamlit Cloud secrets and restarting the app.
+- Python source changes require a `pyproject.toml` version bump to trigger Streamlit Cloud package reinstall. JSON file changes deploy immediately without a version bump.
 
 ## PM preference roadmap
 

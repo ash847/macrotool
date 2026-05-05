@@ -68,8 +68,8 @@ def load_scenario_weights_config() -> dict:
     if _weights_cache is not None:
         return _weights_cache
     try:
-        from interface.supabase_logger import fetch_config
-        data = fetch_config("scenario_weights")
+        from interface.supabase_logger import fetch_config_for_engine
+        data = fetch_config_for_engine("scenario_weights")
         if data:
             _weights_cache = data
             return _weights_cache

@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from interface.security import assert_admin, is_admin_user
+
 _SCORES_PATH = pathlib.Path(__file__).parent.parent / "knowledge" / "defaults" / "affinity_scores.json"
 
 _DIMS = ["target_z_abs", "carry_regime", "atmfsratio", "carry_alignment", "structure_constraint"]
@@ -51,8 +53,8 @@ _SCORE_MIN, _SCORE_MAX = -5, 3
 
 def _load() -> dict:
     try:
-        from interface.supabase_logger import fetch_config
-        data = fetch_config("affinity_scores")
+        from interface.supabase_logger import fetch_config_for_engine
+        data = fetch_config_for_engine("affinity_scores")
         if data:
             return data
     except Exception:
@@ -187,6 +189,7 @@ def _render_dim(scores_cfg: dict, dim: str) -> None:
 # ---------------------------------------------------------------------------
 
 def render() -> None:
+    assert_admin()
     st.title("Decision Parameters Editor")
     st.caption("Scores are loaded from Supabase (falls back to local file). Save pushes to Supabase and takes effect on the next query.")
 
@@ -252,7 +255,7 @@ def render() -> None:
             from knowledge_engine.loader import clear_affinity_scores_cache
             from interface.supabase_logger import save_config, init_status
             sb_ok, _ = init_status()
-            if sb_ok and save_config("affinity_scores", out):
+            if sb_ok and save_config("affinity_scores", out, _admin=is_admin_user()):
                 clear_affinity_scores_cache()
                 st.success("Saved to Supabase — next query will use updated scores.")
             else:

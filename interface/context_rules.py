@@ -26,6 +26,7 @@ import pandas as pd
 import streamlit as st
 
 from analytics.scenario_generator import FAMILIES
+from interface.security import assert_admin, is_admin_user
 from knowledge_engine.scenario_weighter import (
     clear_scenario_weights_cache,
     load_scenario_weights_config,
@@ -179,7 +180,7 @@ def _render_context_weights(cfg: dict) -> None:
             try:
                 from interface.supabase_logger import save_config as _save
                 new_cfg = _rebuild_config(cfg, edited_df)
-                ok = _save("scenario_weights", new_cfg)
+                ok = _save("scenario_weights", new_cfg, _admin=is_admin_user())
                 if ok:
                     clear_scenario_weights_cache()
                     st.success("Saved. New weights apply on the next trade query.")
@@ -679,7 +680,7 @@ def _render_priority_conditions(cfg: dict) -> None:
                         )
                         new_cfg["contexts"].append(clean)
 
-                    ok = _save_cfg("scenario_weights", new_cfg)
+                    ok = _save_cfg("scenario_weights", new_cfg, _admin=is_admin_user())
                     if ok:
                         clear_scenario_weights_cache()
                         st.success(
@@ -705,6 +706,7 @@ def _render_priority_conditions(cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def render() -> None:
+    assert_admin()
     st.header("Context Rules")
     st.caption(
         "Scenario family weights derived from market state.  "

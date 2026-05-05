@@ -17,10 +17,20 @@ Open the local URL Streamlit prints, usually:
 http://localhost:8501
 ```
 
-The app needs an Anthropic API key for LLM-backed recommendations. Provide it either in the Streamlit sidebar or via Streamlit secrets:
+The app now expects Google OIDC auth and server-side secrets. For local or deployed use, configure Streamlit secrets before opening the app.
+
+Minimum runtime secrets:
 
 ```toml
 ANTHROPIC_API_KEY = "sk-ant-..."
+[auth]
+redirect_uri = "https://<your-app>.streamlit.app/oauth2callback"
+cookie_secret = "<openssl rand -hex 32>"
+client_id = "..."
+client_secret = "..."
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+
+admin_emails = ["ash@fund.com"]
 ```
 
 ## Useful Commands
@@ -64,7 +74,7 @@ GitHub repository: `ash847/macrotool`
 
 Streamlit Community Cloud redeploys from `main`. For Python source or dependency changes, bump the `pyproject.toml` version so Streamlit Cloud performs a fresh package reinstall. JSON-only changes in `knowledge/` deploy without a version bump.
 
-Runtime secrets are optional except for `ANTHROPIC_API_KEY` when using LLM-backed flows:
+Runtime secrets:
 
 ```toml
 ANTHROPIC_API_KEY = "sk-ant-..."
@@ -72,7 +82,22 @@ LANGFUSE_PUBLIC_KEY = "..."
 LANGFUSE_SECRET_KEY = "..."
 LANGFUSE_BASE_URL = "https://cloud.langfuse.com"
 SUPABASE_URL = "..."
-SUPABASE_KEY = "..."
+SUPABASE_ANON_KEY = "..."
+SUPABASE_SERVICE_KEY = "..."
+
+[auth]
+redirect_uri = "https://<your-app>.streamlit.app/oauth2callback"
+cookie_secret = "<openssl rand -hex 32>"
+client_id = "..."
+client_secret = "..."
+server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+
+admin_emails = ["ash@fund.com"]
 ```
 
-Langfuse and Supabase are no-op safe when their secrets are missing.
+Auth is fail-closed: without the `[auth]` block, the app stops at startup and shows an authentication configuration error.
+
+`SUPABASE_ANON_KEY` is used only for user-facing inserts (`queries`, `feedback`).
+`SUPABASE_SERVICE_KEY` is used server-side for engine config reads and admin-only reads/writes.
+
+Only emails listed in `admin_emails` can access admin pages (`Market Data`, `Structure Selection`, `Context Rules`, `Query log`). All other authenticated users see `Trade View` only.
