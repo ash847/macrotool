@@ -10,13 +10,12 @@ import streamlit as st
 def auth_configured() -> bool:
     try:
         auth = st.secrets.get("auth", {})
-        if not (auth.get("redirect_uri") and auth.get("cookie_secret")):
-            return False
-        # Provider config lives under [auth.<provider>] (e.g. [auth.google])
-        providers = [v for k, v in auth.items() if hasattr(v, "get")]
-        return any(
-            p.get("client_id") and p.get("client_secret") and p.get("server_metadata_url")
-            for p in providers
+        return bool(
+            auth.get("redirect_uri")
+            and auth.get("cookie_secret")
+            and auth.get("client_id")
+            and auth.get("client_secret")
+            and auth.get("server_metadata_url")
         )
     except Exception:
         return False
