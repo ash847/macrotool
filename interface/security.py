@@ -10,12 +10,13 @@ import streamlit as st
 def auth_configured() -> bool:
     try:
         auth = st.secrets.get("auth", {})
+        if not (auth.get("redirect_uri") and auth.get("cookie_secret")):
+            return False
+        google = auth.get("google", {})
         return bool(
-            auth.get("redirect_uri")
-            and auth.get("cookie_secret")
-            and auth.get("client_id")
-            and auth.get("client_secret")
-            and auth.get("server_metadata_url")
+            google.get("client_id")
+            and google.get("client_secret")
+            and google.get("server_metadata_url")
         )
     except Exception:
         return False
@@ -57,5 +58,5 @@ def require_login() -> None:
     if not st.user.is_logged_in:
         st.title("MacroTool")
         st.write("Sign in to continue.")
-        st.button("Sign in with Google", on_click=st.login)
+        st.button("Sign in with Google", on_click=st.login, args=("google",))
         st.stop()
