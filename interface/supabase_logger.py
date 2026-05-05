@@ -77,11 +77,11 @@ def log_query(
     if user_email:
         row["user_email"] = user_email
     try:
-        _anon_client.table("queries").insert(row).execute()
+        _anon_client.table("queries").insert(row, returning="minimal").execute()
     except Exception:
         # Backward compatibility while the Supabase table is being migrated.
         row.pop("user_email", None)
-        _anon_client.table("queries").insert(row).execute()
+        _anon_client.table("queries").insert(row, returning="minimal").execute()
 
 
 def log_feedback(
@@ -101,7 +101,7 @@ def log_feedback(
     for i, (q, a) in enumerate(zip(questions, answers), start=1):
         row[f"q{i}_text"] = q
         row[f"q{i}_answer"] = a
-    _anon_client.table("feedback").insert(row).execute()
+    _anon_client.table("feedback").insert(row, returning="minimal").execute()
 
 
 def fetch_config_for_engine(key: str) -> dict | None:
