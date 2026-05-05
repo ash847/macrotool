@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
 from data.snapshot_loader import load_snapshot
+from data.snapshot_overrides import apply_overrides
 from interface.debug_log import (
     log_prompt, log_view_extracted,
     log_market_state, log_scorer_result, log_error,
@@ -96,11 +98,41 @@ _lsp.cache_clear()
 
 
 # ---------------------------------------------------------------------------
+# API key
+# ---------------------------------------------------------------------------
+
+def _get_api_key() -> str | None:
+    if "session_api_key" in st.session_state and st.session_state.session_api_key:
+        return st.session_state.session_api_key
+    try:
+        if "ANTHROPIC_API_KEY" in st.secrets:
+            return st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        pass
+    return os.environ.get("ANTHROPIC_API_KEY")
+
+
+def _get_effective_snapshot():
+    base = load_snapshot()
+    overrides = st.session_state.get("market_overrides", {})
+    return apply_overrides(base, overrides) if overrides else base
+
+
+def _make_flow() -> ConversationFlow:
+    new_flow = ConversationFlow(snapshot=_get_effective_snapshot())
+    key = _get_api_key()
+    if key:
+        import anthropic as _anth
+        new_flow._client._client = _anth.Anthropic(api_key=key)
+    return new_flow
+
+
+# ---------------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------------
 
 if "flow" not in st.session_state:
-    st.session_state.flow = ConversationFlow()
+    st.session_state.flow = _make_flow()
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 if "page" not in st.session_state:
@@ -115,27 +147,12 @@ if "pref_structure_constraint" not in st.session_state:
     st.session_state.pref_structure_constraint = "No restriction"
 if "pref_trade_management" not in st.session_state:
     st.session_state.pref_trade_management = "Standard hold"
+if "market_edit_mode" not in st.session_state:
+    st.session_state.market_edit_mode = {}
+if "session_api_key" not in st.session_state:
+    st.session_state.session_api_key = None
 
 flow: ConversationFlow = st.session_state.flow
-
-
-# ---------------------------------------------------------------------------
-# API key
-# ---------------------------------------------------------------------------
-
-def _get_api_key() -> str | None:
-    try:
-        if "ANTHROPIC_API_KEY" in st.secrets:
-            return st.secrets["ANTHROPIC_API_KEY"]
-    except Exception:
-        pass
-    return os.environ.get("ANTHROPIC_API_KEY")
-
-
-_key = _get_api_key()
-if _key:
-    import anthropic as _anth
-    flow._client._client = _anth.Anthropic(api_key=_key)
 
 # ---------------------------------------------------------------------------
 # Sidebar
@@ -172,6 +189,7 @@ with st.sidebar:
             placeholder="sk-ant-...",
         )
         if api_key_input:
+            st.session_state.session_api_key = api_key_input
             import anthropic as _anth2
             flow._client._client = _anth2.Anthropic(api_key=api_key_input)
 
@@ -217,7 +235,7 @@ with st.sidebar:
     st.divider()
 
     if st.button("↩ New view", use_container_width=True):
-        st.session_state.flow = ConversationFlow()
+        st.session_state.flow = _make_flow()
         st.session_state.submitted = False
         st.session_state.last_prompt = ""
         st.session_state.clarification = ""
@@ -406,61 +424,296 @@ def _render_query_log() -> None:
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def _ordered_tenors(ccy) -> list[str]:
+    return [t for t in _TENOR_ORDER if ccy.get_forward(t) is not None or ccy.get_atm_vol(t) is not None]
+
+
+def _delta_pillars(ccy) -> list[str]:
+    deltas = set()
+    nodes = {(n.tenor, n.delta): n.vol for n in ccy.vol_surface}
+    for delta in _DELTA_ORDER:
+        if delta.endswith("DC"):
+            pillar = delta[:-2]
+            if any((tenor, f"{pillar}DC") in nodes and (tenor, f"{pillar}DP") in nodes for tenor in _ordered_tenors(ccy)):
+                deltas.add(pillar)
+    return sorted(deltas, key=lambda d: int(d))
+
+
+def _surface_tables(ccy) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    tenors = _ordered_tenors(ccy)
+    pillars = _delta_pillars(ccy)
+
+    atm_rows = [{"Tenor": tenor, "ATM": round(ccy.get_atm_vol(tenor) * 100, 2)} for tenor in tenors]
+    rr_rows = []
+    bf_rows = []
+    for tenor in tenors:
+        rr_row = {"Tenor": tenor}
+        bf_row = {"Tenor": tenor}
+        atm = ccy.get_atm_vol(tenor)
+        for pillar in pillars:
+            call = ccy.get_vol(tenor, f"{pillar}DC")
+            put = ccy.get_vol(tenor, f"{pillar}DP")
+            rr_row[f"{pillar}D RR"] = round((call - put) * 100, 2)
+            bf_row[f"{pillar}D BF"] = round((0.5 * (call + put) - atm) * 100, 2)
+        rr_rows.append(rr_row)
+        bf_rows.append(bf_row)
+
+    return pd.DataFrame(atm_rows), pd.DataFrame(rr_rows), pd.DataFrame(bf_rows)
+
+
+def _forward_table(ccy) -> pd.DataFrame:
+    rows = [
+        {
+            "Tenor": f.tenor,
+            "Points": round(f.points, 6),
+            "Outright": round(f.outright, 6),
+        }
+        for f in sorted(ccy.forwards, key=lambda x: _TENOR_ORDER.index(x.tenor))
+    ]
+    return pd.DataFrame(rows)
+
+
+def _pair_modified_summary(pair_override: dict) -> str:
+    parts = []
+    if pair_override.get("forwards"):
+        parts.append(f"forwards ({len(pair_override['forwards'])})")
+    if pair_override.get("atm_vols"):
+        parts.append(f"ATM vols ({len(pair_override['atm_vols'])})")
+    if pair_override.get("risk_reversals"):
+        parts.append(f"RR ({sum(len(v) for v in pair_override['risk_reversals'].values())})")
+    if pair_override.get("butterflies"):
+        parts.append(f"BF ({sum(len(v) for v in pair_override['butterflies'].values())})")
+    return ", ".join(parts)
+
+
+def _marked_value(value: float, modified: bool, fmt: str) -> str:
+    rendered = format(value, fmt)
+    return f"{rendered} *" if modified else rendered
+
+
+def _display_forward_table(base_ccy, current_ccy, pair_override: dict) -> pd.DataFrame:
+    modified = set(pair_override.get("forwards", {}))
+    rows = []
+    for base_fwd, current_fwd in zip(
+        sorted(base_ccy.forwards, key=lambda x: _TENOR_ORDER.index(x.tenor)),
+        sorted(current_ccy.forwards, key=lambda x: _TENOR_ORDER.index(x.tenor)),
+    ):
+        rows.append({
+            "Tenor": current_fwd.tenor,
+            "Points": _marked_value(current_fwd.points, current_fwd.tenor in modified, ".2f"),
+            "Outright": _marked_value(current_fwd.outright, current_fwd.tenor in modified, ".4f"),
+        })
+    return pd.DataFrame(rows)
+
+
+def _display_surface_tables(base_ccy, current_ccy, pair_override: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    base_atm, base_rr, base_bf = _surface_tables(base_ccy)
+    cur_atm, cur_rr, cur_bf = _surface_tables(current_ccy)
+
+    atm_modified = set(pair_override.get("atm_vols", {}))
+    cur_atm["ATM"] = [
+        _marked_value(val, tenor in atm_modified, ".2f")
+        for tenor, val in zip(cur_atm["Tenor"], cur_atm["ATM"])
+    ]
+
+    rr_overrides = pair_override.get("risk_reversals", {})
+    bf_overrides = pair_override.get("butterflies", {})
+
+    for df, overrides in ((cur_rr, rr_overrides), (cur_bf, bf_overrides)):
+        for col in df.columns:
+            if col == "Tenor":
+                continue
+            pillar = re.match(r"(\d+)D", col).group(1)
+            df[col] = [
+                _marked_value(val, pillar in overrides.get(tenor, {}), ".2f")
+                for tenor, val in zip(df["Tenor"], df[col])
+            ]
+
+    return cur_atm, cur_rr, cur_bf
+
+
+def _collect_pair_overrides(base_ccy, edited_fwds: pd.DataFrame, edited_atm: pd.DataFrame, edited_rr: pd.DataFrame, edited_bf: pd.DataFrame) -> dict:
+    overrides: dict[str, dict] = {}
+
+    forward_overrides = {}
+    base_fwd_map = {f.tenor: f.outright for f in base_ccy.forwards}
+    for row in edited_fwds.to_dict("records"):
+        tenor = row["Tenor"]
+        outright = float(row["Outright"])
+        if abs(outright - base_fwd_map[tenor]) > 1e-12:
+            forward_overrides[tenor] = outright
+    if forward_overrides:
+        overrides["forwards"] = forward_overrides
+
+    atm_overrides = {}
+    base_atm_map = {tenor: base_ccy.get_atm_vol(tenor) for tenor in edited_atm["Tenor"]}
+    for row in edited_atm.to_dict("records"):
+        tenor = row["Tenor"]
+        atm = float(row["ATM"]) / 100.0
+        if abs(atm - base_atm_map[tenor]) > 1e-12:
+            atm_overrides[tenor] = atm
+    if atm_overrides:
+        overrides["atm_vols"] = atm_overrides
+
+    for section_name, edited_df in (("risk_reversals", edited_rr), ("butterflies", edited_bf)):
+        section_overrides = {}
+        for row in edited_df.to_dict("records"):
+            tenor = row["Tenor"]
+            tenor_overrides = {}
+            for col, value in row.items():
+                if col == "Tenor":
+                    continue
+                pillar = re.match(r"(\d+)D", col).group(1)
+                call = base_ccy.get_vol(tenor, f"{pillar}DC")
+                put = base_ccy.get_vol(tenor, f"{pillar}DP")
+                atm = base_ccy.get_atm_vol(tenor)
+                base_value = (call - put) * 100 if section_name == "risk_reversals" else (0.5 * (call + put) - atm) * 100
+                if abs(float(value) - base_value) > 1e-12:
+                    tenor_overrides[pillar] = float(value) / 100.0
+            if tenor_overrides:
+                section_overrides[tenor] = tenor_overrides
+        if section_overrides:
+            overrides[section_name] = section_overrides
+
+    return overrides
+
+
 def _render_market_data() -> None:
-    snapshot = load_snapshot()
+    base_snapshot = load_snapshot()
+    overrides = st.session_state.get("market_overrides", {})
+    snapshot = apply_overrides(base_snapshot, overrides) if overrides else base_snapshot
     st.subheader("Market Data")
     st.caption(
         f"Snapshot date: {snapshot.snapshot_date}  ·  {snapshot.data_note}"
     )
+    if flow.view:
+        st.warning("Edits apply to your next conversation. Click `↩ New view` to use them.")
+
+    col_reset, _ = st.columns([1, 4])
+    with col_reset:
+        if st.button("Reset all market data to base", use_container_width=True):
+            st.session_state.pop("market_overrides", None)
+            st.session_state.market_edit_mode = {}
+            if not flow.view:
+                st.session_state.flow = _make_flow()
+            st.rerun()
 
     for pair, ccy in snapshot.currencies.items():
-        with st.expander(f"{pair}  —  {ccy.instrument_type}  ·  spot {ccy.spot:.4f}", expanded=True):
+        base_ccy = base_snapshot.get(pair)
+        pair_override = overrides.get(pair, {})
+        is_editing = st.session_state.market_edit_mode.get(pair, False)
+        header = f"{pair}  —  {ccy.instrument_type}  ·  spot {ccy.spot:.4f}"
+        with st.expander(header, expanded=(pair == next(iter(snapshot.currencies)))):
+            actions = st.columns([1, 1, 4])
+            if pair_override:
+                actions[2].caption(f"Modified locally: {_pair_modified_summary(pair_override)}")
+            elif not is_editing:
+                actions[2].caption("Using base market data.")
 
-            col_fwd, col_vol = st.columns(2)
+            if not is_editing:
+                if actions[0].button("Edit", key=f"edit_{pair}", use_container_width=True):
+                    st.session_state.market_edit_mode[pair] = True
+                    st.rerun()
+                if actions[1].button("Reset pair", key=f"reset_{pair}", use_container_width=True, disabled=not pair_override):
+                    st.session_state.get("market_overrides", {}).pop(pair, None)
+                    if not st.session_state.get("market_overrides"):
+                        st.session_state.pop("market_overrides", None)
+                    if not flow.view:
+                        st.session_state.flow = _make_flow()
+                    st.rerun()
 
-            # Forwards table
-            with col_fwd:
-                st.markdown("**Forwards**")
-                fwd_rows = [
-                    {"Tenor": f.tenor, "Points": f.points, "Outright": f"{f.outright:.4f}"}
-                    for f in sorted(ccy.forwards, key=lambda x: _TENOR_ORDER.index(x.tenor))
-                ]
-                st.dataframe(pd.DataFrame(fwd_rows), use_container_width=True, hide_index=True)
-
-            # Vol surface pivot: rows = tenors, cols = deltas
-            with col_vol:
-                st.markdown(
-                    "**Vol surface** — calls/puts on base currency (ccy1)",
-                    help="25DC = 25-delta call on the base currency; 25DP = 25-delta put on the base currency.",
-                )
-                nodes = {(n.tenor, n.delta): n.vol for n in ccy.vol_surface}
-                tenors = [t for t in _TENOR_ORDER if any(k[0] == t for k in nodes)]
-                deltas = [d for d in _DELTA_ORDER if any(k[1] == d for k in nodes)]
-                vol_data = {
-                    d: [f"{nodes.get((t, d), float('nan')):.1%}" for t in tenors]
-                    for d in deltas
+                fwd_df = _display_forward_table(base_ccy, ccy, pair_override)
+                atm_df, rr_df, bf_df = _display_surface_tables(base_ccy, ccy, pair_override)
+                df_curve_map = {
+                    "USD": getattr(ccy, "usd_df_curve", []),
+                    "EUR": getattr(ccy, "eur_df_curve", []),
+                    "GBP": getattr(ccy, "gbp_df_curve", []),
                 }
-                vol_df = pd.DataFrame(vol_data, index=tenors)
-                vol_df.index.name = "Tenor"
-                st.dataframe(vol_df, use_container_width=True)
+                base_curve = df_curve_map.get(pair[:3], [])
+                tenors = _ordered_tenors(ccy)
 
-            # Discount curve — base currency only
-            base_ccy = pair[:3]
-            base_curve_map = {
-                "USD": getattr(ccy, "usd_df_curve", []),
-                "EUR": getattr(ccy, "eur_df_curve", []),
-                "GBP": getattr(ccy, "gbp_df_curve", []),
-            }
-            base_curve = base_curve_map.get(base_ccy, [])
-            if base_curve:
-                st.markdown("**Discount factors**")
-                df_map = {d.tenor: d.df for d in base_curve}
-                df_df = pd.DataFrame(
-                    {f"{base_ccy} DF": [df_map.get(t, "") for t in tenors]},
-                    index=tenors,
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Forwards**")
+                    st.dataframe(fwd_df, use_container_width=True, hide_index=True)
+                    st.markdown("**ATM vols (vol points)**")
+                    st.dataframe(atm_df, use_container_width=True, hide_index=True)
+                with c2:
+                    st.markdown("**Risk reversals (vol points)**")
+                    st.dataframe(rr_df, use_container_width=True, hide_index=True)
+                    st.markdown("**Butterflies (vol points)**")
+                    st.dataframe(bf_df, use_container_width=True, hide_index=True)
+
+                if base_curve:
+                    st.markdown("**Discount factors**")
+                    st.caption("Locked — DF curves, spot, and instrument type are read-only in v1.")
+                    df_map = {d.tenor: d.df for d in base_curve}
+                    df_df = pd.DataFrame({f"{pair[:3]} DF": [df_map.get(t, "") for t in tenors]}, index=tenors)
+                    df_df.index.name = "Tenor"
+                    st.dataframe(df_df, use_container_width=True)
+            else:
+                st.caption("Editing locally only. Changes are validated and saved to this browser session; they apply on the next conversation.")
+                edit_fwds = st.data_editor(
+                    _forward_table(ccy),
+                    key=f"fwd_editor_{pair}",
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=["Tenor", "Points"],
                 )
-                df_df.index.name = "Tenor"
-                st.dataframe(df_df, use_container_width=True)
+                edit_atm, edit_rr, edit_bf = _surface_tables(ccy)
+                edit_atm = st.data_editor(
+                    edit_atm,
+                    key=f"atm_editor_{pair}",
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=["Tenor"],
+                )
+                edit_rr = st.data_editor(
+                    edit_rr,
+                    key=f"rr_editor_{pair}",
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=["Tenor"],
+                )
+                edit_bf = st.data_editor(
+                    edit_bf,
+                    key=f"bf_editor_{pair}",
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=["Tenor"],
+                )
+
+                save_col, cancel_col, reset_col = st.columns([1, 1, 1])
+                if save_col.button("Save locally", key=f"save_{pair}", use_container_width=True, type="primary"):
+                    try:
+                        pair_changes = _collect_pair_overrides(base_ccy, edit_fwds, edit_atm, edit_rr, edit_bf)
+                        next_overrides = dict(st.session_state.get("market_overrides", {}))
+                        if pair_changes:
+                            next_overrides[pair] = pair_changes
+                        else:
+                            next_overrides.pop(pair, None)
+                        if next_overrides:
+                            apply_overrides(base_snapshot, next_overrides)
+                            st.session_state["market_overrides"] = next_overrides
+                        else:
+                            st.session_state.pop("market_overrides", None)
+                        st.session_state.market_edit_mode[pair] = False
+                        if not flow.view:
+                            st.session_state.flow = _make_flow()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not save local edits: {e}")
+                if cancel_col.button("Cancel", key=f"cancel_{pair}", use_container_width=True):
+                    st.session_state.market_edit_mode[pair] = False
+                    st.rerun()
+                if reset_col.button("Reset pair", key=f"edit_reset_{pair}", use_container_width=True, disabled=not pair_override):
+                    st.session_state.get("market_overrides", {}).pop(pair, None)
+                    if not st.session_state.get("market_overrides"):
+                        st.session_state.pop("market_overrides", None)
+                    st.session_state.market_edit_mode[pair] = False
+                    if not flow.view:
+                        st.session_state.flow = _make_flow()
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------
