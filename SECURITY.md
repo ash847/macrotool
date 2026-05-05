@@ -9,8 +9,8 @@ MacroTool runs at a public Streamlit Community Cloud URL. The primary threat is 
 - Google OIDC via Streamlit `st.login`
 - admin allowlist via `admin_emails` in Streamlit secrets
 - split Supabase key model:
-  - `SUPABASE_ANON_KEY` for user-facing inserts only
-  - `SUPABASE_SERVICE_KEY` for server-side engine config reads and admin-only operations
+  - `SUPABASE_SERVICE_KEY` for server-side app writes, engine config reads, and admin-only operations
+  - `SUPABASE_ANON_KEY` retained only for direct REST smoke tests and Security Advisor validation
 - server-only Anthropic API key
 - deny-by-default Supabase RLS on `queries`, `feedback`, `config_history`
 
@@ -21,15 +21,16 @@ ANTHROPIC_API_KEY = "sk-ant-..."
 SUPABASE_URL = "..."
 SUPABASE_ANON_KEY = "..."
 SUPABASE_SERVICE_KEY = "..."
+admin_emails = ["ash@fund.com"]
 
 [auth]
-redirect_uri = "https://<your-app>.streamlit.app/oauth2callback"
+redirect_uri = "https://<your-app>.streamlit.app/~/+/oauth2callback"
 cookie_secret = "<openssl rand -hex 32>"
+
+[auth.google]
 client_id = "..."
 client_secret = "..."
 server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
-
-admin_emails = ["ash@fund.com"]
 ```
 
 ## Key rotation
@@ -51,8 +52,8 @@ admin_emails = ["ash@fund.com"]
 
 Expected posture:
 
-- `queries`: anon insert only, no public reads
-- `feedback`: anon insert only, no public reads
+- `queries`: no anon access; service role only
+- `feedback`: no anon access; service role only
 - `config_history`: no anon access; service role only
 
 The code assumes those policies exist. Without them, the database may remain exposed even if the app itself is gated.

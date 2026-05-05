@@ -187,6 +187,7 @@ The Google OAuth app (Cloud Console → APIs & Services → Credentials) must ha
 - Adding or removing an admin: edit `admin_emails` in Streamlit Cloud secrets and restart the app.
 - **Python source changes require a `pyproject.toml` version bump** to trigger Streamlit Cloud package reinstall. JSON file changes deploy immediately.
 - **After changing `pyproject.toml` dependencies, run `uv lock`** and commit the updated `uv.lock`. Community Cloud may use the lockfile; a stale lockfile overrides `pyproject.toml` pins.
+- `SUPABASE_SERVICE_KEY` now backs app writes (`queries`, `feedback`) as well as engine/admin operations. `SUPABASE_ANON_KEY` is retained only for direct REST smoke tests and Security Advisor validation.
 
 ## PM preference roadmap
 
