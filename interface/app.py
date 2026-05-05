@@ -378,6 +378,7 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
             carry_regime=flow.market_state.carry_regime if flow.market_state else None,
             top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
             llm_response="",
+            user_email=USER_EMAIL,
         )
     except Exception as e:
         log_error("supabase_log_query", e)
@@ -408,6 +409,7 @@ def _render_query_log() -> None:
     df["carry_regime"] = df["carry_regime"].map({0: "0 noisy", 1: "1 potential", 2: "2 high"}).fillna("—")
     df = df.rename(columns={
         "created_at":    "Time",
+        "user_email":    "User",
         "pair":          "Pair",
         "direction":     "Direction",
         "magnitude_pct": "Mag %",
@@ -417,7 +419,11 @@ def _render_query_log() -> None:
         "top_structure": "Top structure",
         "prompt":        "Prompt",
     })
-    df = df[["Time", "Pair", "Direction", "Mag %", "Horizon", "Target z", "Carry regime", "Top structure", "Prompt"]]
+    display_cols = ["Time"]
+    if "User" in df.columns:
+        display_cols.append("User")
+    display_cols.extend(["Pair", "Direction", "Mag %", "Horizon", "Target z", "Carry regime", "Top structure", "Prompt"])
+    df = df[display_cols]
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 

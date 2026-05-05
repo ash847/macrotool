@@ -59,10 +59,11 @@ def log_query(
     carry_regime: int | None,
     top_structure: str | None,
     llm_response: str,
+    user_email: str | None = None,
 ) -> None:
     if _anon_client is None:
         return
-    _anon_client.table("queries").insert({
+    row = {
         "prompt":        prompt,
         "pair":          pair,
         "direction":     direction,
@@ -72,7 +73,15 @@ def log_query(
         "carry_regime":  carry_regime,
         "top_structure": top_structure,
         "llm_response":  llm_response[:8000],
-    }).execute()
+    }
+    if user_email:
+        row["user_email"] = user_email
+    try:
+        _anon_client.table("queries").insert(row).execute()
+    except Exception:
+        # Backward compatibility while the Supabase table is being migrated.
+        row.pop("user_email", None)
+        _anon_client.table("queries").insert(row).execute()
 
 
 def log_feedback(
@@ -152,10 +161,16 @@ def fetch_queries(*, _admin: bool) -> list[dict]:
         raise PermissionError("admin only")
     if _service_client is None:
         return []
-    result = _service_client.table("queries").select(
-        "created_at, pair, direction, magnitude_pct, horizon_days, target_z, carry_regime, top_structure, prompt"
-    ).order("created_at", desc=True).execute()
-    return result.data or []
+    try:
+        result = _service_client.table("queries").select(
+            "created_at, user_email, pair, direction, magnitude_pct, horizon_days, target_z, carry_regime, top_structure, prompt"
+        ).order("created_at", desc=True).execute()
+        return result.data or []
+    except Exception:
+        result = _service_client.table("queries").select(
+            "created_at, pair, direction, magnitude_pct, horizon_days, target_z, carry_regime, top_structure, prompt"
+        ).order("created_at", desc=True).execute()
+        return result.data or []
 
 
 def reinit() -> None:
