@@ -1,8 +1,8 @@
 """
 Supabase client surfaces.
 
-- anon client: user-facing inserts only
-- service client: server-side engine config reads and admin operations
+- service client: all app writes plus server-side engine/admin operations
+- anon client: optional, retained only for external RLS smoke testing
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def _init() -> None:
 
 
 def init_status() -> tuple[bool, str | None]:
-    return ((_anon_client is not None and _service_client is not None), _init_error)
+    return (_service_client is not None, _init_error)
 
 
 _init()
@@ -61,7 +61,7 @@ def log_query(
     llm_response: str,
     user_email: str | None = None,
 ) -> None:
-    if _anon_client is None:
+    if _service_client is None:
         return
     row = {
         "prompt":        prompt,
@@ -77,11 +77,11 @@ def log_query(
     if user_email:
         row["user_email"] = user_email
     try:
-        _anon_client.table("queries").insert(row, returning="minimal").execute()
+        _service_client.table("queries").insert(row, returning="minimal").execute()
     except Exception:
         # Backward compatibility while the Supabase table is being migrated.
         row.pop("user_email", None)
-        _anon_client.table("queries").insert(row, returning="minimal").execute()
+        _service_client.table("queries").insert(row, returning="minimal").execute()
 
 
 def log_feedback(
@@ -91,7 +91,7 @@ def log_feedback(
     questions: list[str],
     note: str | None = None,
 ) -> None:
-    if _anon_client is None:
+    if _service_client is None:
         return
     row: dict = {
         "prompt": prompt,
@@ -101,7 +101,7 @@ def log_feedback(
     for i, (q, a) in enumerate(zip(questions, answers), start=1):
         row[f"q{i}_text"] = q
         row[f"q{i}_answer"] = a
-    _anon_client.table("feedback").insert(row, returning="minimal").execute()
+    _service_client.table("feedback").insert(row, returning="minimal").execute()
 
 
 def fetch_config_for_engine(key: str) -> dict | None:
