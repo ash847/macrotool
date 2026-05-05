@@ -80,8 +80,8 @@ def load_affinity_scores() -> dict:
     if _affinity_cache is not None:
         return _affinity_cache
     try:
-        from interface.supabase_logger import fetch_config
-        data = fetch_config("affinity_scores")
+        from interface.supabase_logger import fetch_config_for_engine
+        data = fetch_config_for_engine("affinity_scores")
         if data:
             _affinity_cache = data
             return _affinity_cache

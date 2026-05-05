@@ -127,7 +127,9 @@ Other pairs in snapshot (EURUSD, USDCNH, USDMXN, USDJPY) are not yet wired into 
 ## Logging and observability
 
 - **Langfuse** — one trace per session, one generation per LLM call (step names: `INTAKE_view_extraction`, `INTAKE_validation`, `INTAKE_structure_rec`, `INTAKE_critique`, `DONE`). No-op safe if keys not set.
-- **Supabase** — query logging and feedback collection via `interface/supabase_logger.py`. No-op safe if keys not set.
+- **Supabase** — split client model in `interface/supabase_logger.py`:
+  - anon key for `queries` / `feedback` inserts
+  - service key for engine config reads and admin-only reads/writes
 - Both are initialised from Streamlit secrets injected into `os.environ` before session state init.
 
 ## Key invariants
@@ -148,9 +150,44 @@ Session overrides are triggered by `[PREF_CHANGE: {"field_path": ..., "value": .
 
 ## Deployment
 
-GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys on push to `main`.
+GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys on push to `main`. The `feature/security-hardening` branch deploys a separate app instance.
 
-**Important:** Python source changes require a `pyproject.toml` version bump to trigger Streamlit Cloud package reinstall. JSON file changes deploy immediately without a version bump.
+### Required Streamlit secrets
+
+```toml
+ANTHROPIC_API_KEY = "..."
+SUPABASE_URL = "..."
+SUPABASE_ANON_KEY = "..."
+SUPABASE_SERVICE_KEY = "..."
+admin_emails = ["name@fund.com"]
+
+[auth]
+redirect_uri  = "https://<app-slug>.streamlit.app/~/+/oauth2callback"
+cookie_secret = "<64-char hex string — run: openssl rand -hex 32>"
+
+[auth.google]
+client_id            = "<from Google Cloud Console>"
+client_secret        = "<from Google Cloud Console>"
+server_metadata_url  = "https://accounts.google.com/.well-known/openid-configuration"
+```
+
+The Google OAuth app (Cloud Console → APIs & Services → Credentials) must have the exact `redirect_uri` above registered as an Authorised Redirect URI.
+
+### Auth architecture notes
+
+- `[auth]` holds shared config (`redirect_uri`, `cookie_secret`). Provider-specific keys go under `[auth.google]`. Mixing them causes "missing keys" errors.
+- The redirect URI for Community Cloud is `/~/+/oauth2callback`, **not** `/oauth2callback`. Wrong path → persistent `MismatchingStateError`.
+- `cookie_secret` is used only to sign the provider JWT token and the final identity cookie. OAuth state lives in server-side memory (`_STARLETTE_AUTH_CACHE`), not in a cookie — so changing `cookie_secret` does not fix state-mismatch errors.
+- `st.login("google")` must match the subsection name `[auth.google]`. Calling `st.login()` (no argument) uses the flat `[auth]` default-provider format instead.
+- authlib ≥ 1.6.6 has a known regression that breaks `st.login()`. Pin to `authlib==1.6.5` in `pyproject.toml`.
+
+### Operational notes
+
+- App auth is fail-closed. If the `[auth]` block is missing or incomplete, `interface/security.py` stops the app at startup with a config error.
+- Adding or removing an admin: edit `admin_emails` in Streamlit Cloud secrets and restart the app.
+- **Python source changes require a `pyproject.toml` version bump** to trigger Streamlit Cloud package reinstall. JSON file changes deploy immediately.
+- **After changing `pyproject.toml` dependencies, run `uv lock`** and commit the updated `uv.lock`. Community Cloud may use the lockfile; a stale lockfile overrides `pyproject.toml` pins.
+- `SUPABASE_SERVICE_KEY` now backs app writes (`queries`, `feedback`) as well as engine/admin operations. `SUPABASE_ANON_KEY` is retained only for direct REST smoke tests and Security Advisor validation.
 
 ## PM preference roadmap
 

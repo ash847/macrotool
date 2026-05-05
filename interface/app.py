@@ -26,6 +26,7 @@ import pandas as pd
 
 from conversation.flow import ConversationFlow
 from interface.charts import build_distribution_fan, build_maturity_histogram
+from interface.security import current_user_email, is_admin_user, require_login
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
@@ -77,7 +78,8 @@ def _inject_secrets() -> None:
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_BASE_URL",
         "SUPABASE_URL",
-        "SUPABASE_KEY",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_KEY",
     ]
     try:
         for k in _secret_keys:
@@ -87,6 +89,9 @@ def _inject_secrets() -> None:
         pass
 
 _inject_secrets()
+require_login()
+USER_EMAIL = current_user_email()
+IS_ADMIN = is_admin_user()
 
 from conversation import tracing as _tracing
 _tracing._init_client()
@@ -102,8 +107,6 @@ _lsp.cache_clear()
 # ---------------------------------------------------------------------------
 
 def _get_api_key() -> str | None:
-    if "session_api_key" in st.session_state and st.session_state.session_api_key:
-        return st.session_state.session_api_key
     try:
         if "ANTHROPIC_API_KEY" in st.secrets:
             return st.secrets["ANTHROPIC_API_KEY"]
@@ -149,8 +152,6 @@ if "pref_trade_management" not in st.session_state:
     st.session_state.pref_trade_management = "Standard hold"
 if "market_edit_mode" not in st.session_state:
     st.session_state.market_edit_mode = {}
-if "session_api_key" not in st.session_state:
-    st.session_state.session_api_key = None
 
 flow: ConversationFlow = st.session_state.flow
 
@@ -165,10 +166,13 @@ with st.sidebar:
         st.caption(f"EM FX trade structuring · v{_pkg_version('macrotool')}")
     except Exception:
         st.caption("EM FX trade structuring")
+    st.caption(f"Signed in as {USER_EMAIL}")
+    st.button("Sign out", on_click=st.logout, use_container_width=True)
     st.divider()
 
+    nav_labels = ("Trade View", "Market Data", "Structure Selection", "Context Rules", "Query log") if IS_ADMIN else ("Trade View",)
     # Navigation
-    for label in ("Trade View", "Market Data", "Structure Selection", "Context Rules", "Query log"):
+    for label in nav_labels:
         active = st.session_state.page == label
         if st.button(
             label,
@@ -183,21 +187,7 @@ with st.sidebar:
     if _get_api_key():
         st.success("API key ready")
     else:
-        api_key_input = st.text_input(
-            "Anthropic API key",
-            type="password",
-            placeholder="sk-ant-...",
-        )
-        if api_key_input:
-            st.session_state.session_api_key = api_key_input
-            import anthropic as _anth2
-            flow._client._client = _anth2.Anthropic(api_key=api_key_input)
-
-    lf_connected, lf_error = _tracing.init_status()
-    if lf_connected:
-        st.success("Langfuse connected")
-    elif lf_error:
-        st.warning(f"Langfuse: {lf_error}")
+        st.error("Server Anthropic API key not configured.")
 
     sb_connected, sb_error = _sb_status()
     if sb_connected:
@@ -216,21 +206,6 @@ with st.sidebar:
         step=0.5,
         format="%.1f×",
     )
-
-    st.divider()
-
-    if flow.view:
-        st.subheader("View")
-        st.write(f"**Pair:** {flow.view.pair}")
-        st.write(f"**Direction:** {flow.view.direction.replace('_', ' ')}")
-        st.write(f"**Horizon:** {flow.view.horizon_days}d")
-        if flow.view.magnitude_pct and flow.market_state:
-            sign = 1 if flow.view.direction == "base_higher" else -1
-            _t = flow.ccy.spot * (1 + sign * flow.view.magnitude_pct / 100)
-            move_from_fwd = (_t / flow.market_state.fwd - 1) * 100
-            st.write(f"**Target move from fwd:** {move_from_fwd:+.1f}%")
-        elif flow.view.magnitude_pct:
-            st.write(f"**Target move:** {flow.view.magnitude_pct:.1f}%")
 
     st.divider()
 
@@ -381,6 +356,7 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
             carry_regime=flow.market_state.carry_regime if flow.market_state else None,
             top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
             llm_response="",
+            user_email=USER_EMAIL,
         )
     except Exception as e:
         log_error("supabase_log_query", e)
@@ -400,7 +376,7 @@ _DELTA_ORDER = ["10DP", "25DP", "ATM", "25DC", "10DC"]
 def _render_query_log() -> None:
     from interface.supabase_logger import fetch_queries
     st.subheader("Query log")
-    rows = fetch_queries()
+    rows = fetch_queries(_admin=IS_ADMIN)
     if not rows:
         st.caption("No queries logged yet, or Supabase not connected.")
         return
@@ -411,6 +387,7 @@ def _render_query_log() -> None:
     df["carry_regime"] = df["carry_regime"].map({0: "0 noisy", 1: "1 potential", 2: "2 high"}).fillna("—")
     df = df.rename(columns={
         "created_at":    "Time",
+        "user_email":    "User",
         "pair":          "Pair",
         "direction":     "Direction",
         "magnitude_pct": "Mag %",
@@ -420,7 +397,11 @@ def _render_query_log() -> None:
         "top_structure": "Top structure",
         "prompt":        "Prompt",
     })
-    df = df[["Time", "Pair", "Direction", "Mag %", "Horizon", "Target z", "Carry regime", "Top structure", "Prompt"]]
+    display_cols = ["Time"]
+    if "User" in df.columns:
+        display_cols.append("User")
+    display_cols.extend(["Pair", "Direction", "Mag %", "Horizon", "Target z", "Carry regime", "Top structure", "Prompt"])
+    df = df[display_cols]
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 
@@ -719,6 +700,10 @@ def _render_market_data() -> None:
 # ---------------------------------------------------------------------------
 # Page routing
 # ---------------------------------------------------------------------------
+
+if st.session_state.page != "Trade View" and not IS_ADMIN:
+    st.session_state.page = "Trade View"
+    st.rerun()
 
 if st.session_state.page == "Market Data":
     _render_market_data()
