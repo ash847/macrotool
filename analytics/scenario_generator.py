@@ -8,6 +8,10 @@ Invariants across scenarios:
   - Vol surface: only absolute vol_shift applied on top of base_vol
   - Discount factors / rates: r_d, r_f unchanged
   - Strike, structure, expiry: fixed at trade entry (not this module's concern)
+
+Sigma-based forward offsets are scaled to the scenario's elapsed horizon.
+Example: a "1SIGMA" move at 50% elapsed time uses `vol * sqrt(0.5 * T)`,
+not the full-tenor `vol * sqrt(T)`.
 """
 
 from __future__ import annotations
@@ -132,16 +136,17 @@ def generate_scenarios(trade_inputs: dict) -> list[dict]:
     r_d: float = trade_inputs["r_d"]
     r_f: float = trade_inputs["r_f"]
 
-    sigma_T = base_vol * math.sqrt(T)
-    direction = _compute_direction(F, K, sigma_T)
+    sigma_T_full = base_vol * math.sqrt(T)
+    direction = _compute_direction(F, K, sigma_T_full)
 
     templates = _NEUTRAL_PACK if direction == 0 else _DIRECTIONAL_PACK
 
     scenarios = []
     for tmpl in templates:
+        elapsed = T * tmpl["time_fraction"]
+        sigma_T = base_vol * math.sqrt(elapsed)
         new_fwd = _apply_fwd_rule(tmpl["fwd_rule"], F, K, sigma_T, direction)
         tau = T * (1.0 - tmpl["time_fraction"])
-        elapsed = T * tmpl["time_fraction"]
         scenario_spot = new_fwd * math.exp(-(r_d - r_f) * tau)
         vol_shift = _VOL_SHIFTS[tmpl["vol_rule"]]
         scenario_vol = max(base_vol + vol_shift, 0.01)

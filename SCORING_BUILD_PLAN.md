@@ -231,3 +231,4 @@ Steps 1–4 are roughly the same work envelope as the original scenario generato
 - **Variant-level scoring.** Currently we evaluate one variant per structure. Does scoring all variants and surfacing the best within each structure add value, or noise?
 - **Path-dependent P&L.** Current scenarios are point-in-time snapshots. A real PM cares about the path: did the trade ever drawdown more than X% along the way? Path scenarios would need a new generator family.
 - **Skew shocks in pricing.** Skew rules are recorded but ignored. When the pricer becomes smile-aware, the SKEW_SENSITIVITY family becomes meaningful and may need re-weighting.
+- **Structure Evaluation header currency rendering.** Nice to have: revisit Streamlit expander header rendering for weighted-P&L labels. Symbol-based currency text (`$`) rendered inconsistently in some headers, so the current stable fallback is plain `USD/EUR/GBP` formatting.

@@ -129,6 +129,29 @@ class TestFwdRules:
             _apply_fwd_rule("MADE_UP", _F, _K, _SIGMA_T, _DIR)
 
 
+class TestElapsedSigmaScaling:
+    def test_wrong_large_50_uses_half_time_sigma(self):
+        scenarios = generate_scenarios(_INPUTS)
+        sc = next(s for s in scenarios if s["id"] == "WRONG_LARGE_50")
+        sigma_half = _VOL * math.sqrt(_T * 0.50)
+        expected = _F * math.exp(-1.0 * sigma_half)
+        assert abs(sc["derived"]["scenario_fwd"] - expected) < 1e-6
+
+    def test_neutral_up_1sigma_50_uses_half_time_sigma(self):
+        inputs = {**_INPUTS, "target": _INPUTS["forward"] * 1.0001}
+        scenarios = generate_scenarios(inputs)
+        sc = next(s for s in scenarios if s["id"] == "NEUTRAL_UP_1SIGMA_50")
+        sigma_half = _VOL * math.sqrt(_T * 0.50)
+        expected = _F * math.exp(sigma_half)
+        assert abs(sc["derived"]["scenario_fwd"] - expected) < 1e-6
+
+    def test_expiry_adverse_1sigma_still_uses_full_tenor_sigma(self):
+        scenarios = generate_scenarios(_INPUTS)
+        sc = next(s for s in scenarios if s["id"] == "EXPIRY_ADVERSE_1SIGMA")
+        expected = _F * math.exp(-1.0 * _SIGMA_T)
+        assert abs(sc["derived"]["scenario_fwd"] - expected) < 1e-6
+
+
 # ---------------------------------------------------------------------------
 # Scenario spot back-derivation
 # ---------------------------------------------------------------------------
@@ -238,10 +261,10 @@ class TestDerivedBlock:
             assert abs(d["elapsed_time"] + d["remaining_time"] - T) < 1e-6, sc["id"]
 
     def test_sigma_T_consistent(self):
-        sigma_T = _VOL * math.sqrt(_T)
         scenarios = generate_scenarios(_INPUTS)
         for sc in scenarios:
-            assert abs(sc["derived"]["sigma_T"] - sigma_T) < 1e-8
+            expected = _VOL * math.sqrt(_T * sc["time_fraction"])
+            assert abs(sc["derived"]["sigma_T"] - expected) < 1e-8
 
     def test_skew_multiplier_unchanged(self):
         scenarios = generate_scenarios(_INPUTS)
