@@ -255,6 +255,42 @@ def _sigma_sentence(flow: ConversationFlow, target: float) -> str:
         return ""
 
 
+def _variant_label_with_strikes(structure_id: str, pv) -> str:
+    strikes = [f"{k:.4f}" for k in pv.strikes]
+    label = pv.variant_label
+
+    if structure_id == "vanilla" and strikes:
+        return f"{label} {strikes[0]}"
+
+    if structure_id == "1x1_spread" and len(strikes) >= 2:
+        parts = label.split("/")
+        if len(parts) == 2:
+            return f"{parts[0].strip()} {strikes[0]} / {parts[1].strip()} {strikes[1]}"
+
+    if structure_id == "seagull" and len(strikes) >= 3:
+        if " + " in label:
+            spread_part, wing_part = label.split(" + ", 1)
+            spread_bits = spread_part.split("/")
+            if len(spread_bits) == 2:
+                return (
+                    f"{spread_bits[0].strip()} {strikes[0]} / "
+                    f"{spread_bits[1].strip()} {strikes[1]} + "
+                    f"{wing_part.strip()} {strikes[2]}"
+                )
+
+    if structure_id in {"1x1.5_spread", "1x2_spread"} and len(strikes) >= 2:
+        if " / " in label:
+            left, right = label.split(" / ", 1)
+            return f"{left.strip()} {strikes[0]} / {right.strip()} {strikes[1]}"
+
+    if structure_id in {"european_digital", "european_digital_rko"} and strikes:
+        return f"{label} {strikes[0]}"
+
+    if strikes:
+        return f"{label}  ·  Strikes: {' / '.join(strikes)}"
+    return label
+
+
 # ---------------------------------------------------------------------------
 # Structured intake helpers
 # ---------------------------------------------------------------------------
@@ -1154,13 +1190,13 @@ else:
                             _fmt_ccy(_pv0.structure_notional, _ev_base)
                             if _pv0.structure_notional is not None else None
                         )
-                        _variant_title = _pv0.variant_label
+                        _variant_title = _variant_label_with_strikes(_ev_s["item"].structure_id, _pv0)
                         if _notional_str:
                             _variant_title += f"  ·  Notional: {_notional_str}"
                         _bl_pct = f"{_score_bl.score_pct:.2%}"
-                        _bl_ccy = f"  (\\${_score_bl.score_ccy:,.2f})" if _score_bl.score_ccy is not None else ""
+                        _bl_ccy = f"  (${_score_bl.score_ccy:,.2f})" if _score_bl.score_ccy is not None else ""
                         _ctx_pct = f"{_score.score_pct:.2%}"
-                        _ctx_ccy = f"  (\\${_score.score_ccy:,.2f})" if _score.score_ccy is not None else ""
+                        _ctx_ccy = f"  (${_score.score_ccy:,.2f})" if _score.score_ccy is not None else ""
                         _variant_title += (
                             f"  ·  Weighted P&L (baseline): {_bl_pct}{_bl_ccy}"
                             f"  ·  (scenario weighted): {_ctx_pct}{_ctx_ccy}"
