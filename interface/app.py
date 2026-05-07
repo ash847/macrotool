@@ -52,20 +52,13 @@ def _fmt_ccy(amount: float | None, ccy: str) -> str:
         return "—"
     if ccy not in _CCY_SYM:
         raise ValueError(f"No currency symbol mapping for base ccy {ccy!r}")
-    return f"{_CCY_SYM[ccy]}{amount:,.2f}"
+    sign = "-" if amount < 0 else ""
+    return f"{sign}{ccy} {abs(amount):,.2f}"
 
 
 def _fmt_ccy_label(amount: float | None, ccy: str) -> str:
-    """Currency formatter for expander labels, which are markdown-rendered."""
-    if amount is None:
-        return "—"
-    if ccy not in _CCY_SYM:
-        raise ValueError(f"No currency symbol mapping for base ccy {ccy!r}")
-    sym = _CCY_SYM[ccy]
-    abs_amt = abs(amount)
-    prefix = "-" if amount < 0 else ""
-    out = f"{prefix}{sym}{abs_amt:,.2f}"
-    return out.replace("$", r"\$")
+    """Currency formatter for expander labels."""
+    return _fmt_ccy(amount, ccy)
 
 
 # ---------------------------------------------------------------------------
