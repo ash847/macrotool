@@ -55,6 +55,19 @@ def _fmt_ccy(amount: float | None, ccy: str) -> str:
     return f"{_CCY_SYM[ccy]}{amount:,.2f}"
 
 
+def _fmt_ccy_label(amount: float | None, ccy: str) -> str:
+    """Currency formatter for expander labels, which are markdown-rendered."""
+    if amount is None:
+        return "—"
+    if ccy not in _CCY_SYM:
+        raise ValueError(f"No currency symbol mapping for base ccy {ccy!r}")
+    sym = _CCY_SYM[ccy]
+    abs_amt = abs(amount)
+    prefix = "-" if amount < 0 else ""
+    out = f"{prefix}{sym}{abs_amt:,.2f}"
+    return out.replace("$", r"\$")
+
+
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
@@ -1195,10 +1208,20 @@ else:
                         _variant_title = _variant_label_with_strikes(_ev_s["item"].structure_id, _pv0)
                         if _notional_str:
                             _variant_title += f"  ·  Notional: {_notional_str}"
+                        elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
+                            _variant_title += "  ·  Notional: unscaled"
                         _bl_pct = f"{_score_bl.score_pct:.2%}"
-                        _bl_ccy = f"  (${_score_bl.score_ccy:,.2f})" if _score_bl.score_ccy is not None else ""
+                        _bl_ccy = (
+                            f"  ({_fmt_ccy_label(_score_bl.score_ccy, _ev_base)})"
+                            if _score_bl.score_ccy is not None
+                            else ("  (unscaled)" if _pv0.structure_notional is None else "")
+                        )
                         _ctx_pct = f"{_score.score_pct:.2%}"
-                        _ctx_ccy = f"  (${_score.score_ccy:,.2f})" if _score.score_ccy is not None else ""
+                        _ctx_ccy = (
+                            f"  ({_fmt_ccy_label(_score.score_ccy, _ev_base)})"
+                            if _score.score_ccy is not None
+                            else ("  (unscaled)" if _pv0.structure_notional is None else "")
+                        )
                         _variant_title += (
                             f"  ·  Weighted P&L (baseline): {_bl_pct}{_bl_ccy}"
                             f"  ·  (scenario weighted): {_ctx_pct}{_ctx_ccy}"
