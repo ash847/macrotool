@@ -276,6 +276,6 @@ def render() -> None:
 # Standalone entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__" or not hasattr(st, "_is_running_with_streamlit"):
+if __name__ == "__main__":
     st.set_page_config(page_title="Decision Parameters Editor", layout="wide")
     render()
