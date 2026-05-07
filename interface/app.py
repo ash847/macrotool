@@ -1148,13 +1148,13 @@ else:
                 _struct_title = f"{_ev_s['label']} — {_pv0.variant_label}"
                 if _notional_str:
                     _struct_title += f"  ·  Notional: {_notional_str}"
-                _bl_pct = f"{_score_bl.score_pct:+.2%}"
-                _bl_ccy = f"  ({_fmt_ccy(_score_bl.score_ccy, _ev_base)})" if _score_bl.score_ccy is not None else ""
-                _ctx_pct = f"{_score.score_pct:+.2%}"
-                _ctx_ccy = f"  ({_fmt_ccy(_score.score_ccy, _ev_base)})" if _score.score_ccy is not None else ""
+                _bl_pct = f"{_score_bl.score_pct:.2%}"
+                _bl_ccy = f"  (${'{:,.2f}'.format(_score_bl.score_ccy)})" if _score_bl.score_ccy is not None else ""
+                _ctx_pct = f"{_score.score_pct:.2%}"
+                _ctx_ccy = f"  (${'{:,.2f}'.format(_score.score_ccy)})" if _score.score_ccy is not None else ""
                 _struct_title += (
                     f"  ·  Weighted P&L (baseline): {_bl_pct}{_bl_ccy}"
-                    f"  ·  (context): {_ctx_pct}{_ctx_ccy}"
+                    f"  ·  (scenario weighted): {_ctx_pct}{_ctx_ccy}"
                 )
 
                 with st.expander(_struct_title, expanded=False):
