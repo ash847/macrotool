@@ -1,18 +1,8 @@
 """
-Tier 1 scenario family weighter.
+Scenario-grid context selector and multiplier loader.
 
-Pure function: MarketState (already view-conditioned by the pipeline) →
-{family: weight} summing to 1.0, plus a record of which weightings fired so
-the UI can explain the weights to the PM.
-
-The weights are NOT structure-dependent: the same vector is applied to every
-shortlisted structure when scoring, so weighted-P&L scores are directly
-comparable across structures.
-
-Weightings live in `knowledge/defaults/scenario_definitions.json`. Tunable
-without code changes — see that file for the weighting schema and prose
-explaining each one. Each weighting may adjust multiple families
-simultaneously via the `adjustments` dict.
+Pure function: MarketState + PM preferences -> active context, plus normalized
+weights over explicit scenario-grid cells.
 """
 
 from __future__ import annotations
@@ -22,52 +12,56 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from analytics.market_state import MarketState
-from analytics.scenario_generator import FAMILIES
+from analytics.scenario_generator import (
+    GRID_COLS,
+    GRID_ROWS,
+    cell_id,
+    valid_grid_cells_for_tenor,
+)
 
 _REPO_ROOT = Path(__file__).parent.parent
 _WEIGHTS_PATH = _REPO_ROOT / "knowledge" / "defaults" / "scenario_definitions.json"
 
 
-# ---------------------------------------------------------------------------
-# Public types
-# ---------------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class FiredWeighting:
-    """A weighting that matched and was applied. Surfaced in the UI for transparency."""
     id: str
-    adjustments: dict[str, float]    # family → delta that was applied
+    multipliers: dict[str, float]
     comment: str
 
 
-# Backwards-compat alias
 FiredContext = FiredWeighting
 
 
 @dataclass(frozen=True)
 class WeighterResult:
-    """Output of `compute_family_weights`. `weights` always sums to ~1.0 with
-    every family present (floor enforced)."""
     weights: dict[str, float]
+    multipliers: dict[str, float]
     fired: list[FiredWeighting]
     baseline: float
-    floor: float
+    min_multiplier: float
 
-
-# ---------------------------------------------------------------------------
-# Loading
-# ---------------------------------------------------------------------------
 
 _weights_cache: dict | None = None
 
 
+def _empty_grid_multipliers() -> dict[str, float]:
+    return {cell_id(r, c): 1.0 for r in GRID_ROWS for c in GRID_COLS}
+
+
+def _migrate_config_shape(cfg: dict) -> dict:
+    cfg = dict(cfg)
+    cfg.setdefault("baseline", 1.0)
+    cfg.setdefault("min_multiplier", 0.1)
+    cfg.setdefault("weightings", [])
+    for ctx in cfg["weightings"]:
+        if "multipliers" not in ctx:
+            ctx["multipliers"] = {}
+        ctx.pop("adjustments", None)
+    return cfg
+
+
 def load_scenario_weights_config() -> dict:
-    """
-    Load scenario weightings. Checks Supabase first (so in-app edits
-    persist across sessions), falls back to the local JSON file.
-    Uses a module-level cache; call `clear_scenario_weights_cache()` after
-    a save to force the next call to re-fetch.
-    """
     global _weights_cache
     if _weights_cache is not None:
         return _weights_cache
@@ -75,30 +69,20 @@ def load_scenario_weights_config() -> dict:
         from interface.supabase_logger import fetch_config_for_engine
         data = fetch_config_for_engine("scenario_definitions")
         if data:
-            _weights_cache = data
+            _weights_cache = _migrate_config_shape(data)
             return _weights_cache
     except Exception:
         pass
     with open(_WEIGHTS_PATH) as f:
-        _weights_cache = json.load(f)
+        _weights_cache = _migrate_config_shape(json.load(f))
     return _weights_cache
 
 
 def clear_scenario_weights_cache() -> None:
-    """Invalidate the cache so the next call re-fetches from Supabase / file."""
     global _weights_cache
     _weights_cache = None
 
 
-# ---------------------------------------------------------------------------
-# Condition evaluation
-# ---------------------------------------------------------------------------
-
-# Map config field names → getters. Two sources are exposed:
-#   • MarketState attributes (carry, vol, target distance …)
-#   • PM preferences passed through the pipeline (primary objective, trade mgmt)
-# Keeps the JSON decoupled from any private MarketState shape and makes explicit
-# which fields the context engine knows about.
 _FIELD_GETTERS = {
     "target_z_abs":      lambda ms, prefs: abs(ms.target_z) if ms.target_z is not None else None,
     "carry_regime":      lambda ms, prefs: ms.carry_regime,
@@ -111,14 +95,13 @@ _FIELD_GETTERS = {
 }
 
 _OPS = {
-    ">":   lambda a, b: a > b,
-    ">=":  lambda a, b: a >= b,
-    "<":   lambda a, b: a < b,
-    "<=":  lambda a, b: a <= b,
-    "==":  lambda a, b: a == b,
-    "!=":  lambda a, b: a != b,
-    # `in` accepts a list of allowed values — convenient for enums.
-    "in":  lambda a, b: a in b,
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    "==": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+    "in": lambda a, b: a in b,
 }
 
 
@@ -126,18 +109,10 @@ def _evaluate_condition(cond: dict, ms: MarketState, prefs: dict) -> bool:
     field = cond["field"]
     op = cond["op"]
     value = cond["value"]
-
-    if field not in _FIELD_GETTERS:
-        raise ValueError(f"Unknown field '{field}' in scenario_weights context. "
-                         f"Supported: {sorted(_FIELD_GETTERS)}")
-    if op not in _OPS:
-        raise ValueError(f"Unknown op '{op}' in scenario_weights context. "
-                         f"Supported: {sorted(_OPS)}")
-
+    if field not in _FIELD_GETTERS or op not in _OPS:
+        raise ValueError(f"Unsupported scenario weighting condition: {cond}")
     actual = _FIELD_GETTERS[field](ms, prefs)
     if actual is None:
-        # Fields that are None on this MarketState (e.g. target_z when no
-        # target supplied) cause the condition to fail rather than raise.
         return False
     return _OPS[op](actual, value)
 
@@ -146,82 +121,52 @@ def _all_conditions_met(when: list[dict], ms: MarketState, prefs: dict) -> bool:
     return all(_evaluate_condition(c, ms, prefs) for c in when)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def compute_family_weights(
     ms: MarketState,
     primary_objective: str = "Balanced",
     trade_management: str = "Standard hold",
 ) -> WeighterResult:
     """
-    Compute scenario family weights from MarketState + PM preferences.
-
-    `primary_objective` and `trade_management` are PM preference enums
-    pulled through from the intake form.  Defaults preserve current
-    behaviour (Balanced / Standard hold) so existing callers are unchanged.
-
-    Algorithm:
-      1. Initialise every family at `baseline` (default 1/8 = 0.125).
-      2. For each context whose `when` conditions all evaluate true, apply
-         every entry in its `adjustments` dict to the corresponding family
-         weight; record the context.
-      3. Floor every family at `floor` (default 0.02) to prevent any family
-         collapsing to zero.
-      4. Renormalise so weights sum to 1.0.
-
-    Returns a WeighterResult with:
-      - weights: {family: weight} for every family in FAMILIES
-      - fired:   list of FiredContext (for UI transparency)
-      - baseline, floor: parameters used
+    Backwards-compatible entry point. Returns normalized scenario-cell weights
+    plus the raw multipliers used to derive them.
     """
     cfg = load_scenario_weights_config()
-    baseline: float = cfg["baseline"]
-    floor: float = cfg["floor"]
+    baseline = float(cfg["baseline"])
+    min_multiplier = float(cfg["min_multiplier"])
+
+    valid_cells = [cell_id(r, c) for r, c in valid_grid_cells_for_tenor(ms.T)]
+    multipliers = {cid: baseline for cid in valid_cells}
 
     prefs = {
         "primary_objective": primary_objective,
-        "trade_management":  trade_management,
+        "trade_management": trade_management,
     }
 
-    weights: dict[str, float] = {f: baseline for f in FAMILIES}
     fired: list[FiredContext] = []
-
-    # Selection: first match wins (weightings are priority-ordered in the JSON).
-    # `fired` holds at most one weighting — when both market-state and preference
-    # conditions are evaluated together, exactly one wins per trade.
     for ctx in cfg["weightings"]:
         if not _all_conditions_met(ctx.get("when", []), ms, prefs):
             continue
-
-        adjustments: dict[str, float] = ctx["adjustments"]
-        for family, delta in adjustments.items():
-            if family not in weights:
-                raise ValueError(
-                    f"Context '{ctx['id']}' targets unknown family '{family}'. "
-                    f"Known families: {FAMILIES}"
-                )
-            weights[family] += delta
-
+        overrides = ctx.get("multipliers", {})
+        for cid, value in overrides.items():
+            if cid in multipliers:
+                multipliers[cid] = max(float(value), min_multiplier)
         fired.append(FiredWeighting(
             id=ctx["id"],
-            adjustments=adjustments,
+            multipliers={cid: multipliers[cid] for cid in valid_cells},
             comment=ctx.get("comment", ""),
         ))
-        break  # first match — stop here
+        break
 
-    # Floor (no family below `floor`) then renormalise.
-    weights = {f: max(w, floor) for f, w in weights.items()}
-    total = sum(weights.values())
+    total = sum(multipliers.values())
     if total <= 0:
-        weights = {f: 1.0 / len(FAMILIES) for f in FAMILIES}
+        weights = {cid: 1.0 / len(multipliers) for cid in multipliers}
     else:
-        weights = {f: w / total for f, w in weights.items()}
+        weights = {cid: m / total for cid, m in multipliers.items()}
 
     return WeighterResult(
         weights=weights,
+        multipliers=multipliers,
         fired=fired,
         baseline=baseline,
-        floor=floor,
+        min_multiplier=min_multiplier,
     )

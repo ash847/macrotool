@@ -1,20 +1,5 @@
 """
-Scenario Weightings page — view and edit scenario_definitions.json weightings.
-
-Three tabs:
-  1. Weighting matrix   — editable matrix of weightings × families.
-     Each cell shows the relative weight multiplier (1.00 = no change,
-     >1 = bumped up, <1 = reduced). Changes are saved to Supabase and
-     every version is stored. The weighter picks up the latest version
-     on the next trade query.
-
-  2. Choosing a weighting — read-only view of the conditions that cause
-     each weighting to fire, formatted in plain English.
-
-  3. Priority & conditions — edit the weighting evaluation order and the
-     MarketState conditions attached to each weighting.  First-match
-     selection means order is semantically important.  Live preview
-     shows which weighting fires for any set of market-state inputs.
+Scenario Weightings page — edit explicit scenario-grid multipliers.
 """
 
 from __future__ import annotations
@@ -25,19 +10,15 @@ import uuid
 import pandas as pd
 import streamlit as st
 
-from analytics.scenario_generator import FAMILIES
+from analytics.scenario_generator import GRID_COLS, GRID_ROWS, VALID_GRID_CELLS, cell_id
 from interface.security import assert_admin, is_admin_user
 from knowledge_engine.scenario_weighter import (
+    _FIELD_GETTERS,
+    _OPS,
     clear_scenario_weights_cache,
     load_scenario_weights_config,
 )
 
-
-# ---------------------------------------------------------------------------
-# Shared constants
-# ---------------------------------------------------------------------------
-
-# Ordered for intuitive UI display (not alphabetical).
 _COND_FIELDS = [
     "carry_regime",
     "with_carry",
@@ -49,198 +30,138 @@ _COND_FIELDS = [
     "trade_management",
 ]
 _COND_OPS = ["==", "!=", ">", ">=", "<", "<=", "in"]
-
-# ---------------------------------------------------------------------------
-# Shared helpers (used by Tab 2 and Tab 3)
-# ---------------------------------------------------------------------------
+_PRIM_OPTS = [
+    "Balanced",
+    "Keep cost low",
+    "Hold up if the path is slow/noisy",
+    "Keep risk clean",
+]
+_MGMT_OPTS = [
+    "Standard hold",
+    "May monetise early",
+    "Need defendable mark-to-market",
+]
+_PRIORITY_STATE_KEY = "ctx_priority_edit"
 
 _FIELD_LABELS = {
-    "target_z_abs":      "Target distance (σ)",
-    "carry_regime":      "Carry regime",
-    "with_carry":        "Direction vs carry",
-    "T":                 "Tenor (years)",
-    "vol":               "ATM vol",
-    "atmfsratio":        "ATM/FS ratio",
+    "target_z_abs": "Target distance (σ)",
+    "carry_regime": "Carry regime",
+    "with_carry": "Direction vs carry",
+    "T": "Tenor (years)",
+    "vol": "ATM vol",
+    "atmfsratio": "ATM/FS ratio",
     "primary_objective": "Primary objective",
-    "trade_management":  "Trade management",
-}
-
-_VALUE_LABELS: dict = {
-    0:     "0 (noisy)",
-    1:     "1 (potential)",
-    2:     "2 (high)",
-    True:  "with carry",
-    False: "counter carry",
+    "trade_management": "Trade management",
 }
 
 
-def _fmt_value(field: str, value) -> str:
-    if isinstance(value, list):
-        return "[" + ", ".join(_fmt_value(field, v) for v in value) + "]"
-    if field == "T" and isinstance(value, (int, float)) and not isinstance(value, bool):
-        months = value * 12
-        return f"{months:.0f}m ({value}y)"
-    if field == "vol" and isinstance(value, (int, float)) and not isinstance(value, bool):
-        return f"{value:.0%}"
-    if isinstance(value, bool):
-        return _VALUE_LABELS.get(value, str(value))
-    if isinstance(value, int):
-        return _VALUE_LABELS.get(value, str(value))
-    return str(value)
+def _valid_cell_ids() -> list[str]:
+    return [cell_id(r, c) for r in GRID_ROWS for c in VALID_GRID_CELLS[r]]
 
 
-def _fmt_condition(cond: dict) -> str:
-    field = _FIELD_LABELS.get(cond["field"], cond["field"])
-    op = cond["op"]
-    val = _fmt_value(cond["field"], cond["value"])
-    return f"{field} {op} {val}"
+def _ctx_label(ctx: dict) -> str:
+    return ctx["id"].replace("_", " ")
 
 
 def _fmt_conditions(when: list[dict]) -> str:
     if not when:
         return "Always"
-    return "  AND  ".join(_fmt_condition(c) for c in when)
+    return "  AND  ".join(
+        f"{_FIELD_LABELS.get(c['field'], c['field'])} {c['op']} {c['value']}"
+        for c in when
+    )
 
 
-# ---------------------------------------------------------------------------
-# Tab 1 helpers — weight matrix
-# ---------------------------------------------------------------------------
-
-def _build_matrix(cfg: dict) -> pd.DataFrame:
-    """Build a weighting × family multiplier matrix (1.0 = no change)."""
+def _grid_df(ctx: dict, baseline: float) -> pd.DataFrame:
+    multipliers = ctx.get("multipliers", {})
     rows = []
-    for ctx in cfg["weightings"]:
-        adj = ctx["adjustments"]
-        row = {"Weighting": ctx["id"].replace("_", " ")}
-        for fam in FAMILIES:
-            delta = adj.get(fam, 0.0)
-            row[fam.replace("_", " ").title()] = round(1.0 + delta, 3)
-        rows.append(row)
-    return pd.DataFrame(rows).set_index("Weighting")
+    for row in GRID_ROWS:
+        item = {"Row": row}
+        for col in GRID_COLS:
+            cid = cell_id(row, col)
+            item[col] = multipliers.get(cid, baseline) if col in VALID_GRID_CELLS[row] else None
+        rows.append(item)
+    return pd.DataFrame(rows).set_index("Row")
 
 
-def _rebuild_config(cfg: dict, edited_df: pd.DataFrame) -> dict:
-    """Reconstruct the full config dict from an edited weight matrix."""
-    new_cfg = copy.deepcopy(cfg)
-    for ctx in new_cfg["weightings"]:
-        ctx_label = ctx["id"].replace("_", " ")
-        new_adj: dict[str, float] = {}
-        for fam in FAMILIES:
-            fam_col = fam.replace("_", " ").title()
-            val = float(edited_df.loc[ctx_label, fam_col])
-            delta = round(val - 1.0, 4)
-            if abs(delta) > 1e-6:
-                new_adj[fam] = delta
-        ctx["adjustments"] = new_adj
-    return new_cfg
+def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> None:
+    st.caption(
+        f"Baseline multiplier **{baseline:.2f}**. Valid cells are editable with minimum "
+        f"**{min_multiplier:.1f}**. Invalid cells are fixed as `-`. "
+        "Leaving a cell at the baseline means that scenario keeps its default importance."
+    )
+    multipliers = copy.deepcopy(ctx.get("multipliers", {}))
+    header_cols = st.columns([1] + [1] * len(GRID_COLS))
+    header_cols[0].markdown("**Row**")
+    for i, col in enumerate(GRID_COLS, start=1):
+        header_cols[i].markdown(f"**{col}**")
 
+    for row in GRID_ROWS:
+        cols = st.columns([1] + [1] * len(GRID_COLS))
+        cols[0].markdown(f"`{row}`")
+        for i, col in enumerate(GRID_COLS, start=1):
+            cid = cell_id(row, col)
+            if col not in VALID_GRID_CELLS[row]:
+                cols[i].markdown("-")
+                continue
+            val = float(multipliers.get(cid, baseline))
+            multipliers[cid] = cols[i].number_input(
+                f"{row}-{col}",
+                min_value=float(min_multiplier),
+                value=val,
+                step=0.1,
+                format="%.1f",
+                key=f"grid_{ctx['id']}_{cid}",
+                label_visibility="collapsed",
+            )
+    ctx["multipliers"] = multipliers
 
-# ---------------------------------------------------------------------------
-# Tab 1 — Weighting matrix (editable)
-# ---------------------------------------------------------------------------
 
 def _render_context_weights(cfg: dict) -> None:
-    st.caption(
-        "Each cell is the relative weight multiplier applied to a scenario family "
-        "when this weighting is active.  "
-        "**1.00** = no change (baseline).  **> 1** = bumped up.  **< 1** = reduced.  "
-        "Weights are re-normalised after all weightings fire so the full vector sums to 1.  "
-        "Edit any cell and press **Save changes** — every version is stored."
-    )
+    contexts = cfg["weightings"]
+    labels = [_ctx_label(c) for c in contexts]
+    selected = st.selectbox("Weighting", labels, key="ctx_grid_select")
+    ctx = next(c for c in contexts if _ctx_label(c) == selected)
+    overrides = {
+        cid: val for cid, val in ctx.get("multipliers", {}).items()
+        if abs(float(val) - float(cfg["baseline"])) > 1e-9
+    }
+    st.markdown(f"**Reasoning:** {ctx.get('comment', '')}")
+    st.markdown(f"**Fires when:** {_fmt_conditions(ctx.get('when', []))}")
+    st.caption(f"Explicit overrides in this weighting: **{len(overrides)}**")
+    _render_grid_editor(ctx, cfg["baseline"], cfg["min_multiplier"])
 
-    fam_cols = [f.replace("_", " ").title() for f in FAMILIES]
-    df = _build_matrix(cfg)
+    if st.button("Save multipliers", type="primary", use_container_width=True):
+        try:
+            from interface.supabase_logger import save_config as _save
+            ok = _save("scenario_definitions", cfg, _admin=is_admin_user())
+            if ok:
+                clear_scenario_weights_cache()
+                st.success("Saved. New scenario-grid multipliers apply on the next trade query.")
+            else:
+                st.error("Save failed — Supabase not configured or unreachable.")
+        except Exception as e:
+            st.error(f"Save error: {e}")
 
-    # Editable matrix
-    edited_df = st.data_editor(
-        df,
-        use_container_width=True,
-        key="ctx_weights_editor",
-        column_config={
-            col: st.column_config.NumberColumn(
-                label=col,
-                min_value=0.0,
-                max_value=3.0,
-                step=0.01,
-                format="%.2f",
-            )
-            for col in fam_cols
-        },
-    )
-
-    st.caption(
-        f"Baseline: **{cfg['baseline']:.3f}** (1/{len(FAMILIES)}).  "
-        f"Floor per family after normalisation: **{cfg['floor']:.2f}**."
-    )
-
-    # Save / revert controls
-    col_save, col_revert, _ = st.columns([1, 1, 4])
-    with col_save:
-        if st.button("Save changes", type="primary", use_container_width=True):
-            try:
-                from interface.supabase_logger import save_config as _save
-                new_cfg = _rebuild_config(cfg, edited_df)
-                ok = _save("scenario_definitions", new_cfg, _admin=is_admin_user())
-                if ok:
-                    clear_scenario_weights_cache()
-                    st.success("Saved. New weights apply on the next trade query.")
-                else:
-                    st.error("Save failed — Supabase not configured or unreachable.")
-            except Exception as e:
-                st.error(f"Save error: {e}")
-
-    with col_revert:
-        if st.button("Revert to defaults", use_container_width=True):
-            clear_scenario_weights_cache()
-            st.rerun()
-
-
-
-# ---------------------------------------------------------------------------
-# Tab 2 — Choosing a weighting (read-only)
-# ---------------------------------------------------------------------------
 
 def _render_choosing_a_context(cfg: dict) -> None:
-    st.caption(
-        "Weightings are evaluated **top-to-bottom**. The first one whose conditions are all "
-        "satisfied is selected — at most one fires per trade right now. "
-        "Order matters: more specific conditions appear higher in the list and take priority."
-    )
-
     rows = []
     for ctx in cfg["weightings"]:
-        when_str = _fmt_conditions(ctx.get("when", []))
-        adj = ctx["adjustments"]
-        families_str = "  /  ".join(
-            f"{f.replace('_', ' ').title()} {d:+.2f}"
-            for f, d in adj.items()
+        overrides = sum(
+            1
+            for cid, val in ctx.get("multipliers", {}).items()
+            if cid in _valid_cell_ids() and abs(float(val) - float(cfg["baseline"])) > 1e-9
         )
         rows.append({
-            "Weighting":  ctx["id"].replace("_", " "),
-            "Fires when": when_str,
-            "Adjusts":    families_str,
-            "Reasoning":  ctx.get("comment", ""),
+            "Weighting": _ctx_label(ctx),
+            "Fires when": _fmt_conditions(ctx.get("when", [])),
+            "Overrides": overrides,
+            "Reasoning": ctx.get("comment", ""),
         })
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    st.dataframe(
-        pd.DataFrame(rows),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Weighting":  st.column_config.TextColumn(width="small"),
-            "Fires when": st.column_config.TextColumn(width="medium"),
-            "Adjusts":    st.column_config.TextColumn(width="medium"),
-            "Reasoning":  st.column_config.TextColumn(width="large"),
-        },
-    )
-
-
-# ---------------------------------------------------------------------------
-# Tab 3 helpers — priority & conditions editor
-# ---------------------------------------------------------------------------
 
 def _init_priority_state(cfg: dict) -> list[dict]:
-    """Deep-copy weightings from cfg and assign stable UIDs for widget keying."""
     result = []
     for ctx in cfg["weightings"]:
         c = copy.deepcopy(ctx)
@@ -250,11 +171,6 @@ def _init_priority_state(cfg: dict) -> list[dict]:
 
 
 def _parse_condition_value(s: str):
-    """
-    Parse a string from the conditions editor into a typed Python value:
-    bool / int / float if recognisable, otherwise the raw string (so enum
-    values like 'Balanced' or 'Keep cost low' are accepted as-is).
-    """
     s = s.strip()
     if s.lower() == "true":
         return True
@@ -268,12 +184,10 @@ def _parse_condition_value(s: str):
         return float(s)
     except ValueError:
         pass
-    # Fallback: treat as string (used for enum fields like primary_objective).
     return s
 
 
 def _format_value_for_editor(value) -> str:
-    """Render a stored value as the string the data_editor cell shows."""
     if isinstance(value, list):
         return ", ".join(_format_value_for_editor(v) for v in value)
     if value is True:
@@ -284,132 +198,41 @@ def _format_value_for_editor(value) -> str:
 
 
 def _conditions_to_df(when: list[dict]) -> pd.DataFrame:
-    """Convert a `when` condition list to a DataFrame for st.data_editor."""
-    rows = []
-    for c in when:
-        rows.append({
-            "field": c["field"],
-            "op":    c["op"],
-            "value": _format_value_for_editor(c["value"]),
-        })
-    return pd.DataFrame(rows, columns=["field", "op", "value"])
+    return pd.DataFrame([
+        {"field": c["field"], "op": c["op"], "value": _format_value_for_editor(c["value"])}
+        for c in when
+    ], columns=["field", "op", "value"])
 
 
 def _df_to_conditions(df: pd.DataFrame) -> tuple[list[dict], list[str]]:
-    """
-    Convert a data_editor DataFrame back to a `when` condition list.
-    Returns (conditions, parse_errors).  Rows with all-empty cells are skipped.
-    For op == 'in', value is parsed as a comma-separated list.
-    """
     conds: list[dict] = []
     errors: list[str] = []
     for idx, row in df.iterrows():
         field = str(row.get("field", "") or "").strip()
-        op    = str(row.get("op",    "") or "").strip()
+        op = str(row.get("op", "") or "").strip()
         val_s = str(row.get("value", "") or "").strip()
-
         if not field and not op and not val_s:
-            continue  # blank row — skip silently
-
-        if not field or field not in _COND_FIELDS:
+            continue
+        if field not in _COND_FIELDS:
             errors.append(f"Row {idx + 1}: unknown field '{field}'")
             continue
-        if not op or op not in _COND_OPS:
+        if op not in _COND_OPS:
             errors.append(f"Row {idx + 1}: unknown op '{op}'")
             continue
         if not val_s:
             errors.append(f"Row {idx + 1}: missing value")
             continue
-
-        if op == "in":
-            # Comma-separated list of values; each parsed individually.
-            parts = [p.strip() for p in val_s.split(",") if p.strip()]
-            if not parts:
-                errors.append(f"Row {idx + 1}: 'in' op requires a comma-separated list")
-                continue
-            value = [_parse_condition_value(p) for p in parts]
-        else:
-            value = _parse_condition_value(val_s)
-
+        value = [_parse_condition_value(p.strip()) for p in val_s.split(",")] if op == "in" else _parse_condition_value(val_s)
         conds.append({"field": field, "op": op, "value": value})
     return conds, errors
 
 
-def _check_shadowing(contexts: list[dict]) -> list[str]:
-    """
-    Detect obvious shadowing: weighting B is shadowed by an earlier weighting A
-    when all of A's conditions are an exact subset of B's — meaning whenever
-    B would fire, A fires first.  Returns warning strings (empty = none found).
-    This is a heuristic; it catches copy-paste errors but not inequality bounds.
-    """
-    warnings: list[str] = []
-    for j, ctx_b in enumerate(contexts):
-        when_b = ctx_b.get("when", [])
-        for i in range(j):
-            ctx_a = contexts[i]
-            when_a = ctx_a.get("when", [])
-
-            if not when_a:
-                # A has no conditions → always fires first
-                warnings.append(
-                    f"**{ctx_b['id']}** (#{j + 1}) can never fire — "
-                    f"**{ctx_a['id']}** (#{i + 1}) has no conditions and always fires first."
-                )
-                break  # only one warning per shadowed context
-
-            def _eq(c1: dict, c2: dict) -> bool:
-                return (c1["field"] == c2["field"]
-                        and c1["op"] == c2["op"]
-                        and c1["value"] == c2["value"])
-
-            a_subset_of_b = (
-                len(when_a) < len(when_b)
-                and all(any(_eq(ca, cb) for cb in when_b) for ca in when_a)
-            )
-            if a_subset_of_b:
-                warnings.append(
-                    f"**{ctx_b['id']}** (#{j + 1}) may be shadowed by "
-                    f"**{ctx_a['id']}** (#{i + 1}) — "
-                    f"all of {ctx_a['id']}'s conditions are a subset of "
-                    f"{ctx_b['id']}'s, so {ctx_a['id']} always fires first."
-                )
-    return warnings
-
-
 def _simulate_context_fire(contexts: list[dict], field_values: dict) -> str | None:
-    """
-    Simulate first-match weighting selection from a dict of field values.
-    Returns the winning weighting id, or None if no weighting matches.
-    Used for the live preview — does not go through the full MarketState pipeline.
-    """
-    _ops = {
-        "==": lambda a, b: a == b,
-        "!=": lambda a, b: a != b,
-        ">":  lambda a, b: a > b,
-        ">=": lambda a, b: a >= b,
-        "<":  lambda a, b: a < b,
-        "<=": lambda a, b: a <= b,
-        "in": lambda a, b: a in b,
-    }
-    _supported = set(_COND_FIELDS)
-
     for ctx in contexts:
         match = True
         for cond in ctx.get("when", []):
-            field = cond["field"]
-            op_fn = _ops.get(cond["op"])
-            if field not in _supported or op_fn is None:
-                match = False
-                break
-            actual = field_values.get(field)
-            if actual is None:
-                match = False
-                break
-            try:
-                if not op_fn(actual, cond["value"]):
-                    match = False
-                    break
-            except Exception:
+            actual = _FIELD_GETTERS[cond["field"]](field_values["ms"], field_values["prefs"])
+            if actual is None or not _OPS[cond["op"]](actual, cond["value"]):
                 match = False
                 break
         if match:
@@ -418,211 +241,82 @@ def _simulate_context_fire(contexts: list[dict], field_values: dict) -> str | No
 
 
 def _validate_contexts(contexts: list[dict]) -> list[str]:
-    """Return a list of error strings. Empty list means valid."""
     errors: list[str] = []
     ids = [str(ctx.get("id", "")).strip() for ctx in contexts]
-
     for i, ctx_id in enumerate(ids):
         if not ctx_id:
             errors.append(f"Weighting #{i + 1} has an empty ID.")
-
     seen: set[str] = set()
     for ctx_id in ids:
         if ctx_id and ctx_id in seen:
             errors.append(f"Duplicate weighting ID: '{ctx_id}'.")
         seen.add(ctx_id)
-
     return errors
-
-
-# ---------------------------------------------------------------------------
-# Tab 3 — Priority & conditions (editor)
-# ---------------------------------------------------------------------------
-
-_PRIORITY_STATE_KEY = "ctx_priority_edit"
 
 
 def _render_priority_conditions(cfg: dict) -> None:
     if _PRIORITY_STATE_KEY not in st.session_state:
         st.session_state[_PRIORITY_STATE_KEY] = _init_priority_state(cfg)
-
     contexts: list[dict] = st.session_state[_PRIORITY_STATE_KEY]
 
-    st.caption(
-        "Weightings are evaluated **top-to-bottom** — the first one whose conditions "
-        "are all satisfied fires and applies its weight adjustments. "
-        "Use **▲ / ▼** to change priority order. "
-        "Edit conditions inline — add or delete rows using the table controls. "
-        "Press **Save** to persist changes to Supabase. "
-        "Changes here do not affect the weight values edited in the **Weighting matrix** tab."
-    )
-
-    # -----------------------------------------------------------------------
-    # Live preview
-    # -----------------------------------------------------------------------
     st.subheader("Live preview")
-    st.caption(
-        "Set market-state values to see which weighting fires under first-match selection."
-    )
-
-    _PRIM_OPTS = [
-        "Balanced",
-        "Keep cost low",
-        "Hold up if the path is slow/noisy",
-        "Keep risk clean",
-    ]
-    _MGMT_OPTS = [
-        "Standard hold",
-        "May monetise early",
-        "Need defendable mark-to-market",
-    ]
-
     p1 = st.columns(6)
     with p1[0]:
-        prev_carry = st.selectbox(
-            "Carry regime", [0, 1, 2], index=1, key="pv_carry",
-            help="0 = noisy  /  1 = potential  /  2 = high"
-        )
+        prev_carry = st.selectbox("Carry regime", [0, 1, 2], index=1, key="pv_carry")
     with p1[1]:
-        prev_wc = st.selectbox(
-            "With carry", [True, False], index=0,
-            format_func=lambda x: "with carry" if x else "counter carry",
-            key="pv_wc",
-        )
+        prev_wc = st.selectbox("With carry", [True, False], index=0, format_func=lambda x: "with carry" if x else "counter carry", key="pv_wc")
     with p1[2]:
-        prev_T = st.number_input(
-            "Tenor (yrs)", min_value=0.01, max_value=3.0,
-            value=0.25, step=0.01, format="%.2f", key="pv_T",
-        )
+        prev_T = st.number_input("Tenor (yrs)", min_value=0.01, max_value=3.0, value=0.25, step=0.01, format="%.2f", key="pv_T")
     with p1[3]:
-        prev_vol = st.number_input(
-            "ATM vol", min_value=0.01, max_value=1.0,
-            value=0.12, step=0.01, format="%.2f", key="pv_vol",
-        )
+        prev_vol = st.number_input("ATM vol", min_value=0.01, max_value=1.0, value=0.12, step=0.01, format="%.2f", key="pv_vol")
     with p1[4]:
-        prev_tz = st.number_input(
-            "Target |σ|", min_value=0.0, max_value=5.0,
-            value=1.0, step=0.1, format="%.2f", key="pv_tz",
-        )
+        prev_tz = st.number_input("Target |σ|", min_value=0.0, max_value=5.0, value=1.0, step=0.1, format="%.2f", key="pv_tz")
     with p1[5]:
-        prev_atmfs = st.number_input(
-            "ATM/FS ratio", min_value=0.0, max_value=10.0,
-            value=1.0, step=0.1, format="%.2f", key="pv_atmfs",
-        )
-
+        prev_atmfs = st.number_input("ATM/FS ratio", min_value=0.0, max_value=10.0, value=1.0, step=0.1, format="%.2f", key="pv_atmfs")
     p2 = st.columns(2)
     with p2[0]:
-        prev_prim = st.selectbox(
-            "Primary objective", _PRIM_OPTS, index=0, key="pv_prim",
-        )
+        prev_prim = st.selectbox("Primary objective", _PRIM_OPTS, index=0, key="pv_prim")
     with p2[1]:
-        prev_mgmt = st.selectbox(
-            "Trade management", _MGMT_OPTS, index=0, key="pv_mgmt",
-        )
+        prev_mgmt = st.selectbox("Trade management", _MGMT_OPTS, index=0, key="pv_mgmt")
 
-    field_values = {
-        "carry_regime":      prev_carry,
-        "with_carry":        prev_wc,
-        "T":                 prev_T,
-        "vol":               prev_vol,
-        "target_z_abs":      prev_tz,
-        "atmfsratio":        prev_atmfs,
-        "primary_objective": prev_prim,
-        "trade_management":  prev_mgmt,
-    }
-    fired = _simulate_context_fire(contexts, field_values)
-    if fired:
-        st.success(f"Fires: **{fired}**")
-    else:
-        st.info("No weighting matches → **baseline (equal weights)**")
+    class _PreviewMS:
+        carry_regime = prev_carry
+        with_carry = prev_wc
+        T = prev_T
+        vol = prev_vol
+        target_z = prev_tz
+        atmfsratio = prev_atmfs
+
+    fired = _simulate_context_fire(contexts, {
+        "ms": _PreviewMS,
+        "prefs": {"primary_objective": prev_prim, "trade_management": prev_mgmt},
+    })
+    st.success(f"Fires: **{fired}**") if fired else st.info("No weighting matches → baseline grid")
 
     st.divider()
-
-    # -----------------------------------------------------------------------
-    # Shadow-check warnings
-    # -----------------------------------------------------------------------
-    for warn in _check_shadowing(contexts):
-        st.warning(warn)
-
-    # -----------------------------------------------------------------------
-    # Per-weighting cards
-    # -----------------------------------------------------------------------
     for i, ctx in enumerate(contexts):
         uid = ctx.get("_uid", str(i))
-        n_conds = len(ctx.get("when", []))
-        cond_lbl = f"{n_conds} condition{'s' if n_conds != 1 else ''}"
-        card_label = f"**#{i + 1}** — {ctx.get('id', '(unnamed)')}  ·  {cond_lbl}"
-
-        with st.expander(card_label, expanded=False):
-            # Reorder / delete
+        with st.expander(f"**#{i + 1}** — {ctx.get('id', '(unnamed)')}"):
             b = st.columns([1, 1, 1, 5])
-            with b[0]:
-                if st.button("▲ Up", key=f"up_{uid}", disabled=(i == 0),
-                             use_container_width=True):
-                    contexts[i - 1], contexts[i] = contexts[i], contexts[i - 1]
-                    st.rerun()
-            with b[1]:
-                if st.button("▼ Down", key=f"dn_{uid}",
-                             disabled=(i == len(contexts) - 1),
-                             use_container_width=True):
-                    contexts[i], contexts[i + 1] = contexts[i + 1], contexts[i]
-                    st.rerun()
-            with b[2]:
-                if st.button("Delete", key=f"del_{uid}", use_container_width=True):
-                    contexts.pop(i)
-                    st.rerun()
-
-            # ID and comment
+            if b[0].button("▲ Up", key=f"up_{uid}", disabled=(i == 0), use_container_width=True):
+                contexts[i - 1], contexts[i] = contexts[i], contexts[i - 1]
+                st.rerun()
+            if b[1].button("▼ Down", key=f"dn_{uid}", disabled=(i == len(contexts) - 1), use_container_width=True):
+                contexts[i], contexts[i + 1] = contexts[i + 1], contexts[i]
+                st.rerun()
+            if b[2].button("Delete", key=f"del_{uid}", use_container_width=True):
+                contexts.pop(i)
+                st.rerun()
             id_col, cmt_col = st.columns([1, 2])
-            with id_col:
-                new_id = st.text_input(
-                    "Weighting ID", value=ctx.get("id", ""), key=f"cid_{uid}",
-                    help="Stable identifier used in the UI and version history.",
-                )
-                ctx["id"] = new_id
-            with cmt_col:
-                new_comment = st.text_area(
-                    "Reasoning / comment",
-                    value=ctx.get("comment", ""),
-                    key=f"cmt_{uid}",
-                    height=110,
-                    help="Plain-English description of the trade archetype and why "
-                         "the weights are set as they are.",
-                )
-                ctx["comment"] = new_comment
-
-            # Conditions editor
-            st.write("**Conditions** — ALL must be true for this weighting to fire:")
+            ctx["id"] = id_col.text_input("Weighting ID", value=ctx.get("id", ""), key=f"cid_{uid}")
+            ctx["comment"] = cmt_col.text_area("Reasoning / comment", value=ctx.get("comment", ""), key=f"cmt_{uid}", height=110)
             cond_df = _conditions_to_df(ctx.get("when", []))
             edited_df = st.data_editor(
-                cond_df,
-                key=f"cond_{uid}",
-                use_container_width=True,
-                num_rows="dynamic",
+                cond_df, key=f"cond_{uid}", use_container_width=True, num_rows="dynamic",
                 column_config={
-                    "field": st.column_config.SelectboxColumn(
-                        "Field",
-                        options=_COND_FIELDS,
-                        required=True,
-                        help="MarketState attribute to test",
-                    ),
-                    "op": st.column_config.SelectboxColumn(
-                        "Op",
-                        options=_COND_OPS,
-                        required=True,
-                    ),
-                    "value": st.column_config.TextColumn(
-                        "Value",
-                        help=(
-                            "Booleans: true / false.  "
-                            "carry_regime: 0 / 1 / 2.  "
-                            "vol / T / target_z_abs: decimal (e.g. 0.20, 0.083, 1.5).  "
-                            "Enums (primary_objective / trade_management): the option string, "
-                            "e.g. 'Balanced'.  "
-                            "For op = 'in': comma-separated list, e.g. '1, 2' or "
-                            "'Balanced, Keep cost low'."
-                        ),
-                    ),
+                    "field": st.column_config.SelectboxColumn("Field", options=_COND_FIELDS, required=True),
+                    "op": st.column_config.SelectboxColumn("Op", options=_COND_OPS, required=True),
+                    "value": st.column_config.TextColumn("Value"),
                 },
             )
             new_conds, parse_errs = _df_to_conditions(edited_df)
@@ -630,100 +324,57 @@ def _render_priority_conditions(cfg: dict) -> None:
                 st.caption(f"⚠️ {err}")
             ctx["when"] = new_conds
 
-    st.divider()
-
-    # Add weighting
     if st.button("➕ Add weighting", key="add_ctx_btn"):
-        contexts.append({
-            "_uid":        str(uuid.uuid4()),
-            "id":          f"new_weighting_{len(contexts) + 1}",
-            "comment":     "",
-            "when":        [],
-            "adjustments": {},
-        })
+        contexts.append({"_uid": str(uuid.uuid4()), "id": f"new_weighting_{len(contexts) + 1}", "comment": "", "when": [], "multipliers": {}})
         st.rerun()
 
-    st.divider()
-
-    # Save / Revert
     save_col, revert_col, _ = st.columns([1, 1, 4])
-    with save_col:
-        if st.button("Save changes", type="primary", key="save_prio",
-                     use_container_width=True):
-            errors = _validate_contexts(contexts)
-            if errors:
-                for e in errors:
-                    st.error(e)
-            else:
-                try:
-                    from interface.supabase_logger import save_config as _save_cfg
-
-                    # Re-fetch latest config so we don't overwrite adjustments
-                    # saved in Tab 1 (Weighting matrix) during this session.
+    if save_col.button("Save changes", type="primary", key="save_prio", use_container_width=True):
+        errors = _validate_contexts(contexts)
+        if errors:
+            for e in errors:
+                st.error(e)
+        else:
+            try:
+                from interface.supabase_logger import save_config as _save_cfg
+                clear_scenario_weights_cache()
+                latest_cfg = load_scenario_weights_config()
+                latest_mult: dict[str, dict] = {c["id"]: c.get("multipliers", {}) for c in latest_cfg.get("weightings", [])}
+                new_cfg = copy.deepcopy(latest_cfg)
+                new_cfg["weightings"] = []
+                for ctx in contexts:
+                    clean = {k: v for k, v in ctx.items() if not k.startswith("_")}
+                    clean["multipliers"] = latest_mult.get(clean["id"], clean.get("multipliers", {}))
+                    new_cfg["weightings"].append(clean)
+                ok = _save_cfg("scenario_definitions", new_cfg, _admin=is_admin_user())
+                if ok:
                     clear_scenario_weights_cache()
-                    latest_cfg = load_scenario_weights_config()
-                    latest_adj: dict[str, dict] = {
-                        c["id"]: c.get("adjustments", {})
-                        for c in latest_cfg.get("weightings", [])
-                    }
+                    st.success("Saved. Updated scenario weighting rules apply on the next trade query.")
+                else:
+                    st.error("Save failed — Supabase not configured or unreachable.")
+            except Exception as e:
+                st.error(f"Save error: {e}")
+    if revert_col.button("Revert", key="revert_prio", use_container_width=True):
+        st.session_state.pop(_PRIORITY_STATE_KEY, None)
+        clear_scenario_weights_cache()
+        st.rerun()
 
-                    new_cfg = copy.deepcopy(latest_cfg)
-                    new_cfg["weightings"] = []
-                    for ctx in contexts:
-                        clean = {k: v for k, v in ctx.items()
-                                 if not k.startswith("_")}
-                        # Preserve adjustments from Supabase for matching IDs;
-                        # new weightings keep their (empty) adjustments.
-                        clean["adjustments"] = latest_adj.get(
-                            clean["id"], clean.get("adjustments", {})
-                        )
-                        new_cfg["weightings"].append(clean)
-
-                    ok = _save_cfg("scenario_definitions", new_cfg, _admin=is_admin_user())
-                    if ok:
-                        clear_scenario_weights_cache()
-                        st.success(
-                            "Saved. Updated scenario weightings apply on the next trade query."
-                        )
-                    else:
-                        st.error(
-                            "Save failed — Supabase not configured or unreachable."
-                        )
-                except Exception as e:
-                    st.error(f"Save error: {e}")
-
-    with revert_col:
-        if st.button("Revert", key="revert_prio", use_container_width=True):
-            if _PRIORITY_STATE_KEY in st.session_state:
-                del st.session_state[_PRIORITY_STATE_KEY]
-            clear_scenario_weights_cache()
-            st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 
 def render() -> None:
     assert_admin()
     st.header("Scenario Weightings")
     st.caption(
-        "Scenario family weights derived from market state.  "
-        "Edits are saved to Supabase and every version is retained.  "
-        "The local `scenario_definitions.json` is the factory default."
+        "Explicit scenario-grid multipliers derived from market state. "
+        "Edits are saved to Supabase and every version is retained. "
+        "A multiplier of 1.0 means baseline importance for that scenario cell."
     )
-
     cfg = load_scenario_weights_config()
-
     tab_weights, tab_conditions, tab_priority = st.tabs(
-        ["Weighting matrix", "Weighting selection (read)", "Weighting selection (write)"]
+        ["Scenario grid", "Weighting selection (read)", "Weighting selection (write)"]
     )
-
     with tab_weights:
         _render_context_weights(cfg)
-
     with tab_conditions:
         _render_choosing_a_context(cfg)
-
     with tab_priority:
         _render_priority_conditions(cfg)

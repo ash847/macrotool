@@ -1,24 +1,29 @@
 {
-  "_description": "Tier 1 scenario family weights. Each trade activates at most one market-state context (first match in priority order). A second context will be added later from user preferences (Tier 2), and the two weight vectors will be blended. For now, one context fires and its adjustments are applied directly.",
-  "_selection": "first_match \u2014 contexts are evaluated top-to-bottom; the first one whose conditions are all satisfied is applied. Order matters: more specific conditions should come before broader ones.",
-  "_what_the_weights_mean": "Each weight expresses our prior belief about how much a scenario family contributes to the expected P&L of this trade type. Weights are NOT structure-dependent \u2014 the same vector is applied to every shortlisted structure so scores are directly comparable.",
-  "_baseline_logic": "All 8 families start at 1/8 = 0.125 (equal-weighted, no view). The active context adjusts individual families up or down. After adjustments, weights are floored (no family below `floor`) and renormalised to sum to 1. If no context fires, the baseline equal-weight vector is used unchanged.",
-  "_families": [
-    "CORRECT_PATH",
-    "EARLY_TARGET",
-    "NO_MOVE",
-    "WRONG_WAY",
-    "OVERSHOOT",
-    "VOL_SENSITIVITY",
-    "SKEW_SENSITIVITY",
-    "EXPIRY"
+  "_description": "Scenario grid multipliers. Each trade activates at most one market-state context (first match in priority order). The selected context supplies explicit scenario-grid multipliers, which are converted to normalized weights for weighted-average structure evaluation.",
+  "_selection": "first_match — contexts are evaluated top-to-bottom; the first one whose conditions are all satisfied is applied. Order matters: more specific conditions should come before broader ones.",
+  "_what_the_weights_mean": "Each multiplier scales the importance of one explicit grid cell. A value of 1.0 means baseline importance; higher values emphasize the scenario, lower values de-emphasize it. Final structure scoring uses a weighted average across valid cells.",
+  "_baseline_logic": "All valid grid cells start at the universal baseline multiplier. The active context overrides individual cells. Final scenario weights are the normalized multipliers over the valid cells for that tenor.",
+  "_grid_rows": [
+    "1w",
+    "25%T",
+    "50%T",
+    "Expiry"
   ],
-  "baseline": 0.125,
-  "floor": 0.02,
+  "_grid_cols": [
+    "F",
+    "t%→K",
+    "K",
+    "K+½σ",
+    "−½σ",
+    "−1σ",
+    "Δvol"
+  ],
+  "baseline": 1.0,
+  "min_multiplier": 0.1,
   "weightings": [
     {
       "id": "classic_carry",
-      "comment": "Baseline carry trade: carry-to-vol H or M, moderate target distance, with carry, neutral PM preferences. The PM is collecting carry without a strong stylistic preference \u2014 start at baseline and tune adjustments to favour carry-collection scenarios.",
+      "comment": "Baseline carry trade: carry-to-vol H or M, moderate target distance, with carry, neutral PM preferences. The PM is collecting carry without a strong stylistic preference — start at baseline and tune adjustments to favour carry-collection scenarios.",
       "when": [
         {
           "field": "carry_regime",
@@ -55,11 +60,11 @@
           ]
         }
       ],
-      "adjustments": {}
+      "multipliers": {}
     },
     {
       "id": "cheap_carry",
-      "comment": "Cost-focused carry trade: same setup as classic carry but PM wants to keep premium low. Penalise scenarios where premium decays without payout \u2014 particularly NO_MOVE and slow-bleed paths.",
+      "comment": "Cost-focused carry trade: same setup as classic carry but PM wants to keep premium low. Penalise scenarios where premium decays without payout — particularly NO_MOVE and slow-bleed paths.",
       "when": [
         {
           "field": "carry_regime",
@@ -93,11 +98,11 @@
           ]
         }
       ],
-      "adjustments": {}
+      "multipliers": {}
     },
     {
       "id": "conservative_carry",
-      "comment": "Risk-clean carry trade: same setup but PM wants no nasty tails. Penalise WRONG_WAY and OVERSHOOT heavily \u2014 clean exit beats marginal extra payout.",
+      "comment": "Risk-clean carry trade: same setup but PM wants no nasty tails. Penalise WRONG_WAY and OVERSHOOT heavily — clean exit beats marginal extra payout.",
       "when": [
         {
           "field": "carry_regime",
@@ -123,11 +128,11 @@
           "value": "Keep risk clean"
         }
       ],
-      "adjustments": {}
+      "multipliers": {}
     },
     {
       "id": "delta_carry",
-      "comment": "Carry trade where PM intends to monetise early. Penalise structures with low inception delta (i.e. structures whose value response to small moves early in the life is muted) \u2014 favour high-delta scenarios where mark-to-market moves quickly.",
+      "comment": "Carry trade where PM intends to monetise early. Penalise structures with low inception delta (i.e. structures whose value response to small moves early in the life is muted) — favour high-delta scenarios where mark-to-market moves quickly.",
       "when": [
         {
           "field": "carry_regime",
@@ -162,11 +167,11 @@
           "value": "May monetise early"
         }
       ],
-      "adjustments": {}
+      "multipliers": {}
     },
     {
       "id": "big_move",
-      "comment": "Large expected move (>1.25\u03c3 from forward), any carry, any direction. PM is positioned for a meaningful displacement \u2014 amplify reward scenarios (CORRECT_PATH, OVERSHOOT) and penalise WRONG_WAY heavily. Excludes the 'defendable MtM' style which prefers smaller, smoother trades.",
+      "comment": "Large expected move (>1.25σ from forward), any carry, any direction. PM is positioned for a meaningful displacement — amplify reward scenarios (CORRECT_PATH, OVERSHOOT) and penalise WRONG_WAY heavily. Excludes the 'defendable MtM' style which prefers smaller, smoother trades.",
       "when": [
         {
           "field": "target_z_abs",
@@ -182,11 +187,11 @@
           ]
         }
       ],
-      "adjustments": {}
+      "multipliers": {}
     },
     {
       "id": "short_dated",
-      "comment": "Tenor under 1 month: theta and pin risk dominate everything else. The terminal intrinsic value (EXPIRY) is what the PM should focus on \u2014 there is almost no time for path scenarios to develop independently from the final outcome. Early-touch scenarios are near-equivalent to expiry at this horizon and should be de-emphasised to avoid double-counting.",
+      "comment": "Tenor under 1 month: theta and pin risk dominate everything else. The terminal intrinsic value (EXPIRY) is what the PM should focus on — there is almost no time for path scenarios to develop independently from the final outcome. Early-touch scenarios are near-equivalent to expiry at this horizon and should be de-emphasised to avoid double-counting.",
       "when": [
         {
           "field": "T",
@@ -194,16 +199,11 @@
           "value": 0.083
         }
       ],
-      "adjustments": {
-        "EXPIRY": 0.07,
-        "EARLY_TARGET": -0.04,
-        "CORRECT_PATH": -0.02,
-        "WRONG_WAY": -0.01
-      }
+      "multipliers": {}
     },
     {
       "id": "counter_carry",
-      "comment": "High carry (regime 2) trading against the carry: the carry is a structural, continuous headwind. Every day the trade is open, theta and the forward drift both work against the position. The dominant risk is an adverse drift (WRONG_WAY) and a flat market that bleeds premium (NO_MOVE). Getting to the target requires the market to fight its own structural tendency \u2014 CORRECT_PATH is the hardest outcome to achieve.",
+      "comment": "High carry (regime 2) trading against the carry: the carry is a structural, continuous headwind. Every day the trade is open, theta and the forward drift both work against the position. The dominant risk is an adverse drift (WRONG_WAY) and a flat market that bleeds premium (NO_MOVE). Getting to the target requires the market to fight its own structural tendency — CORRECT_PATH is the hardest outcome to achieve.",
       "when": [
         {
           "field": "carry_regime",
@@ -216,16 +216,11 @@
           "value": false
         }
       ],
-      "adjustments": {
-        "WRONG_WAY": 0.08,
-        "NO_MOVE": 0.05,
-        "CORRECT_PATH": -0.05,
-        "OVERSHOOT": -0.02
-      }
+      "multipliers": {}
     },
     {
       "id": "carry_momentum_extended",
-      "comment": "High carry, trading with the carry, targeting a distant level (>1.5\u03c3 from forward). The drift is your ally and the target requires a sustained, conviction-driven move. When these moves happen they often overshoot. The dominant paths are a smooth carry-driven advance (CORRECT_PATH) and an extension beyond the target (OVERSHOOT). Wrong-way moves are fighting both the drift and the market's natural tendency.",
+      "comment": "High carry, trading with the carry, targeting a distant level (>1.5σ from forward). The drift is your ally and the target requires a sustained, conviction-driven move. When these moves happen they often overshoot. The dominant paths are a smooth carry-driven advance (CORRECT_PATH) and an extension beyond the target (OVERSHOOT). Wrong-way moves are fighting both the drift and the market's natural tendency.",
       "when": [
         {
           "field": "carry_regime",
@@ -243,16 +238,11 @@
           "value": 1.5
         }
       ],
-      "adjustments": {
-        "CORRECT_PATH": 0.06,
-        "OVERSHOOT": 0.04,
-        "EARLY_TARGET": -0.04,
-        "WRONG_WAY": -0.05
-      }
+      "multipliers": {}
     },
     {
       "id": "carry_capture",
-      "comment": "High carry, trading with the carry, targeting a level close to the forward (<0.5\u03c3). This is essentially a carry-capture trade \u2014 the target is so close that normal market noise will touch it. The main risk is an early touch followed by a reversal before expiry (EARLY_TARGET). A sustained correct-path move is also likely. Overshoot is less meaningful at this distance.",
+      "comment": "High carry, trading with the carry, targeting a level close to the forward (<0.5σ). This is essentially a carry-capture trade — the target is so close that normal market noise will touch it. The main risk is an early touch followed by a reversal before expiry (EARLY_TARGET). A sustained correct-path move is also likely. Overshoot is less meaningful at this distance.",
       "when": [
         {
           "field": "carry_regime",
@@ -270,12 +260,7 @@
           "value": 0.5
         }
       ],
-      "adjustments": {
-        "CORRECT_PATH": 0.05,
-        "EARLY_TARGET": 0.05,
-        "OVERSHOOT": -0.03,
-        "WRONG_WAY": -0.03
-      }
+      "multipliers": {}
     },
     {
       "id": "directional_with_carry",
@@ -292,10 +277,7 @@
           "value": true
         }
       ],
-      "adjustments": {
-        "CORRECT_PATH": 0.05,
-        "WRONG_WAY": -0.04
-      }
+      "multipliers": {}
     },
     {
       "id": "vol_dominated",
@@ -312,11 +294,7 @@
           "value": 0.2
         }
       ],
-      "adjustments": {
-        "VOL_SENSITIVITY": 0.07,
-        "CORRECT_PATH": -0.03,
-        "NO_MOVE": -0.04
-      }
+      "multipliers": {}
     },
     {
       "id": "directional_low_carry",
@@ -328,14 +306,11 @@
           "value": 0
         }
       ],
-      "adjustments": {
-        "VOL_SENSITIVITY": 0.04,
-        "NO_MOVE": -0.03
-      }
+      "multipliers": {}
     },
     {
       "id": "long_dated",
-      "comment": "Tenor over 6 months: there is a large window for the market to reach the target early and then drift away before expiry \u2014 a real risk for capped structures and spreads. EARLY_TARGET (touch-and-retrace) deserves elevated weight. Vol sensitivity also matters more because vol moves have more time to compound.",
+      "comment": "Tenor over 6 months: there is a large window for the market to reach the target early and then drift away before expiry — a real risk for capped structures and spreads. EARLY_TARGET (touch-and-retrace) deserves elevated weight. Vol sensitivity also matters more because vol moves have more time to compound.",
       "when": [
         {
           "field": "T",
@@ -343,15 +318,11 @@
           "value": 0.5
         }
       ],
-      "adjustments": {
-        "EARLY_TARGET": 0.05,
-        "VOL_SENSITIVITY": 0.03,
-        "EXPIRY": -0.02
-      }
+      "multipliers": {}
     },
     {
       "id": "speculative_far",
-      "comment": "Target is distant from the forward (>1.5\u03c3) with moderate carry. Getting there requires a sustained move with conviction \u2014 which tends to overshoot. Early touches are unlikely at this distance. This applies when carry is not the dominant factor (carry_regime 0 or 1) so the signal is purely about the target distance.",
+      "comment": "Target is distant from the forward (>1.5σ) with moderate carry. Getting there requires a sustained move with conviction — which tends to overshoot. Early touches are unlikely at this distance. This applies when carry is not the dominant factor (carry_regime 0 or 1) so the signal is purely about the target distance.",
       "when": [
         {
           "field": "target_z_abs",
@@ -359,14 +330,11 @@
           "value": 1.5
         }
       ],
-      "adjustments": {
-        "OVERSHOOT": 0.05,
-        "EARLY_TARGET": -0.04
-      }
+      "multipliers": {}
     },
     {
       "id": "speculative_near",
-      "comment": "Target is close to the forward (<0.5\u03c3) with moderate carry. The level is so easy to reach that random noise will touch it. The dominant risk for capped structures is an early touch followed by a pull-back \u2014 the trade gets triggered but then reverses. Overshooting a level this close is less informative.",
+      "comment": "Target is close to the forward (<0.5σ) with moderate carry. The level is so easy to reach that random noise will touch it. The dominant risk for capped structures is an early touch followed by a pull-back — the trade gets triggered but then reverses. Overshooting a level this close is less informative.",
       "when": [
         {
           "field": "target_z_abs",
@@ -374,10 +342,7 @@
           "value": 0.5
         }
       ],
-      "adjustments": {
-        "EARLY_TARGET": 0.05,
-        "OVERSHOOT": -0.04
-      }
+      "multipliers": {}
     },
     {
       "id": "high_vol",
@@ -389,15 +354,7 @@
           "value": 0.2
         }
       ],
-      "adjustments": {
-        "VOL_SENSITIVITY": 0.05
-      }
+      "multipliers": {}
     }
-  ],
-  "_weighting_schema": {
-    "id": "Stable identifier \u2014 used to display the active context in the UI and in version history.",
-    "comment": "Plain-English description of the trade archetype this context represents and why the weights are set as they are. This is the reasoning a PM reads when sense-checking.",
-    "when": "Array of {field, op, value} \u2014 ALL must be true for this context to be selected. Supported fields: target_z_abs, carry_regime, with_carry, T, vol, atmfsratio, primary_objective, trade_management. Supported ops: '>', '>=', '<', '<=', '==', '!=', 'in'. The 'in' op takes a list of allowed values (useful for enum prefs). If a field is None on the MarketState (e.g. target_z when no target supplied), the condition evaluates false.",
-    "adjustments": "Object mapping family \u2192 signed delta. All families listed here are adjusted when this context is selected. Positive = this scenario matters more for this trade type, negative = less."
-  }
+  ]
 }

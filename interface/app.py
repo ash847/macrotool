@@ -1052,7 +1052,11 @@ else:
         _ev_loss_budget = LINEAR_NOTIONAL * _ev_stop_pct
 
         from analytics.structure_pricer import price_variants as _pv_fn
-        from analytics.scenario_generator import generate_scenarios as _gen_sc, FAMILIES as _SC_FAMILIES
+        from analytics.scenario_generator import (
+            GRID_COLS as _SC_GRID_COLS,
+            generate_scenarios as _gen_sc,
+            valid_grid_rows as _valid_grid_rows,
+        )
         from analytics.scenario_pricer import price_scenarios as _price_sc
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
@@ -1065,8 +1069,7 @@ else:
             trade_management=getattr(flow, "trade_management", "Standard hold"),
         )
         _ev_weights  = _ev_weighter.weights
-        # Baseline weights (equal-weighted) for side-by-side comparison.
-        _ev_baseline_weights = {f: 1.0 / len(_SC_FAMILIES) for f in _SC_FAMILIES}
+        _ev_multipliers = _ev_weighter.multipliers
 
         _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
         _ev_long = "call" if _ev_is_call else "put"
@@ -1111,7 +1114,7 @@ else:
                     _ev_pv, _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
                 )
                 _ev_score = _score_struct(_ev_rows, _ev_weights)
-                _ev_score_bl = _score_struct(_ev_rows, _ev_baseline_weights)
+                _ev_score_bl = _score_struct(_ev_rows, {r["scenario_id"]: 1.0 for r in _ev_rows})
                 _ev_variants.append({
                     "pv": _ev_pv,
                     "rows": _ev_rows,
@@ -1135,7 +1138,7 @@ else:
             # Active weighting — show prominently so it's visible without expanding.
             _active_ctx = (
                 _ev_weighter.fired[0].id.replace("_", " ").title()
-                if _ev_weighter.fired else "Baseline (equal weights)"
+                if _ev_weighter.fired else "Baseline grid"
             )
             st.markdown(f"**Active scenario weighting:** {_active_ctx}")
 
@@ -1155,38 +1158,30 @@ else:
                 "Scenario MtM as % of entry spot.  P&L vs entry premium."
             )
 
-            # Show the family weights that come out of the weighting selection,
-            # plus which weighting fired — fully transparent.
-            _expander_label = f"Selected scenario weights — {_active_ctx}"
+            # Show the active grid-cell multipliers/weights.
+            _expander_label = f"Selected scenario grid — {_active_ctx}"
             with st.expander(_expander_label, expanded=False):
-                _w_rows = [
-                    {
-                        "Family": _fam.replace("_", " ").title(),
-                        "Weight": f"{_ev_weights[_fam]:.1%}",
-                    }
-                    for _fam in _SC_FAMILIES
-                    if _fam in _ev_weights
-                ]
+                _w_rows = []
+                for _row in _valid_grid_rows(_ev_ms.T):
+                    for _col in _SC_GRID_COLS:
+                        _cid = f"{_row}|{_col}"
+                        if _cid not in _ev_multipliers:
+                            continue
+                        _w_rows.append({
+                            "Row": _row,
+                            "Scenario": _col,
+                            "Multiplier": f"{_ev_multipliers[_cid]:.1f}",
+                            "Weight": f"{_ev_weights[_cid]:.1%}",
+                        })
                 st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
                 if _ev_weighter.fired:
-                    st.markdown("**Active weightings**")
-                    _ctx_rows = []
-                    for _ctx in _ev_weighter.fired:
-                        _adj_str = "  /  ".join(
-                            f"{_fam.replace('_', ' ').title()} {_delta:+.2f}"
-                            for _fam, _delta in _ctx.adjustments.items()
-                        )
-                        _ctx_rows.append({
-                            "Weighting":   _ctx.id.replace("_", " "),
-                            "Adjustments": _adj_str,
-                            "Reasoning":   _ctx.comment,
-                        })
+                    _ctx_rows = [{
+                        "Weighting": _ctx.id.replace("_", " "),
+                        "Reasoning": _ctx.comment,
+                    } for _ctx in _ev_weighter.fired]
                     st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
                 else:
-                    st.caption(
-                        "No weightings active — every family kept its baseline weight "
-                        f"of {_ev_weighter.baseline:.3f}."
-                    )
+                    st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
 
             for _ev_s in _ev_structs:
                 with st.expander(_ev_s["label"], expanded=False):
@@ -1221,49 +1216,48 @@ else:
                         )
 
                         with st.expander(_variant_title, expanded=(_ix == 0)):
-                            _bd_by_family = {b.family: b for b in _score.families}
-
+                            _bd_by_cell = {b.scenario_id: b for b in _score.cells}
                             _summary_rows = []
-                            for _fam in _SC_FAMILIES:
-                                _bd = _bd_by_family.get(_fam)
-                                if _bd is None:
-                                    continue
-                                _summary_rows.append({
-                                    "Family":     _fam.replace("_", " ").title(),
-                                    "Scenarios":  _bd.n_scenarios,
-                                    "Avg P&L":    f"{_bd.avg_pnl_pct:+.2%}  ({_fmt_ccy(_bd.avg_pnl_ccy, _ev_base)})",
-                                    "Weight":     f"{_bd.weight:.1%}",
-                                    "Weighted contrib": (
-                                        f"{_bd.contrib_pct:+.2%}"
-                                        + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})"
-                                           if _bd.contrib_ccy is not None else "")
-                                    ),
-                                })
+                            for _row in _valid_grid_rows(_ev_ms.T):
+                                for _col in _SC_GRID_COLS:
+                                    _cid = f"{_row}|{_col}"
+                                    _bd = _bd_by_cell.get(_cid)
+                                    if _bd is None:
+                                        continue
+                                    _summary_rows.append({
+                                        "Row": _row,
+                                        "Scenario": _col,
+                                        "P&L": f"{_bd.pnl_pct:+.2%}  ({_fmt_ccy(_bd.pnl_ccy, _ev_base)})",
+                                        "Multiplier": f"{_bd.multiplier:.1f}",
+                                        "Weight": f"{_bd.normalized_weight:.1%}",
+                                        "Weighted contrib": (
+                                            f"{_bd.contrib_pct:+.2%}"
+                                            + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})" if _bd.contrib_ccy is not None else "")
+                                        ),
+                                    })
                             if _summary_rows:
                                 st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
 
-                            _ev_by_family: dict[str, list] = {}
-                            for r in _ev_v["rows"]:
-                                _ev_by_family.setdefault(r["family"], []).append(r)
-
                             with st.expander("Scenarios", expanded=False):
-                                for _fam in _SC_FAMILIES:
-                                    if _fam not in _ev_by_family:
+                                _ev_by_row: dict[str, list] = {}
+                                for r in _ev_v["rows"]:
+                                    _ev_by_row.setdefault(r["row"], []).append(r)
+                                for _row in _valid_grid_rows(_ev_ms.T):
+                                    if _row not in _ev_by_row:
                                         continue
-                                    _fam_label = _fam.replace("_", " ").title()
-                                    st.markdown(f"**{_fam_label}**")
-                                    _fam_rows = _ev_by_family[_fam]
-                                    _fam_df = pd.DataFrame([{
-                                        "Scenario":  r["scenario_id"],
+                                    st.markdown(f"**{_row}**")
+                                    _row_rows = sorted(_ev_by_row[_row], key=lambda x: _SC_GRID_COLS.index(x["col"]))
+                                    _row_df = pd.DataFrame([{
+                                        "Scenario":  r["col"],
                                         "T%":        f"{r['time_fraction']:.0%}",
                                         "Fwd":       f"{r['scenario_fwd']:.4f}",
                                         "Spot":      f"{r['scenario_spot']:.4f}",
-                                        "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
+                                        "Vol shift": r["vol_shift"] if isinstance(r["vol_shift"], str) else (f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—"),
                                         "Vol":       f"{r['scenario_vol']:.1%}",
                                         "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
                                         "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
-                                    } for r in _fam_rows])
-                                    st.dataframe(_fam_df, use_container_width=True, hide_index=True)
+                                    } for r in _row_rows])
+                                    st.dataframe(_row_df, use_container_width=True, hide_index=True)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:

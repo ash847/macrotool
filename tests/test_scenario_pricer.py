@@ -55,7 +55,8 @@ def _single_scenario(scenario_spot, remaining_time, scenario_vol=_VOL, scenario_
         scenario_fwd = scenario_spot * math.exp((_R_D - _R_F) * remaining_time)
     return [{
         "id": "TEST",
-        "family": "TEST",
+        "row": "TEST",
+        "col": "TEST",
         "time_fraction": 1.0 - remaining_time / _T,
         "fwd_rule": "FORWARD",
         "vol_rule": "VOL_FLAT",
@@ -326,7 +327,7 @@ class TestIntegration:
 
     def test_output_row_has_required_keys(self):
         required = {
-            "structure_id", "variant_label", "scenario_id", "family",
+            "structure_id", "variant_label", "scenario_id", "row", "col",
             "time_fraction", "fwd_rule", "vol_rule", "skew_rule", "tags",
             "elapsed_time", "remaining_time", "scenario_fwd", "scenario_spot",
             "vol_shift", "scenario_vol", "skew_multiplier", "price_pct", "pnl_pct",

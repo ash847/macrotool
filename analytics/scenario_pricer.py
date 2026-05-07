@@ -44,17 +44,34 @@ def price_scenarios(
     for sc in scenarios:
         d = sc["derived"]
         scenario_spot: float = d["scenario_spot"]
-        scenario_vol: float = d["scenario_vol"]
         tau: float = d["remaining_time"]
-
-        try:
-            raw = _value_variant(
-                structure_id, variant,
-                scenario_spot, scenario_vol, tau,
-                r_d, r_f, entry_spot, is_call,
-            )
-        except Exception:
-            raw = 0.0
+        vol_shifts = sc.get("vol_shifts")
+        if vol_shifts:
+            raws = []
+            for shift in vol_shifts:
+                try:
+                    raw = _value_variant(
+                        structure_id, variant,
+                        scenario_spot, max(trade_inputs["implied_vol"] + shift, 0.01), tau,
+                        r_d, r_f, entry_spot, is_call,
+                    )
+                except Exception:
+                    raw = 0.0
+                raws.append(raw)
+            raw = sum(raws) / len(raws) if raws else 0.0
+            vol_shift = "±1pt"
+            scenario_vol = trade_inputs["implied_vol"]
+        else:
+            scenario_vol = d["scenario_vol"]
+            try:
+                raw = _value_variant(
+                    structure_id, variant,
+                    scenario_spot, scenario_vol, tau,
+                    r_d, r_f, entry_spot, is_call,
+                )
+            except Exception:
+                raw = 0.0
+            vol_shift = d["vol_shift"]
 
         price_pct = raw / entry_spot
         pnl_pct = price_pct - entry_premium_pct
@@ -65,7 +82,8 @@ def price_scenarios(
             "structure_id": structure_id,
             "variant_label": variant.variant_label,
             "scenario_id": sc["id"],
-            "family": sc["family"],
+            "row": sc["row"],
+            "col": sc["col"],
             "time_fraction": sc["time_fraction"],
             "fwd_rule": sc["fwd_rule"],
             "vol_rule": sc["vol_rule"],
@@ -75,7 +93,7 @@ def price_scenarios(
             "remaining_time": tau,
             "scenario_fwd": d["scenario_fwd"],
             "scenario_spot": scenario_spot,
-            "vol_shift": d["vol_shift"],
+            "vol_shift": vol_shift,
             "scenario_vol": scenario_vol,
             "skew_multiplier": d["skew_multiplier"],
             "structure_notional": notional,
