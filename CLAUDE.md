@@ -218,3 +218,7 @@ Design intent:
 - `Balanced` / `No restriction` / `Standard hold` remain the defaults — current behaviour unchanged when no PM preference is chosen.
 - Selection-layer constraints live alongside `affinity_scores.json`.
 - Context/evaluation-layer preferences will live alongside `scenario_weights.json`.
+
+## Known Issues
+
+- Structure Evaluation variant expander headers are still partially markdown/styling-sensitive in Streamlit. `$` amounts do not render reliably in the header and some fragments still pick up red text styling. Preferred fix: keep expander titles plain (variant + strikes + maybe notional) and move weighted P&L summary to the first line inside the expander body.
