@@ -1061,23 +1061,30 @@ else:
                 continue
             if not _ev_pvs:
                 continue
-            _ev_rows = _price_sc(
-                _ev_pvs[0], _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
-            )
-            _ev_score    = _score_struct(_ev_rows, _ev_weights)
-            _ev_score_bl = _score_struct(_ev_rows, _ev_baseline_weights)
+            _ev_variants = []
+            for _ev_pv in _ev_pvs:
+                _ev_rows = _price_sc(
+                    _ev_pv, _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
+                )
+                _ev_score = _score_struct(_ev_rows, _ev_weights)
+                _ev_score_bl = _score_struct(_ev_rows, _ev_baseline_weights)
+                _ev_variants.append({
+                    "pv": _ev_pv,
+                    "rows": _ev_rows,
+                    "score": _ev_score,
+                    "score_bl": _ev_score_bl,
+                })
+            if not _ev_variants:
+                continue
             _ev_structs.append({
                 "item":     _ev_item,
-                "pvs":      _ev_pvs,
-                "rows":     _ev_rows,
-                "score":    _ev_score,      # context-weighted
-                "score_bl": _ev_score_bl,   # baseline-weighted (1/8 each)
+                "variants": _ev_variants,
                 "label":    _ev_vtitles.get(_ev_item.structure_id, _ev_item.display_name),
             })
 
         if _ev_structs:
             # persist last results for debug / future scoring
-            st.session_state["last_scenario_results"] = _ev_structs[-1]["rows"]
+            st.session_state["last_scenario_results"] = _ev_structs[-1]["variants"][-1]["rows"]
 
             st.subheader("Structure Evaluation")
 
@@ -1138,72 +1145,71 @@ else:
                     )
 
             for _ev_s in _ev_structs:
-                _pv0 = _ev_s["pvs"][0]
-                _score    = _ev_s["score"]
-                _score_bl = _ev_s["score_bl"]
-                _notional_str = (
-                    _fmt_ccy(_pv0.structure_notional, _ev_base)
-                    if _pv0.structure_notional is not None else None
-                )
-                _struct_title = f"{_ev_s['label']} — {_pv0.variant_label}"
-                if _notional_str:
-                    _struct_title += f"  ·  Notional: {_notional_str}"
-                _bl_pct = f"{_score_bl.score_pct:.2%}"
-                _bl_ccy = f"  (${'{:,.2f}'.format(_score_bl.score_ccy)})" if _score_bl.score_ccy is not None else ""
-                _ctx_pct = f"{_score.score_pct:.2%}"
-                _ctx_ccy = f"  (${'{:,.2f}'.format(_score.score_ccy)})" if _score.score_ccy is not None else ""
-                _struct_title += (
-                    f"  ·  Weighted P&L (baseline): {_bl_pct}{_bl_ccy}"
-                    f"  ·  (scenario weighted): {_ctx_pct}{_ctx_ccy}"
-                )
+                with st.expander(_ev_s["label"], expanded=False):
+                    for _ix, _ev_v in enumerate(_ev_s["variants"]):
+                        _pv0 = _ev_v["pv"]
+                        _score = _ev_v["score"]
+                        _score_bl = _ev_v["score_bl"]
+                        _notional_str = (
+                            _fmt_ccy(_pv0.structure_notional, _ev_base)
+                            if _pv0.structure_notional is not None else None
+                        )
+                        _variant_title = _pv0.variant_label
+                        if _notional_str:
+                            _variant_title += f"  ·  Notional: {_notional_str}"
+                        _bl_pct = f"{_score_bl.score_pct:.2%}"
+                        _bl_ccy = f"  (\\${_score_bl.score_ccy:,.2f})" if _score_bl.score_ccy is not None else ""
+                        _ctx_pct = f"{_score.score_pct:.2%}"
+                        _ctx_ccy = f"  (\\${_score.score_ccy:,.2f})" if _score.score_ccy is not None else ""
+                        _variant_title += (
+                            f"  ·  Weighted P&L (baseline): {_bl_pct}{_bl_ccy}"
+                            f"  ·  (scenario weighted): {_ctx_pct}{_ctx_ccy}"
+                        )
 
-                with st.expander(_struct_title, expanded=False):
-                    # Family summary — index breakdown by family for fast lookup
-                    _bd_by_family = {b.family: b for b in _score.families}
+                        with st.expander(_variant_title, expanded=(_ix == 0)):
+                            _bd_by_family = {b.family: b for b in _score.families}
 
-                    _summary_rows = []
-                    for _fam in _SC_FAMILIES:
-                        _bd = _bd_by_family.get(_fam)
-                        if _bd is None:
-                            continue
-                        _summary_rows.append({
-                            "Family":     _fam.replace("_", " ").title(),
-                            "Scenarios":  _bd.n_scenarios,
-                            "Avg P&L":    f"{_bd.avg_pnl_pct:+.2%}  ({_fmt_ccy(_bd.avg_pnl_ccy, _ev_base)})",
-                            "Weight":     f"{_bd.weight:.1%}",
-                            "Weighted contrib": (
-                                f"{_bd.contrib_pct:+.2%}"
-                                + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})"
-                                   if _bd.contrib_ccy is not None else "")
-                            ),
-                        })
-                    if _summary_rows:
-                        st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
+                            _summary_rows = []
+                            for _fam in _SC_FAMILIES:
+                                _bd = _bd_by_family.get(_fam)
+                                if _bd is None:
+                                    continue
+                                _summary_rows.append({
+                                    "Family":     _fam.replace("_", " ").title(),
+                                    "Scenarios":  _bd.n_scenarios,
+                                    "Avg P&L":    f"{_bd.avg_pnl_pct:+.2%}  ({_fmt_ccy(_bd.avg_pnl_ccy, _ev_base)})",
+                                    "Weight":     f"{_bd.weight:.1%}",
+                                    "Weighted contrib": (
+                                        f"{_bd.contrib_pct:+.2%}"
+                                        + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})"
+                                           if _bd.contrib_ccy is not None else "")
+                                    ),
+                                })
+                            if _summary_rows:
+                                st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
 
-                    # Reconstruct family-grouped row map for the Scenarios expander.
-                    _ev_by_family: dict[str, list] = {}
-                    for r in _ev_s["rows"]:
-                        _ev_by_family.setdefault(r["family"], []).append(r)
+                            _ev_by_family: dict[str, list] = {}
+                            for r in _ev_v["rows"]:
+                                _ev_by_family.setdefault(r["family"], []).append(r)
 
-                    # Scenarios — full per-scenario detail, grouped by family (markdown headers, no nested expanders)
-                    with st.expander("Scenarios", expanded=False):
-                        for _fam in _SC_FAMILIES:
-                            if _fam not in _ev_by_family:
-                                continue
-                            _fam_label = _fam.replace("_", " ").title()
-                            st.markdown(f"**{_fam_label}**")
-                            _fam_rows = _ev_by_family[_fam]
-                            _fam_df = pd.DataFrame([{
-                                "Scenario":  r["scenario_id"],
-                                "T%":        f"{r['time_fraction']:.0%}",
-                                "Fwd":       f"{r['scenario_fwd']:.4f}",
-                                "Spot":      f"{r['scenario_spot']:.4f}",
-                                "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
-                                "Vol":       f"{r['scenario_vol']:.1%}",
-                                "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
-                                "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
-                            } for r in _fam_rows])
-                            st.dataframe(_fam_df, use_container_width=True, hide_index=True)
+                            with st.expander("Scenarios", expanded=False):
+                                for _fam in _SC_FAMILIES:
+                                    if _fam not in _ev_by_family:
+                                        continue
+                                    _fam_label = _fam.replace("_", " ").title()
+                                    st.markdown(f"**{_fam_label}**")
+                                    _fam_rows = _ev_by_family[_fam]
+                                    _fam_df = pd.DataFrame([{
+                                        "Scenario":  r["scenario_id"],
+                                        "T%":        f"{r['time_fraction']:.0%}",
+                                        "Fwd":       f"{r['scenario_fwd']:.4f}",
+                                        "Spot":      f"{r['scenario_spot']:.4f}",
+                                        "Vol shift": f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—",
+                                        "Vol":       f"{r['scenario_vol']:.1%}",
+                                        "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
+                                        "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
+                                    } for r in _fam_rows])
+                                    st.dataframe(_fam_df, use_container_width=True, hide_index=True)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
