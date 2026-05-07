@@ -61,6 +61,15 @@
       "caution": "Binary gamma near expiry is difficult to manage; payout is all-or-nothing",
       "comparison_only": true
     },
+    "european_rko": {
+      "display_name": "European Reverse Knock-Out",
+      "optimised_for": "Reduced-premium directional expression when the PM wants vanilla-like payout up to a terminal barrier but no payout beyond it at expiry",
+      "budget_profile": "reduced_premium_vs_vanilla",
+      "path_dependency": "expiry_barrier_only",
+      "max_loss": "premium_only",
+      "caution": "Pays zero if spot finishes beyond the knock-out barrier at expiry even if the direction was right; fragile to overshoot at expiry",
+      "comparison_only": true
+    },
     "european_digital_rko": {
       "display_name": "European Digital with RKO",
       "optimised_for": "Further-reduced premium digital; contingent on spot not touching a barrier during the life",

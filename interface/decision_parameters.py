@@ -46,7 +46,7 @@ _BUCKET_ORDER = {
 }
 
 _STRUCT_ORDER = ["vanilla", "risk_reversal", "1x1_spread", "seagull", "1x1.5_spread",
-                 "1x2_spread", "rko", "european_digital", "european_digital_rko"]
+                 "1x2_spread", "european_rko", "rko", "european_digital", "european_digital_rko"]
 
 _SCORE_MIN, _SCORE_MAX = -5, 3
 

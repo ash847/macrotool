@@ -34,6 +34,7 @@ from pricing.black_scholes import (
 from pricing.rko import rko_call, rko_put
 from pricing.digital import digital_call, digital_put
 from pricing.digital_rko import digital_rko_call, digital_rko_put
+from pricing.european_rko import european_rko_call, european_rko_put
 from pricing.scenario import build_scenario_matrix, ScenarioConfig, format_scenario_table
 from data.snapshot_loader import load_snapshot
 
@@ -351,6 +352,51 @@ class TestDigitalRKO:
         plain = digital_put(S, K, T, sig, r_d, r_f)
         drko  = digital_rko_put(S, K, barrier=K * 0.85, T=T, sigma=sig, r_d=r_d, r_f=r_f)
         assert drko < plain
+
+
+# ---------------------------------------------------------------------------
+# European RKO (expiry-only KO)
+# ---------------------------------------------------------------------------
+
+class TestEuropeanRKO:
+    def test_erko_call_less_than_vanilla(self):
+        vanilla = call_value(S, K, T, sig, r_d, r_f)
+        erko = european_rko_call(S, K, barrier=K * 1.15, T=T, sigma=sig, r_d=r_d, r_f=r_f)
+        assert 0.0 <= erko < vanilla
+
+    def test_erko_put_less_than_vanilla(self):
+        vanilla = put_value(S, K, T, sig, r_d, r_f)
+        erko = european_rko_put(S, K, barrier=K * 0.85, T=T, sigma=sig, r_d=r_d, r_f=r_f)
+        assert 0.0 <= erko < vanilla
+
+    def test_erko_call_zero_when_barrier_at_or_below_strike(self):
+        assert european_rko_call(S, K, barrier=K, T=T, sigma=sig, r_d=r_d, r_f=r_f) == 0.0
+        assert european_rko_call(S, K, barrier=K * 0.95, T=T, sigma=sig, r_d=r_d, r_f=r_f) == 0.0
+
+    def test_erko_put_zero_when_barrier_at_or_above_strike(self):
+        assert european_rko_put(S, K, barrier=K, T=T, sigma=sig, r_d=r_d, r_f=r_f) == 0.0
+        assert european_rko_put(S, K, barrier=K * 1.05, T=T, sigma=sig, r_d=r_d, r_f=r_f) == 0.0
+
+    def test_erko_call_approaches_vanilla_for_distant_barrier(self):
+        vanilla = call_value(S, K, T, sig, r_d, r_f)
+        erko_far = european_rko_call(S, K, barrier=K * 2.0, T=T, sigma=sig, r_d=r_d, r_f=r_f)
+        erko_near = european_rko_call(S, K, barrier=K * 1.2, T=T, sigma=sig, r_d=r_d, r_f=r_f)
+        assert abs(vanilla - erko_far) < abs(vanilla - erko_near)
+        assert erko_far == pytest.approx(vanilla, rel=0.10)
+
+    def test_price_variants_builds_erko_with_barrier_as_second_strike(self):
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        variants = price_variants(ms, "european_rko", target=5.30, is_call=True)
+        assert variants
+        for pv in variants:
+            assert len(pv.strikes) == 2
+            assert pv.barrier == pytest.approx(5.30)
+            assert pv.strikes[1] == pytest.approx(5.30)
 
 
 # ---------------------------------------------------------------------------

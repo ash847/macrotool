@@ -17,6 +17,7 @@ from analytics.structure_pricer import PricedVariant
 from pricing.black_scholes import call_mtm, put_mtm
 from pricing.digital import digital_call_mtm, digital_put_mtm
 from pricing.digital_rko import digital_rko_call_mtm, digital_rko_put_mtm
+from pricing.european_rko import european_rko_call_mtm, european_rko_put_mtm
 
 
 def price_scenarios(
@@ -120,6 +121,11 @@ def _value_variant(
         if is_call:
             return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - 2.0 * call_mtm(sspot, K[1], tau, svol, r_d, r_f)
         return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - 2.0 * put_mtm(sspot, K[1], tau, svol, r_d, r_f)
+
+    if structure_id == "european_rko":
+        if is_call:
+            return european_rko_call_mtm(sspot, K[0], barrier, tau, svol, r_d, r_f)
+        return european_rko_put_mtm(sspot, K[0], barrier, tau, svol, r_d, r_f)
 
     if structure_id == "seagull":
         wing_ratio = variant.wing_ratio or 0.0

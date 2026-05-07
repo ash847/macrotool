@@ -278,7 +278,7 @@ def _variant_label_with_strikes(structure_id: str, pv) -> str:
                     f"{wing_part.strip()} {strikes[2]}"
                 )
 
-    if structure_id in {"1x1.5_spread", "1x2_spread"} and len(strikes) >= 2:
+    if structure_id in {"1x1.5_spread", "1x2_spread", "european_rko"} and len(strikes) >= 2:
         if " / " in label:
             left, right = label.split(" / ", 1)
             return f"{left.strip()} {strikes[0]} / {right.strip()} {strikes[1]}"
@@ -948,6 +948,7 @@ else:
                 "vanilla":              f"{_base_ccy} {_long_leg}",
                 "1x1_spread":           f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread",
                 "1x2_spread":           f"{_base_ccy} 1×2 {_long_leg} spread",
+                "european_rko":         f"{_base_ccy} {_long_leg} ERKO",
                 "seagull":              f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread + sold {_base_ccy} {_short_leg}",
                 "european_digital":     f"{_base_ccy} {_long_leg} digital",
                 "european_digital_rko": f"{_base_ccy} {_long_leg} digital + KO",
@@ -1068,6 +1069,7 @@ else:
             "vanilla":              f"{_ev_base} {_ev_long}",
             "1x1_spread":           f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread",
             "1x2_spread":           f"{_ev_base} 1×2 {_ev_long} spread",
+            "european_rko":         f"{_ev_base} {_ev_long} ERKO",
             "seagull":              f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread + sold {_ev_base} {_ev_short}",
             "european_digital":     f"{_ev_base} {_ev_long} digital",
             "european_digital_rko": f"{_ev_base} {_ev_long} digital + KO",

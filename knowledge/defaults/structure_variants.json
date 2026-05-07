@@ -32,6 +32,11 @@
     {"label": "½σ toward target / 2× target",  "long_type": "half_sigma", "min_target_z": 0.5}
   ],
 
+  "european_rko": [
+    {"label": "ATMF / 2× target",              "long_type": "atmf"},
+    {"label": "½σ toward target / 2× target",  "long_type": "half_sigma", "min_target_z": 0.5}
+  ],
+
   "european_digital": [
     {"label": "~30% prem", "target_prem_pct": 0.30},
     {"label": "~20% prem", "target_prem_pct": 0.20},

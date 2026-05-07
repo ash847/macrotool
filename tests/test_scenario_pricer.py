@@ -267,6 +267,39 @@ class TestDigitalExpiry:
 
 
 # ---------------------------------------------------------------------------
+# European RKO — expiry
+# ---------------------------------------------------------------------------
+
+class TestEuropeanRKOExpiry:
+    def test_call_between_strike_and_barrier_behaves_like_vanilla(self):
+        K = 1.08
+        H = 1.12
+        scenario_spot = 1.10
+        v = PricedVariant(
+            variant_label="ATMF / 2× target",
+            strikes=[K, H], barrier=H, net_premium_pct=0.03,
+            breakeven=None, payoff_at_target_pct=None, rr_at_target=None,
+            max_loss_pct=0.03, wing_ratio=None, is_zero_cost=False,
+        )
+        rows = price_scenarios(v, "european_rko", _single_scenario(scenario_spot, remaining_time=0.0), _TRADE_INPUTS, is_call=True)
+        expected = (scenario_spot - K) / _SPOT
+        assert abs(rows[0]["price_pct"] - expected) < 1e-8
+
+    def test_call_zero_beyond_barrier(self):
+        K = 1.08
+        H = 1.12
+        scenario_spot = 1.13
+        v = PricedVariant(
+            variant_label="ATMF / 2× target",
+            strikes=[K, H], barrier=H, net_premium_pct=0.03,
+            breakeven=None, payoff_at_target_pct=None, rr_at_target=None,
+            max_loss_pct=0.03, wing_ratio=None, is_zero_cost=False,
+        )
+        rows = price_scenarios(v, "european_rko", _single_scenario(scenario_spot, remaining_time=0.0), _TRADE_INPUTS, is_call=True)
+        assert abs(rows[0]["price_pct"]) < 1e-8
+
+
+# ---------------------------------------------------------------------------
 # Integration: generate_scenarios then price
 # ---------------------------------------------------------------------------
 
