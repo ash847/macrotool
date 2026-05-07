@@ -63,6 +63,11 @@ def _load() -> dict:
         return json.load(f)
 
 
+def _load_local_file() -> dict:
+    with open(_SCORES_PATH) as f:
+        return json.load(f)
+
+
 def _color_score(val):
     """Background colour for score cells."""
     try:
@@ -192,6 +197,13 @@ def render() -> None:
     assert_admin()
     st.title("Decision Parameters Editor")
     st.caption("Scores are loaded from Supabase (falls back to local file). Save pushes to Supabase and takes effect on the next query.")
+
+    top_l, top_r = st.columns([3, 1])
+    with top_r:
+        if st.button("Load branch-local file", use_container_width=True):
+            st.session_state.scores_cfg = _load_local_file()
+            st.success("Loaded branch-local affinity_scores.json into the editor. Click Save to push it to Supabase.")
+            st.rerun()
 
     if "scores_cfg" not in st.session_state:
         st.session_state.scores_cfg = _load()
