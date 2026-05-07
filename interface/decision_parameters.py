@@ -68,6 +68,45 @@ def _load_local_file() -> dict:
         return json.load(f)
 
 
+def _metadata_keys(cfg: dict) -> set[str]:
+    return {k for k in cfg if k.startswith("_")}
+
+
+def _merge_metadata(original: dict, working: dict) -> dict:
+    out = {k: v for k, v in original.items() if k.startswith("_")}
+    out.update({k: v for k, v in working.items() if not k.startswith("_")})
+    return out
+
+
+def _missing_local_structures(loaded_cfg: dict, local_cfg: dict) -> list[str]:
+    loaded = set(loaded_cfg.get("structures", {}))
+    local = set(local_cfg.get("structures", {}))
+    return sorted(local - loaded)
+
+
+def _local_metadata_differs(loaded_cfg: dict, local_cfg: dict) -> bool:
+    return any(loaded_cfg.get(k) != local_cfg.get(k) for k in _metadata_keys(local_cfg | loaded_cfg))
+
+
+def _save_scores_config(out: dict) -> tuple[bool, str]:
+    from knowledge_engine.loader import clear_affinity_scores_cache
+    from interface.supabase_logger import init_status, save_config
+
+    sb_ok, _ = init_status()
+    if sb_ok and save_config("affinity_scores", out, _admin=is_admin_user()):
+        clear_affinity_scores_cache()
+        return True, "supabase"
+
+    try:
+        with open(_SCORES_PATH, "w") as f:
+            json.dump(out, f, indent=2)
+            f.write("\n")
+        clear_affinity_scores_cache()
+        return True, "local"
+    except Exception as e:
+        return False, str(e)
+
+
 def _color_score(val):
     """Background colour for score cells."""
     try:
@@ -198,15 +237,43 @@ def render() -> None:
     st.title("Decision Parameters Editor")
     st.caption("Scores are loaded from Supabase (falls back to local file). Save pushes to Supabase and takes effect on the next query.")
 
-    top_l, top_r = st.columns([3, 1])
-    with top_r:
-        if st.button("Load branch-local file", use_container_width=True):
-            st.session_state.scores_cfg = _load_local_file()
-            st.success("Loaded branch-local affinity_scores.json into the editor. Click Save to push it to Supabase.")
-            st.rerun()
-
     if "scores_cfg" not in st.session_state:
         st.session_state.scores_cfg = _load()
+
+    local_cfg = _load_local_file()
+    missing_local = _missing_local_structures(st.session_state.scores_cfg, local_cfg)
+    local_drift = bool(missing_local) or _local_metadata_differs(st.session_state.scores_cfg, local_cfg)
+
+    if local_drift:
+        if missing_local:
+            st.warning(
+                "Supabase config is missing branch-local structures: "
+                + ", ".join(f"`{s}`" for s in missing_local)
+                + ". Push the branch-local file once so the next query can use them."
+            )
+        else:
+            st.info("Branch-local affinity scores differ from the currently loaded config.")
+
+    top_l, top_mid, top_r = st.columns([3, 1, 1])
+    with top_mid:
+        if st.button("Push branch-local to Supabase", use_container_width=True, disabled=not local_drift):
+            out = _merge_metadata(st.session_state.scores_cfg, local_cfg)
+            ok, destination = _save_scores_config(out)
+            if ok:
+                st.session_state.scores_cfg = copy.deepcopy(local_cfg)
+                if destination == "supabase":
+                    st.success("Branch-local affinity_scores.json pushed to Supabase. Next query will use it.")
+                else:
+                    st.warning("Supabase unavailable — branch-local affinity_scores.json saved locally only.")
+                st.rerun()
+            else:
+                st.error(f"Push failed: {destination}")
+
+    with top_r:
+        if st.button("Load branch-local file", use_container_width=True):
+            st.session_state.scores_cfg = copy.deepcopy(local_cfg)
+            st.success("Loaded branch-local affinity_scores.json into the editor. Click Save to push it to Supabase.")
+            st.rerun()
 
     working = copy.deepcopy(st.session_state.scores_cfg)
 
@@ -258,27 +325,18 @@ def render() -> None:
     col_l, col_r = st.columns([3, 1])
 
     original = _load()
-    out = {k: v for k, v in original.items() if k.startswith("_")}
-    out.update({k: v for k, v in working.items() if not k.startswith("_")})
+    out = _merge_metadata(original, working)
 
     with col_r:
         if st.button("Save", type="primary", use_container_width=True):
             st.session_state.scores_cfg = copy.deepcopy(working)
-            from knowledge_engine.loader import clear_affinity_scores_cache
-            from interface.supabase_logger import save_config, init_status
-            sb_ok, _ = init_status()
-            if sb_ok and save_config("affinity_scores", out, _admin=is_admin_user()):
-                clear_affinity_scores_cache()
+            ok, destination = _save_scores_config(out)
+            if ok and destination == "supabase":
                 st.success("Saved to Supabase — next query will use updated scores.")
+            elif ok:
+                st.warning("Supabase unavailable — saved to local file only.")
             else:
-                try:
-                    with open(_SCORES_PATH, "w") as f:
-                        json.dump(out, f, indent=2)
-                        f.write("\n")
-                    clear_affinity_scores_cache()
-                    st.warning("Supabase unavailable — saved to local file only.")
-                except Exception as e:
-                    st.error(f"Save failed: {e}")
+                st.error(f"Save failed: {destination}")
 
     with col_l:
         st.code(json.dumps(out, indent=2), language="json")
