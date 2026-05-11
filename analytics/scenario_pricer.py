@@ -135,6 +135,11 @@ def _value_variant(
             return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - call_mtm(sspot, K[1], tau, svol, r_d, r_f)
         return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - put_mtm(sspot, K[1], tau, svol, r_d, r_f)
 
+    if structure_id == "1x1.5_spread":
+        if is_call:
+            return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - 1.5 * call_mtm(sspot, K[1], tau, svol, r_d, r_f)
+        return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - 1.5 * put_mtm(sspot, K[1], tau, svol, r_d, r_f)
+
     if structure_id == "1x2_spread":
         if is_call:
             return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - 2.0 * call_mtm(sspot, K[1], tau, svol, r_d, r_f)

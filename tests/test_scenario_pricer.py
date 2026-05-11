@@ -199,6 +199,26 @@ class TestOneByTwoExpiry:
 
 
 # ---------------------------------------------------------------------------
+# 1x1.5 spread — expiry
+# ---------------------------------------------------------------------------
+
+class TestOneByOnePointFiveExpiry:
+    def test_at_short_strike_net_long_value(self):
+        K1, K2 = 1.038, 1.12
+        scenario_spot = K2
+        v = PricedVariant(
+            variant_label="ATMF / 1.5x target",
+            strikes=[K1, K2], barrier=None, net_premium_pct=0.005,
+            breakeven=None, payoff_at_target_pct=None, rr_at_target=None,
+            max_loss_pct=0.005, wing_ratio=None, is_zero_cost=False,
+        )
+        scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
+        rows = price_scenarios(v, "1x1.5_spread", scenarios, _TRADE_INPUTS, is_call=True)
+        expected = (scenario_spot - K1) / _SPOT
+        assert abs(rows[0]["price_pct"] - expected) < 1e-6
+
+
+# ---------------------------------------------------------------------------
 # Seagull — expiry
 # ---------------------------------------------------------------------------
 
