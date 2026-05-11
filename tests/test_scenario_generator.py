@@ -80,7 +80,8 @@ class TestRowSemantics:
     def test_delta_vol_marks_average_vol_cell(self):
         scenarios = generate_scenarios(_INPUTS)
         sc = next(s for s in scenarios if s["id"] == cell_id("25%T", "Δvol"))
-        assert sc["vol_shifts"] == [-0.01, 0.01]
+        bump = _INPUTS["implied_vol"] * 0.04
+        assert sc["vol_shifts"] == [-bump, bump]
         assert sc["vol_rule"] == "VOL_AVG"
 
     def test_expiry_spot_equals_fwd(self):

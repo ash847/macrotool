@@ -58,8 +58,8 @@ def price_scenarios(
                 except Exception:
                     raw = 0.0
                 raws.append(raw)
-            raw = sum(raws) / len(raws) if raws else 0.0
-            vol_shift = "±1pt"
+            raw = min(raws) if raws else 0.0
+            vol_shift = "±4% vol"
             scenario_vol = trade_inputs["implied_vol"]
         else:
             scenario_vol = d["scenario_vol"]

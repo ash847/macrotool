@@ -188,5 +188,6 @@ def _build_cell_scenario(
         },
     }
     if col == "Δvol":
-        sc["vol_shifts"] = [-0.01, 0.01]
+        vol_bump = base_vol * 0.04
+        sc["vol_shifts"] = [-vol_bump, vol_bump]
     return sc

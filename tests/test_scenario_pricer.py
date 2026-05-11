@@ -8,6 +8,7 @@ import pytest
 from analytics.scenario_generator import generate_scenarios
 from analytics.scenario_pricer import price_scenarios
 from analytics.structure_pricer import PricedVariant
+from pricing.black_scholes import call_mtm
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +319,43 @@ class TestEuropeanRKOExpiry:
         )
         rows = price_scenarios(v, "european_rko", _single_scenario(scenario_spot, remaining_time=0.0), _TRADE_INPUTS, is_call=True)
         assert abs(rows[0]["price_pct"]) < 1e-8
+
+
+class TestDeltaVolScenarios:
+    def test_delta_vol_uses_worse_of_up_down_vol_shocks(self):
+        v = _vanilla_variant(prem_pct=0.02)
+        scenario_spot = 1.06
+        remaining_time = 0.2
+        scenario_fwd = scenario_spot * math.exp((_R_D - _R_F) * remaining_time)
+        vol_bump = _VOL * 0.04
+        scenarios = [{
+            "id": "25%T|Δvol",
+            "row": "25%T",
+            "col": "Δvol",
+            "time_fraction": 0.25,
+            "fwd_rule": "Δvol",
+            "vol_rule": "VOL_AVG",
+            "skew_rule": "SKEW_UNCHANGED",
+            "tags": ["25%T", "Δvol"],
+            "vol_shifts": [-vol_bump, vol_bump],
+            "derived": {
+                "elapsed_time": _T - remaining_time,
+                "remaining_time": remaining_time,
+                "scenario_fwd": scenario_fwd,
+                "scenario_spot": scenario_spot,
+                "vol_shift": None,
+                "scenario_vol": _VOL,
+                "skew_multiplier": 1.0,
+                "sigma_T": _VOL * math.sqrt(max(_T - remaining_time, 0.0)),
+                "direction": 1,
+            },
+        }]
+        rows = price_scenarios(v, "vanilla", scenarios, _TRADE_INPUTS, is_call=True)
+        down = call_mtm(scenario_spot, _K_STRIKE, remaining_time, _VOL - vol_bump, _R_D, _R_F)
+        up = call_mtm(scenario_spot, _K_STRIKE, remaining_time, _VOL + vol_bump, _R_D, _R_F)
+        expected = min(down, up) / _SPOT
+        assert abs(rows[0]["price_pct"] - expected) < 1e-6
+        assert rows[0]["vol_shift"] == "±4% vol"
 
 
 # ---------------------------------------------------------------------------
