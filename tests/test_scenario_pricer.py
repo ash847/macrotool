@@ -364,6 +364,16 @@ class TestSizing:
         assert v.structure_notional is None
         assert v.net_premium_ccy is None
 
+    def test_size_variant_caps_very_low_premium_notional(self):
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant(prem_pct=0.001)
+        v.payoff_at_target_pct = 0.12
+        _size_variant(v, loss_budget=4.0)
+        assert abs(v.structure_notional - 500.0) < 1e-9
+        assert abs(v.net_premium_ccy - 0.5) < 1e-9
+        assert abs(v.max_loss_ccy - 0.5) < 1e-9
+        assert abs(v.payoff_at_target_ccy - 60.0) < 1e-9
+
     def test_price_variants_passes_loss_budget(self):
         """price_variants populates dollar fields when loss_budget given."""
         from analytics.structure_pricer import price_variants
@@ -377,10 +387,22 @@ class TestSizing:
         for pv in pvs:
             assert pv.structure_notional is not None
             assert pv.structure_notional > 0
-            assert abs(pv.max_loss_ccy - 4.0) < 1e-6     # sized to budget
+            assert pv.structure_notional <= 500.0
+            assert pv.max_loss_ccy <= 4.0 + 1e-6
             # Premium $ = premium_pct * notional, where notional = budget / max_loss_pct.
-            # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == loss_budget.
-            assert abs(pv.net_premium_ccy - 4.0) < 1e-6
+            # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == max_loss_ccy.
+            assert abs(pv.net_premium_ccy - pv.max_loss_ccy) < 1e-6
+
+    def test_price_variants_caps_cheap_1x2_base_leg_notional(self):
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True, loss_budget=4.0)
+        assert pvs
+        assert any(pv.structure_notional is not None and pv.structure_notional <= 500.0 for pv in pvs)
 
     def test_price_variants_no_budget_leaves_fields_none(self):
         from analytics.structure_pricer import price_variants
