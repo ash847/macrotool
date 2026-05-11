@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from interface.security import assert_admin, is_admin_user
+from interface.security import assert_admin, current_user_email, is_admin_user
 
 _SCORES_PATH = pathlib.Path(__file__).parent.parent / "knowledge" / "defaults" / "affinity_scores.json"
 
@@ -93,7 +93,12 @@ def _save_scores_config(out: dict) -> tuple[bool, str]:
     from interface.supabase_logger import init_status, save_config
 
     sb_ok, _ = init_status()
-    if sb_ok and save_config("affinity_scores", out, _admin=is_admin_user()):
+    if sb_ok and save_config(
+        "affinity_scores",
+        out,
+        _admin=is_admin_user(),
+        user_email=current_user_email(),
+    ):
         clear_affinity_scores_cache()
         return True, "supabase"
 

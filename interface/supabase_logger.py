@@ -90,6 +90,7 @@ def log_feedback(
     answers: list[bool | None],
     questions: list[str],
     note: str | None = None,
+    user_email: str | None = None,
 ) -> None:
     if _service_client is None:
         return
@@ -98,15 +99,26 @@ def log_feedback(
         "pair":   pair,
         "note":   note,
     }
+    if user_email:
+        row["user_email"] = user_email
     for i, (q, a) in enumerate(zip(questions, answers), start=1):
         row[f"q{i}_text"] = q
         row[f"q{i}_answer"] = a
-    _service_client.table("feedback").insert(row, returning="minimal").execute()
+    try:
+        _service_client.table("feedback").insert(row, returning="minimal").execute()
+    except Exception:
+        row.pop("user_email", None)
+        _service_client.table("feedback").insert(row, returning="minimal").execute()
 
 
 def fetch_config_for_engine(key: str) -> dict | None:
+    data, _ = fetch_config_for_engine_with_meta(key)
+    return data
+
+
+def fetch_config_for_engine_with_meta(key: str) -> tuple[dict | None, str]:
     if _service_client is None:
-        return None
+        return None, "unavailable"
     try:
         result = (
             _service_client.table("config_history")
@@ -117,24 +129,36 @@ def fetch_config_for_engine(key: str) -> dict | None:
             .execute()
         )
         data = result.data[0].get("value") if result.data else None
-        return data if data else None
+        return (data if data else None), ("supabase" if data else "missing")
     except Exception:
-        return None
+        return None, "error"
 
 
-def save_config(key: str, value: dict, *, _admin: bool) -> bool:
+def save_config(key: str, value: dict, *, _admin: bool, user_email: str | None = None) -> bool:
     if not _admin:
         raise PermissionError("admin only")
     if _service_client is None:
         return False
     try:
-        _service_client.table("config_history").insert({
+        row = {
             "key": key,
             "value": value,
-        }).execute()
+        }
+        if user_email:
+            row["user_email"] = user_email
+        _service_client.table("config_history").insert(row).execute()
         return True
     except Exception:
-        return False
+        if not user_email:
+            return False
+        try:
+            _service_client.table("config_history").insert({
+                "key": key,
+                "value": value,
+            }).execute()
+            return True
+        except Exception:
+            return False
 
 
 def fetch_config_history(key: str, limit: int = 30, *, _admin: bool) -> list[dict]:
@@ -145,7 +169,7 @@ def fetch_config_history(key: str, limit: int = 30, *, _admin: bool) -> list[dic
     try:
         result = (
             _service_client.table("config_history")
-            .select("saved_at, value")
+            .select("saved_at, user_email, value")
             .eq("key", key)
             .order("saved_at", desc=True)
             .limit(limit)
@@ -153,7 +177,18 @@ def fetch_config_history(key: str, limit: int = 30, *, _admin: bool) -> list[dic
         )
         return result.data or []
     except Exception:
-        return []
+        try:
+            result = (
+                _service_client.table("config_history")
+                .select("saved_at, value")
+                .eq("key", key)
+                .order("saved_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return result.data or []
+        except Exception:
+            return []
 
 
 def fetch_queries(*, _admin: bool) -> list[dict]:
