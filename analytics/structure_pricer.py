@@ -113,8 +113,9 @@ def _size_variant(pv: PricedVariant, loss_budget: float) -> None:
     Leaves dollar fields as None if max_loss_pct is too small to size against.
     """
     if pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
-        return
-    notional = min(loss_budget / pv.max_loss_pct, _MAX_STRUCTURE_NOTIONAL)
+        notional = _MAX_STRUCTURE_NOTIONAL
+    else:
+        notional = min(loss_budget / pv.max_loss_pct, _MAX_STRUCTURE_NOTIONAL)
     pv.structure_notional = notional
     pv.net_premium_ccy = pv.net_premium_pct * notional
     pv.max_loss_ccy = pv.max_loss_pct * notional

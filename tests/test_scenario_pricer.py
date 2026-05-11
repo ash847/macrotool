@@ -361,8 +361,18 @@ class TestSizing:
         v = _vanilla_variant()
         v.max_loss_pct = 0.0
         _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional is None
-        assert v.net_premium_ccy is None
+        assert v.structure_notional == 500.0
+        assert abs(v.net_premium_ccy - 10.0) < 1e-9
+        assert abs(v.max_loss_ccy - 0.0) < 1e-9
+
+    def test_size_variant_defaults_negative_premium_to_capped_notional(self):
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant(prem_pct=-0.003)
+        v.max_loss_pct = 0.0
+        _size_variant(v, loss_budget=4.0)
+        assert v.structure_notional == 500.0
+        assert abs(v.net_premium_ccy + 1.5) < 1e-9
+        assert abs(v.max_loss_ccy - 0.0) < 1e-9
 
     def test_size_variant_caps_very_low_premium_notional(self):
         from analytics.structure_pricer import _size_variant
