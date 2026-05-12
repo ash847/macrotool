@@ -43,6 +43,7 @@ class WeighterResult:
 
 
 _weights_cache: dict | None = None
+_weights_source = "local"
 
 
 def _empty_grid_multipliers() -> dict[str, float]:
@@ -62,25 +63,35 @@ def _migrate_config_shape(cfg: dict) -> dict:
 
 
 def load_scenario_weights_config() -> dict:
-    global _weights_cache
+    global _weights_cache, _weights_source
     if _weights_cache is not None:
         return _weights_cache
     try:
-        from interface.supabase_logger import fetch_config_for_engine
-        data = fetch_config_for_engine("scenario_definitions")
+        from interface.supabase_logger import fetch_config_for_engine_with_meta
+        data, source = fetch_config_for_engine_with_meta("scenario_definitions")
         if data:
             _weights_cache = _migrate_config_shape(data)
+            _weights_source = source
             return _weights_cache
+        if source == "error":
+            with open(_WEIGHTS_PATH) as f:
+                _weights_source = "local-fallback-error"
+                return _migrate_config_shape(json.load(f))
     except Exception:
         pass
     with open(_WEIGHTS_PATH) as f:
-        _weights_cache = _migrate_config_shape(json.load(f))
-    return _weights_cache
+        _weights_source = "local"
+        return _migrate_config_shape(json.load(f))
 
 
 def clear_scenario_weights_cache() -> None:
-    global _weights_cache
+    global _weights_cache, _weights_source
     _weights_cache = None
+    _weights_source = "local"
+
+
+def get_scenario_weights_source() -> str:
+    return _weights_source
 
 
 _FIELD_GETTERS = {

@@ -58,8 +58,8 @@ def price_scenarios(
                 except Exception:
                     raw = 0.0
                 raws.append(raw)
-            raw = sum(raws) / len(raws) if raws else 0.0
-            vol_shift = "±1pt"
+            raw = min(raws) if raws else 0.0
+            vol_shift = "±4% vol"
             scenario_vol = trade_inputs["implied_vol"]
         else:
             scenario_vol = d["scenario_vol"]
@@ -134,6 +134,11 @@ def _value_variant(
         if is_call:
             return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - call_mtm(sspot, K[1], tau, svol, r_d, r_f)
         return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - put_mtm(sspot, K[1], tau, svol, r_d, r_f)
+
+    if structure_id == "1x1.5_spread":
+        if is_call:
+            return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - 1.5 * call_mtm(sspot, K[1], tau, svol, r_d, r_f)
+        return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - 1.5 * put_mtm(sspot, K[1], tau, svol, r_d, r_f)
 
     if structure_id == "1x2_spread":
         if is_call:

@@ -1,8 +1,10 @@
 import pandas as pd
 
 from interface.context_rules import (
+    _compact_multipliers,
     _conditions_to_df,
     _df_to_conditions,
+    _merge_contexts_with_latest_multipliers,
     _parse_condition_value,
     _simulate_context_fire,
     _validate_contexts,
@@ -69,3 +71,31 @@ class TestValidateContexts:
             {"id": "a", "when": [], "multipliers": {}},
         ])
         assert any("Duplicate" in e for e in errors)
+
+
+class TestScenarioWeightPersistenceHelpers:
+    def test_compact_multipliers_drops_baseline_values(self):
+        compact = _compact_multipliers(
+            {"Expiry|F": 1.0, "Expiry|K": 1.4, "50%T|K": 1.0},
+            baseline=1.0,
+        )
+        assert compact == {"Expiry|K": 1.4}
+
+    def test_merge_contexts_preserves_multipliers_across_rename(self):
+        contexts = [{
+            "_uid": "1",
+            "_original_id": "classic_carry",
+            "id": "classic_carry_v2",
+            "comment": "renamed",
+            "when": [],
+            "multipliers": {},
+        }]
+        latest_cfg = {
+            "weightings": [{
+                "id": "classic_carry",
+                "multipliers": {"Expiry|K": 1.6},
+            }]
+        }
+        merged = _merge_contexts_with_latest_multipliers(contexts, latest_cfg)
+        assert merged[0]["id"] == "classic_carry_v2"
+        assert merged[0]["multipliers"] == {"Expiry|K": 1.6}

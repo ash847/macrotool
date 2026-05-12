@@ -24,6 +24,7 @@ from pricing.digital_rko import digital_rko_call, digital_rko_put
 from pricing.european_rko import european_rko_call, european_rko_put
 
 _VARIANTS_PATH = Path(__file__).parent.parent / "knowledge" / "defaults" / "structure_variants.json"
+_MAX_STRUCTURE_NOTIONAL = 500.0
 
 
 def _load_variants() -> dict:
@@ -107,15 +108,17 @@ def _size_variant(pv: PricedVariant, loss_budget: float) -> None:
     """Populate dollar-equivalent fields on a PricedVariant given a loss budget.
 
     Scales the structure so its max loss (% of spot) equals loss_budget (in base
-    ccy units). All other dollar amounts are derived from the resulting notional.
+    ccy units), subject to a cap on the base-leg notional for very cheap
+    structures. All other dollar amounts are derived from the resulting notional.
     Leaves dollar fields as None if max_loss_pct is too small to size against.
     """
     if pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
-        return
-    notional = loss_budget / pv.max_loss_pct
+        notional = _MAX_STRUCTURE_NOTIONAL
+    else:
+        notional = min(loss_budget / pv.max_loss_pct, _MAX_STRUCTURE_NOTIONAL)
     pv.structure_notional = notional
     pv.net_premium_ccy = pv.net_premium_pct * notional
-    pv.max_loss_ccy = pv.max_loss_pct * notional   # = loss_budget by construction
+    pv.max_loss_ccy = pv.max_loss_pct * notional
     if pv.payoff_at_target_pct is not None:
         pv.payoff_at_target_ccy = pv.payoff_at_target_pct * notional
 

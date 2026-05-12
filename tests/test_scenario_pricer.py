@@ -201,6 +201,26 @@ class TestOneByTwoExpiry:
 
 
 # ---------------------------------------------------------------------------
+# 1x1.5 spread — expiry
+# ---------------------------------------------------------------------------
+
+class TestOneByOnePointFiveExpiry:
+    def test_at_short_strike_net_long_value(self):
+        K1, K2 = 1.038, 1.12
+        scenario_spot = K2
+        v = PricedVariant(
+            variant_label="ATMF / 1.5x target",
+            strikes=[K1, K2], barrier=None, net_premium_pct=0.005,
+            breakeven=None, payoff_at_target_pct=None, rr_at_target=None,
+            max_loss_pct=0.005, wing_ratio=None, is_zero_cost=False,
+        )
+        scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
+        rows = price_scenarios(v, "1x1.5_spread", scenarios, _TRADE_INPUTS, is_call=True)
+        expected = (scenario_spot - K1) / _SPOT
+        assert abs(rows[0]["price_pct"] - expected) < 1e-6
+
+
+# ---------------------------------------------------------------------------
 # Seagull — expiry
 # ---------------------------------------------------------------------------
 
@@ -302,6 +322,43 @@ class TestEuropeanRKOExpiry:
         assert abs(rows[0]["price_pct"]) < 1e-8
 
 
+class TestDeltaVolScenarios:
+    def test_delta_vol_uses_worse_of_up_down_vol_shocks(self):
+        v = _vanilla_variant(prem_pct=0.02)
+        scenario_spot = 1.06
+        remaining_time = 0.2
+        scenario_fwd = scenario_spot * math.exp((_R_D - _R_F) * remaining_time)
+        vol_bump = _VOL * 0.04
+        scenarios = [{
+            "id": "25%T|Δvol",
+            "row": "25%T",
+            "col": "Δvol",
+            "time_fraction": 0.25,
+            "fwd_rule": "Δvol",
+            "vol_rule": "VOL_AVG",
+            "skew_rule": "SKEW_UNCHANGED",
+            "tags": ["25%T", "Δvol"],
+            "vol_shifts": [-vol_bump, vol_bump],
+            "derived": {
+                "elapsed_time": _T - remaining_time,
+                "remaining_time": remaining_time,
+                "scenario_fwd": scenario_fwd,
+                "scenario_spot": scenario_spot,
+                "vol_shift": None,
+                "scenario_vol": _VOL,
+                "skew_multiplier": 1.0,
+                "sigma_T": _VOL * math.sqrt(max(_T - remaining_time, 0.0)),
+                "direction": 1,
+            },
+        }]
+        rows = price_scenarios(v, "vanilla", scenarios, _TRADE_INPUTS, is_call=True)
+        down = call_mtm(scenario_spot, _K_STRIKE, remaining_time, _VOL - vol_bump, _R_D, _R_F)
+        up = call_mtm(scenario_spot, _K_STRIKE, remaining_time, _VOL + vol_bump, _R_D, _R_F)
+        expected = min(down, up) / _SPOT
+        assert abs(rows[0]["price_pct"] - expected) < 1e-6
+        assert rows[0]["vol_shift"] == "±4% vol"
+
+
 # ---------------------------------------------------------------------------
 # Integration: generate_scenarios then price
 # ---------------------------------------------------------------------------
@@ -363,8 +420,28 @@ class TestSizing:
         v = _vanilla_variant()
         v.max_loss_pct = 0.0
         _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional is None
-        assert v.net_premium_ccy is None
+        assert v.structure_notional == 500.0
+        assert abs(v.net_premium_ccy - 10.0) < 1e-9
+        assert abs(v.max_loss_ccy - 0.0) < 1e-9
+
+    def test_size_variant_defaults_negative_premium_to_capped_notional(self):
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant(prem_pct=-0.003)
+        v.max_loss_pct = 0.0
+        _size_variant(v, loss_budget=4.0)
+        assert v.structure_notional == 500.0
+        assert abs(v.net_premium_ccy + 1.5) < 1e-9
+        assert abs(v.max_loss_ccy - 0.0) < 1e-9
+
+    def test_size_variant_caps_very_low_premium_notional(self):
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant(prem_pct=0.001)
+        v.payoff_at_target_pct = 0.12
+        _size_variant(v, loss_budget=4.0)
+        assert abs(v.structure_notional - 500.0) < 1e-9
+        assert abs(v.net_premium_ccy - 0.5) < 1e-9
+        assert abs(v.max_loss_ccy - 0.5) < 1e-9
+        assert abs(v.payoff_at_target_ccy - 60.0) < 1e-9
 
     def test_price_variants_passes_loss_budget(self):
         """price_variants populates dollar fields when loss_budget given."""
@@ -379,10 +456,22 @@ class TestSizing:
         for pv in pvs:
             assert pv.structure_notional is not None
             assert pv.structure_notional > 0
-            assert abs(pv.max_loss_ccy - 4.0) < 1e-6     # sized to budget
+            assert pv.structure_notional <= 500.0
+            assert pv.max_loss_ccy <= 4.0 + 1e-6
             # Premium $ = premium_pct * notional, where notional = budget / max_loss_pct.
-            # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == loss_budget.
-            assert abs(pv.net_premium_ccy - 4.0) < 1e-6
+            # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == max_loss_ccy.
+            assert abs(pv.net_premium_ccy - pv.max_loss_ccy) < 1e-6
+
+    def test_price_variants_caps_cheap_1x2_base_leg_notional(self):
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True, loss_budget=4.0)
+        assert pvs
+        assert any(pv.structure_notional is not None and pv.structure_notional <= 500.0 for pv in pvs)
 
     def test_price_variants_no_budget_leaves_fields_none(self):
         from analytics.structure_pricer import price_variants

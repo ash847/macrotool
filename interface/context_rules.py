@@ -11,11 +11,12 @@ import pandas as pd
 import streamlit as st
 
 from analytics.scenario_generator import GRID_COLS, GRID_ROWS, VALID_GRID_CELLS, cell_id
-from interface.security import assert_admin, is_admin_user
+from interface.security import assert_admin, current_user_email, is_admin_user
 from knowledge_engine.scenario_weighter import (
     _FIELD_GETTERS,
     _OPS,
     clear_scenario_weights_cache,
+    get_scenario_weights_source,
     load_scenario_weights_config,
 )
 
@@ -84,6 +85,14 @@ def _grid_df(ctx: dict, baseline: float) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("Row")
 
 
+def _compact_multipliers(multipliers: dict[str, float], baseline: float) -> dict[str, float]:
+    return {
+        cid: float(value)
+        for cid, value in multipliers.items()
+        if abs(float(value) - float(baseline)) > 1e-9
+    }
+
+
 def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> None:
     st.caption(
         f"Baseline multiplier **{baseline:.2f}**. Valid cells are editable with minimum "
@@ -114,7 +123,7 @@ def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> No
                 key=f"grid_{ctx['id']}_{cid}",
                 label_visibility="collapsed",
             )
-    ctx["multipliers"] = multipliers
+    ctx["multipliers"] = _compact_multipliers(multipliers, baseline)
 
 
 def _render_context_weights(cfg: dict) -> None:
@@ -134,7 +143,12 @@ def _render_context_weights(cfg: dict) -> None:
     if st.button("Save multipliers", type="primary", use_container_width=True):
         try:
             from interface.supabase_logger import save_config as _save
-            ok = _save("scenario_definitions", cfg, _admin=is_admin_user())
+            ok = _save(
+                "scenario_definitions",
+                cfg,
+                _admin=is_admin_user(),
+                user_email=current_user_email(),
+            )
             if ok:
                 clear_scenario_weights_cache()
                 st.success("Saved. New scenario-grid multipliers apply on the next trade query.")
@@ -166,8 +180,26 @@ def _init_priority_state(cfg: dict) -> list[dict]:
     for ctx in cfg["weightings"]:
         c = copy.deepcopy(ctx)
         c["_uid"] = str(uuid.uuid4())
+        c["_original_id"] = ctx.get("id", "")
         result.append(c)
     return result
+
+
+def _merge_contexts_with_latest_multipliers(
+    contexts: list[dict],
+    latest_cfg: dict,
+) -> list[dict]:
+    latest_mult = {
+        c["id"]: copy.deepcopy(c.get("multipliers", {}))
+        for c in latest_cfg.get("weightings", [])
+    }
+    merged: list[dict] = []
+    for ctx in contexts:
+        source_id = str(ctx.get("_original_id") or ctx.get("id") or "")
+        clean = {k: copy.deepcopy(v) for k, v in ctx.items() if not k.startswith("_")}
+        clean["multipliers"] = latest_mult.get(source_id, clean.get("multipliers", {}))
+        merged.append(clean)
+    return merged
 
 
 def _parse_condition_value(s: str):
@@ -325,7 +357,14 @@ def _render_priority_conditions(cfg: dict) -> None:
             ctx["when"] = new_conds
 
     if st.button("➕ Add weighting", key="add_ctx_btn"):
-        contexts.append({"_uid": str(uuid.uuid4()), "id": f"new_weighting_{len(contexts) + 1}", "comment": "", "when": [], "multipliers": {}})
+        contexts.append({
+            "_uid": str(uuid.uuid4()),
+            "_original_id": "",
+            "id": f"new_weighting_{len(contexts) + 1}",
+            "comment": "",
+            "when": [],
+            "multipliers": {},
+        })
         st.rerun()
 
     save_col, revert_col, _ = st.columns([1, 1, 4])
@@ -339,14 +378,14 @@ def _render_priority_conditions(cfg: dict) -> None:
                 from interface.supabase_logger import save_config as _save_cfg
                 clear_scenario_weights_cache()
                 latest_cfg = load_scenario_weights_config()
-                latest_mult: dict[str, dict] = {c["id"]: c.get("multipliers", {}) for c in latest_cfg.get("weightings", [])}
                 new_cfg = copy.deepcopy(latest_cfg)
-                new_cfg["weightings"] = []
-                for ctx in contexts:
-                    clean = {k: v for k, v in ctx.items() if not k.startswith("_")}
-                    clean["multipliers"] = latest_mult.get(clean["id"], clean.get("multipliers", {}))
-                    new_cfg["weightings"].append(clean)
-                ok = _save_cfg("scenario_definitions", new_cfg, _admin=is_admin_user())
+                new_cfg["weightings"] = _merge_contexts_with_latest_multipliers(contexts, latest_cfg)
+                ok = _save_cfg(
+                    "scenario_definitions",
+                    new_cfg,
+                    _admin=is_admin_user(),
+                    user_email=current_user_email(),
+                )
                 if ok:
                     clear_scenario_weights_cache()
                     st.success("Saved. Updated scenario weighting rules apply on the next trade query.")
@@ -369,6 +408,7 @@ def render() -> None:
         "A multiplier of 1.0 means baseline importance for that scenario cell."
     )
     cfg = load_scenario_weights_config()
+    st.caption(f"Loaded from: `{get_scenario_weights_source()}`")
     tab_weights, tab_conditions, tab_priority = st.tabs(
         ["Scenario grid", "Weighting selection (read)", "Weighting selection (write)"]
     )
