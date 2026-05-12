@@ -965,6 +965,7 @@ else:
                 "**Payout/$1**: gross payoff at target per $1 of max loss (zero-cost seagull: "
                 "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
             )
+            _base_ccy = flow.view.pair[:3]
             for _i, _item in enumerate(_primary_items):
                 try:
                     _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price, loss_budget=_loss_budget)
