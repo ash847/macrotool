@@ -67,6 +67,13 @@ class Step(str, Enum):
 _VIEW_TAG = re.compile(r'\[VIEW:\s*(\{.*?\})\]', re.DOTALL)
 
 
+def target_from_reference(reference: float, direction: str, magnitude_pct: float | None) -> float | None:
+    if magnitude_pct is None:
+        return None
+    sign = 1 if direction == "base_higher" else -1
+    return reference * (1 + sign * magnitude_pct / 100)
+
+
 class ConversationFlow:
     """
     Manages conversation state for a single PM session.
@@ -186,8 +193,11 @@ class ConversationFlow:
         direction_label = "Long" if view.direction == "base_higher" else "Short"
         conf = f"**View:** {direction_label} {view.pair} · {view.horizon_days}d"
         if view.magnitude_pct is not None:
-            sign = 1 if view.direction == "base_higher" else -1
-            target_lvl = self.ccy.spot * (1 + sign * view.magnitude_pct / 100)
+            target_lvl = target_from_reference(
+                self.market_state.fwd if self.market_state is not None else self.ccy.spot,
+                view.direction,
+                view.magnitude_pct,
+            )
             conf += f" · target {target_lvl:.4f}"
         yield "\n\n" + conf + "\n\n"
 
@@ -320,10 +330,7 @@ class ConversationFlow:
         T = self.view.horizon_years
         rate_ctx = rate_context_for_snapshot(self.ccy, T)
         atm_vol = interpolate_atm_vol(self.ccy, self.view.horizon_days)
-        target: float | None = None
-        if self.view.magnitude_pct is not None:
-            sign = 1 if self.view.direction == "base_higher" else -1
-            target = self.ccy.spot * (1 + sign * self.view.magnitude_pct / 100)
+        target = target_from_reference(rate_ctx.forward, self.view.direction, self.view.magnitude_pct)
         carry_regime_cuts = load_affinity_scores()["thresholds"]["carry_regime"]
         self.market_state = compute_market_state(
             spot=rate_ctx.spot,

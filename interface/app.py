@@ -24,7 +24,7 @@ if str(_ROOT) not in sys.path:
 import streamlit as st
 import pandas as pd
 
-from conversation.flow import ConversationFlow
+from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
 from interface.security import current_user_email, is_admin_user, require_login
 from knowledge_engine.structure_scorer import get_scoring_detail
@@ -238,8 +238,11 @@ with st.sidebar:
 def _target_price(flow: ConversationFlow) -> float | None:
     if not (flow.view and flow.view.magnitude_pct):
         return None
-    sign = 1 if flow.view.direction == "base_higher" else -1
-    return flow.ccy.spot * (1 + sign * flow.view.magnitude_pct / 100)
+    if flow.market_state is not None:
+        anchor = flow.market_state.fwd
+    else:
+        anchor = flow.ccy.spot
+    return target_from_reference(anchor, flow.view.direction, flow.view.magnitude_pct)
 
 
 def _sigma_sentence(flow: ConversationFlow, target: float) -> str:
@@ -340,13 +343,17 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
     ccy = flow._snapshot.get(pair)
     if ccy is None:
         return f"ERROR: Unsupported pair {pair}."
+    from pricing.forwards import rate_context_for_snapshot
+    horizon_years = horizon_days / 365.0
+    rate_ctx = rate_context_for_snapshot(ccy, horizon_years)
+    fwd = rate_ctx.forward
 
-    if direction == "base_higher" and target <= ccy.spot:
-        return "ERROR: For `Base higher`, target must be above spot."
-    if direction == "base_lower" and target >= ccy.spot:
-        return "ERROR: For `Base lower`, target must be below spot."
+    if direction == "base_higher" and target <= fwd:
+        return f"ERROR: For `Base higher`, target must be above the horizon forward ({fwd:.4f})."
+    if direction == "base_lower" and target >= fwd:
+        return f"ERROR: For `Base lower`, target must be below the horizon forward ({fwd:.4f})."
 
-    magnitude_pct = abs(target / ccy.spot - 1.0) * 100.0
+    magnitude_pct = abs(target / fwd - 1.0) * 100.0
     view = TradeView(
         pair=pair,
         direction=direction,
