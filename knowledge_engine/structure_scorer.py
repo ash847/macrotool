@@ -26,6 +26,19 @@ _SCORED_DIMS = (
     "structure_constraint",
 )
 
+_CONSTRAINT_GATED_STRUCTURES = {
+    "Avoid complex structures": {
+        "seagull",
+        "rko",
+        "european_rko",
+        "european_digital_rko",
+    },
+    "Avoid tail-risky structures": {
+        "seagull",
+        "1x2_spread",
+    },
+}
+
 
 def score_structures(
     market_state: MarketState,
@@ -58,7 +71,7 @@ def score_structures(
             continue
         profile = profiles[struct_id]
 
-        if not _passes_gates(profile, score_cfg.get("gates", {}), market_state, buckets):
+        if not _passes_gates(struct_id, profile, score_cfg.get("gates", {}), market_state, buckets):
             continue
 
         total = sum(
@@ -116,7 +129,7 @@ def get_scoring_detail(
         if struct_id not in profiles:
             continue
         profile = profiles[struct_id]
-        eligible = _passes_gates(profile, score_cfg.get("gates", {}), market_state, buckets)
+        eligible = _passes_gates(struct_id, profile, score_cfg.get("gates", {}), market_state, buckets)
 
         dims = {}
         total = 0
@@ -145,11 +158,15 @@ def get_scoring_detail(
 # ---------------------------------------------------------------------------
 
 def _passes_gates(
+    struct_id: str,
     profile: dict,
     gates: dict,
     ms: MarketState,
     buckets: dict,
 ) -> bool:
+    structure_constraint = buckets.get("structure_constraint", "No restriction")
+    if struct_id in _CONSTRAINT_GATED_STRUCTURES.get(structure_constraint, set()):
+        return False
     # Structural gate from structure_profiles.json — structure needs a target level to be built
     if profile.get("requires_target") and ms.target_z is None:
         return False
