@@ -24,7 +24,7 @@ if str(_ROOT) not in sys.path:
 import streamlit as st
 import pandas as pd
 
-from conversation.flow import ConversationFlow
+from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
 from interface.security import current_user_email, is_admin_user, require_login
 from knowledge_engine.structure_scorer import get_scoring_detail
@@ -238,8 +238,11 @@ with st.sidebar:
 def _target_price(flow: ConversationFlow) -> float | None:
     if not (flow.view and flow.view.magnitude_pct):
         return None
-    sign = 1 if flow.view.direction == "base_higher" else -1
-    return flow.ccy.spot * (1 + sign * flow.view.magnitude_pct / 100)
+    if flow.market_state is not None:
+        anchor = flow.market_state.fwd
+    else:
+        anchor = flow.ccy.spot
+    return target_from_reference(anchor, flow.view.direction, flow.view.magnitude_pct)
 
 
 def _sigma_sentence(flow: ConversationFlow, target: float) -> str:
@@ -284,13 +287,24 @@ def _variant_label_with_strikes(structure_id: str, pv) -> str:
                     f"{wing_part.strip()} {strikes[2]}"
                 )
 
-    if structure_id in {"1x1.5_spread", "1x2_spread", "european_rko"} and len(strikes) >= 2:
+    if structure_id in {"1x1.5_spread", "1x2_spread"} and len(strikes) >= 2:
         if " / " in label:
             left, right = label.split(" / ", 1)
             return f"{left.strip()} {strikes[0]} / {right.strip()} {strikes[1]}"
 
-    if structure_id in {"european_digital", "european_digital_rko"} and strikes:
+    if structure_id == "european_rko" and strikes:
+        ko = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
+        return f"{label} {strikes[0]}  ·  KO at {ko}"
+
+    if structure_id == "european_digital" and strikes:
         return f"{label} {strikes[0]}"
+
+    if structure_id == "european_digital_rko" and strikes:
+        american_barrier = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
+        return (
+            f"{label}  ·  European barrier {strikes[0]}  ·  "
+            f"American barrier {american_barrier}"
+        )
 
     if strikes:
         return f"{label}  ·  Strikes: {' / '.join(strikes)}"
@@ -340,13 +354,17 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
     ccy = flow._snapshot.get(pair)
     if ccy is None:
         return f"ERROR: Unsupported pair {pair}."
+    from pricing.forwards import rate_context_for_snapshot
+    horizon_years = horizon_days / 365.0
+    rate_ctx = rate_context_for_snapshot(ccy, horizon_years)
+    fwd = rate_ctx.forward
 
-    if direction == "base_higher" and target <= ccy.spot:
-        return "ERROR: For `Base higher`, target must be above spot."
-    if direction == "base_lower" and target >= ccy.spot:
-        return "ERROR: For `Base lower`, target must be below spot."
+    if direction == "base_higher" and target <= fwd:
+        return f"ERROR: For `Base higher`, target must be above the horizon forward ({fwd:.4f})."
+    if direction == "base_lower" and target >= fwd:
+        return f"ERROR: For `Base lower`, target must be below the horizon forward ({fwd:.4f})."
 
-    magnitude_pct = abs(target / ccy.spot - 1.0) * 100.0
+    magnitude_pct = abs(target / fwd - 1.0) * 100.0
     view = TradeView(
         pair=pair,
         direction=direction,
@@ -947,18 +965,6 @@ else:
                 "**Payout/$1**: gross payoff at target per $1 of max loss (zero-cost seagull: "
                 "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
             )
-            _base_ccy, _quote_ccy = flow.view.pair[:3], flow.view.pair[3:]
-            _long_leg  = "call" if _is_call else "put"
-            _short_leg = "put"  if _is_call else "call"
-            _variant_title = {
-                "vanilla":              f"{_base_ccy} {_long_leg}",
-                "1x1_spread":           f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread",
-                "1x2_spread":           f"{_base_ccy} 1×2 {_long_leg} spread",
-                "european_rko":         f"{_base_ccy} {_long_leg} ERKO",
-                "seagull":              f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread + sold {_base_ccy} {_short_leg}",
-                "european_digital":     f"{_base_ccy} {_long_leg} digital",
-                "european_digital_rko": f"{_base_ccy} {_long_leg} digital + KO",
-            }
             for _i, _item in enumerate(_primary_items):
                 try:
                     _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price, loss_budget=_loss_budget)
@@ -967,7 +973,7 @@ else:
                     continue
                 if not _pvs:
                     continue
-                _title = _variant_title.get(_item.structure_id, _item.display_name)
+                _title = _item.display_name
                 with st.expander(_title, expanded=(_i == 0)):
                     _rows = []
                     _has_barrier = any(pv.barrier is not None for pv in _pvs)
@@ -1072,18 +1078,7 @@ else:
         _ev_weights  = _ev_weighter.weights
         _ev_multipliers = _ev_weighter.multipliers
 
-        _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
-        _ev_long = "call" if _ev_is_call else "put"
-        _ev_short = "put" if _ev_is_call else "call"
-        _ev_vtitles = {
-            "vanilla":              f"{_ev_base} {_ev_long}",
-            "1x1_spread":           f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread",
-            "1x2_spread":           f"{_ev_base} 1×2 {_ev_long} spread",
-            "european_rko":         f"{_ev_base} {_ev_long} ERKO",
-            "seagull":              f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread + sold {_ev_base} {_ev_short}",
-            "european_digital":     f"{_ev_base} {_ev_long} digital",
-            "european_digital_rko": f"{_ev_base} {_ev_long} digital + KO",
-        }
+        _ev_base = flow.view.pair[:3]
 
         _ev_inputs = {
             "spot": _ev_ms.spot,
@@ -1127,7 +1122,7 @@ else:
             _ev_structs.append({
                 "item":     _ev_item,
                 "variants": _ev_variants,
-                "label":    _ev_vtitles.get(_ev_item.structure_id, _ev_item.display_name),
+                "label":    _ev_item.display_name,
             })
 
         if _ev_structs:

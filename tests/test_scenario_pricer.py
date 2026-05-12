@@ -5,10 +5,11 @@ Tests for analytics.scenario_pricer.
 import math
 import pytest
 
+from analytics.market_state import compute_market_state
 from analytics.scenario_generator import generate_scenarios
 from analytics.scenario_pricer import price_scenarios
-from analytics.structure_pricer import PricedVariant
-from pricing.black_scholes import call_mtm
+from analytics.structure_pricer import PricedVariant, price_variants
+from pricing.black_scholes import call_mtm, put_mtm
 
 
 # ---------------------------------------------------------------------------
@@ -473,8 +474,6 @@ class TestSizing:
         assert any(pv.structure_notional is not None and pv.structure_notional <= 500.0 for pv in pvs)
 
     def test_price_variants_no_budget_leaves_fields_none(self):
-        from analytics.structure_pricer import price_variants
-        from analytics.market_state import compute_market_state
         ms = compute_market_state(
             spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
             target=5.30, direction="base_higher",
@@ -504,3 +503,52 @@ class TestSizing:
             assert r["structure_notional"] is None
             assert r["price_ccy"] is None
             assert r["pnl_ccy"] is None
+
+
+class TestVariantMaxLossDefinitions:
+    def test_one_by_two_uses_today_target_package_value_floor(self):
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True)
+        assert pvs
+        for pv in pvs:
+            scenario_spot = 5.30 * math.exp(-(ms.r_d - ms.r_f) * ms.T)
+            today_value_pct = abs(
+                call_mtm(scenario_spot, pv.strikes[0], ms.T, ms.vol, ms.r_d, ms.r_f)
+                - 2.0 * call_mtm(scenario_spot, pv.strikes[1], ms.T, ms.vol, ms.r_d, ms.r_f)
+            ) / ms.spot
+            assert pv.max_loss_pct == pytest.approx(max(today_value_pct, abs(pv.net_premium_pct)))
+
+    def test_one_by_one_point_five_uses_today_target_package_value_floor(self):
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        pvs = price_variants(ms, "1x1.5_spread", target=5.30, is_call=True)
+        assert pvs
+        for pv in pvs:
+            scenario_spot = 5.30 * math.exp(-(ms.r_d - ms.r_f) * ms.T)
+            today_value_pct = abs(
+                call_mtm(scenario_spot, pv.strikes[0], ms.T, ms.vol, ms.r_d, ms.r_f)
+                - 1.5 * call_mtm(scenario_spot, pv.strikes[1], ms.T, ms.vol, ms.r_d, ms.r_f)
+            ) / ms.spot
+            assert pv.max_loss_pct == pytest.approx(max(today_value_pct, abs(pv.net_premium_pct)))
+
+    def test_seagull_uses_today_stop_package_value(self):
+        ms = compute_market_state(
+            spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
+            target=5.30, direction="base_higher",
+        )
+        stop_price = 4.966929
+        pvs = price_variants(ms, "seagull", target=5.30, is_call=True, stop_price=stop_price)
+        assert pvs
+        for pv in pvs:
+            scenario_spot = stop_price * math.exp(-(ms.r_d - ms.r_f) * ms.T)
+            today_value_pct = abs(
+                call_mtm(scenario_spot, pv.strikes[0], ms.T, ms.vol, ms.r_d, ms.r_f)
+                - call_mtm(scenario_spot, pv.strikes[1], ms.T, ms.vol, ms.r_d, ms.r_f)
+                - (pv.wing_ratio or 0.0) * put_mtm(scenario_spot, pv.strikes[2], ms.T, ms.vol, ms.r_d, ms.r_f)
+            ) / ms.spot
+            assert pv.max_loss_pct == pytest.approx(today_value_pct, rel=2e-2)

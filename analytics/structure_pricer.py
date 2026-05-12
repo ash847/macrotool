@@ -18,7 +18,7 @@ from pathlib import Path
 
 from analytics.market_state import MarketState
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
-from pricing.black_scholes import black76_call, black76_put
+from pricing.black_scholes import black76_call, black76_put, call_mtm, put_mtm
 from pricing.digital import digital_call, digital_put
 from pricing.digital_rko import digital_rko_call, digital_rko_put
 from pricing.european_rko import european_rko_call, european_rko_put
@@ -121,6 +121,48 @@ def _size_variant(pv: PricedVariant, loss_budget: float) -> None:
     pv.max_loss_ccy = pv.max_loss_pct * notional
     if pv.payoff_at_target_pct is not None:
         pv.payoff_at_target_ccy = pv.payoff_at_target_pct * notional
+
+
+def _spot_for_forward_today(fwd_today: float, T: float, r_d: float, r_f: float) -> float:
+    return fwd_today * math.exp(-(r_d - r_f) * T)
+
+
+def _today_package_value_pct(
+    *,
+    structure_id: str,
+    strikes: list[float],
+    fwd_today: float,
+    T: float,
+    vol: float,
+    r_d: float,
+    r_f: float,
+    spot: float,
+    is_call: bool,
+    wing_ratio: float | None = None,
+) -> float:
+    scenario_spot = _spot_for_forward_today(fwd_today, T, r_d, r_f)
+    if structure_id == "1x1.5_spread":
+        if is_call:
+            raw = call_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 1.5 * call_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+        else:
+            raw = put_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 1.5 * put_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+    elif structure_id == "1x2_spread":
+        if is_call:
+            raw = call_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 2.0 * call_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+        else:
+            raw = put_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 2.0 * put_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+    elif structure_id == "seagull":
+        ratio = wing_ratio or 0.0
+        if is_call:
+            spread = call_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - call_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+            wing = put_mtm(scenario_spot, strikes[2], T, vol, r_d, r_f)
+        else:
+            spread = put_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - put_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+            wing = call_mtm(scenario_spot, strikes[2], T, vol, r_d, r_f)
+        raw = spread - ratio * wing
+    else:
+        raise ValueError(f"Unsupported structure for today-value helper: {structure_id}")
+    return abs(raw) / spot
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +307,21 @@ def _1x1p5(
         payoff_pct = gross_at_target / spot
         rr = (payoff_pct / prem_pct) if (not is_zero_cost and prem_pct > 1e-8) else None
 
+        max_loss_pct = max(
+            _today_package_value_pct(
+                structure_id="1x1.5_spread",
+                strikes=[K1, K2],
+                fwd_today=target,
+                T=T,
+                vol=vol,
+                r_d=r_d,
+                r_f=r_f,
+                spot=spot,
+                is_call=is_call,
+            ),
+            abs(prem_pct),
+        )
+
         result.append(PricedVariant(
             variant_label=v["label"],
             strikes=[K1, K2],
@@ -273,7 +330,7 @@ def _1x1p5(
             breakeven=breakeven,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
-            max_loss_pct=max(prem_pct, 0.0),
+            max_loss_pct=max_loss_pct,
             wing_ratio=None,
             is_zero_cost=is_zero_cost,
         ))
@@ -321,6 +378,21 @@ def _1x2(
         payoff_pct = gross_at_target / spot
         rr = (payoff_pct / prem_pct) if (not is_zero_cost and prem_pct > 1e-8) else None
 
+        max_loss_pct = max(
+            _today_package_value_pct(
+                structure_id="1x2_spread",
+                strikes=[K1, K2],
+                fwd_today=target,
+                T=T,
+                vol=vol,
+                r_d=r_d,
+                r_f=r_f,
+                spot=spot,
+                is_call=is_call,
+            ),
+            abs(prem_pct),
+        )
+
         result.append(PricedVariant(
             variant_label=v["label"],
             strikes=[K1, K2],
@@ -329,7 +401,7 @@ def _1x2(
             breakeven=breakeven,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
-            max_loss_pct=max(prem_pct, 0.0),
+            max_loss_pct=max_loss_pct,
             wing_ratio=None,
             is_zero_cost=is_zero_cost,
         ))
@@ -368,17 +440,19 @@ def _seagull(
         spread_cost = prem1 - prem2
         wing_ratio = (spread_cost / prem3) if prem3 > 1e-8 else 0.0
 
-        # Max loss: full seagull P&L at stop_price at expiry (consistent with premium structures).
-        # All three legs evaluated at stop — could be zero if wing is OTM at stop.
         if stop_price is not None:
-            if is_call:
-                sp_pnl   = min(max(stop_price - K1, 0.0), K2 - K1)
-                wing_pnl = -max(K3 - stop_price, 0.0) * wing_ratio  # short put
-            else:
-                sp_pnl   = min(max(K1 - stop_price, 0.0), K1 - K2)
-                wing_pnl = -max(stop_price - K3, 0.0) * wing_ratio  # short call
-            # abs(min(..., 0)) avoids -0.0 when both legs are OTM at stop
-            max_loss = abs(min(sp_pnl + wing_pnl, 0.0)) / spot
+            max_loss = _today_package_value_pct(
+                structure_id="seagull",
+                strikes=[K1, K2, K3],
+                fwd_today=stop_price,
+                T=T,
+                vol=vol,
+                r_d=r_d,
+                r_f=r_f,
+                spot=spot,
+                is_call=is_call,
+                wing_ratio=wing_ratio,
+            )
         else:
             max_loss = 0.0
 

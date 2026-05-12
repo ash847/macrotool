@@ -73,11 +73,31 @@ Commit `uv.lock` after dependency changes. For a clean install:
 uv sync --extra dev
 ```
 
+## PM Preferences
+
+The intake form supports three PM preference inputs:
+
+- `Primary objective`: `Balanced`, `Keep cost low`, `Hold up if the path is slow/noisy`, `Keep risk clean`
+- `Structure constraint`: `No restriction`, `Avoid capped structures`, `Avoid complex structures`, `Avoid tail-risky structures`
+- `Trade management style`: `Standard hold`, `May monetise early`, `Need defendable mark-to-market`
+
+`Structure constraint` now works in two layers:
+
+- Soft preference scores still live in `knowledge/defaults/affinity_scores.json` as the `structure_constraint` dimension.
+- Hard exclusions are also applied in `knowledge_engine/structure_scorer.py` for structures that should never survive ranking under some constraints.
+
+Current hard exclusions:
+
+- `Avoid complex structures`: excludes `seagull`, `rko`, `european_rko`, `european_digital_rko`
+- `Avoid tail-risky structures`: excludes `seagull`, `1x2_spread`
+
 ## Deployment
 
 GitHub repository: `ash847/macrotool`
 
 Streamlit Community Cloud redeploys from `main`. For Python source or dependency changes, bump the `pyproject.toml` version so Streamlit Cloud performs a fresh package reinstall. JSON-only changes in `knowledge/` deploy without a version bump.
+
+The current deploy fix for preference gating was released with package version `0.1.19`.
 
 Runtime secrets:
 

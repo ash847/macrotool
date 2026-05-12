@@ -45,7 +45,7 @@ Whether the trade view is with or against the carry. This matters because with-c
 
 ## Affinity Scoring — How Structures are Shortlisted
 
-There is no machine learning here. Each candidate structure is scored by a rule engine across four independent dimensions. The scores sum to a total affinity score; the top three eligible structures become the shortlist.
+There is no machine learning here. Each candidate structure is scored by a rule engine across five independent dimensions. The scores sum to a total affinity score; the top eligible structures become the shortlist.
 
 ### Step 1 — Gates (hard filters)
 
@@ -53,10 +53,13 @@ Before scoring, structures are checked for basic eligibility:
 
 - Structures that require a target (spreads, seagull, 1×2) are excluded if no target is given, or if the target is too close to the forward (less than 0.5σ away — not enough room to structure a spread)
 - Risk reversal is permanently gated — the tool does not recommend outright risk reversals at this stage
+- PM structure constraints can hard-exclude some structures regardless of score:
+  - `Avoid complex structures` excludes `seagull`, `rko`, `european_rko`, `european_digital_rko`
+  - `Avoid tail-risky structures` excludes `seagull`, `1×2 spread`
 
 A structure that fails a gate is excluded regardless of how well it would score.
 
-### Step 2 — Four scoring dimensions
+### Step 2 — Five scoring dimensions
 
 **1. Target distance**
 How far the target is from the forward in σ terms. Vanilla scores consistently at all distances. Spread structures score well at moderate distances (there is room to capture the move without capping too early) and poorly at very far targets (the short leg becomes deep OTM and the structure becomes expensive relative to payoff). The 1×2 spread is additionally gated out at far targets where the uncapped short exposure becomes material.
@@ -69,6 +72,9 @@ How efficiently carry can be harvested via a spread at this moment. A high ratio
 
 **4. Carry alignment**
 The interaction of carry direction and carry magnitude. A with-carry trade in a high-carry regime benefits from three things simultaneously: the view, the drift, and time passing. This compounds the advantage of spread structures. A counter-carry view in the same regime faces headwinds on all three axes, pushing the scoring back toward simpler structures where the cost of being wrong is more contained.
+
+**5. Structure constraint**
+The PM's stated structure preference is also scored directly. This is the soft-preference layer that nudges compatible structures up and incompatible structures down without changing the market-state inputs themselves. Hard exclusions for the strongest constraints are applied separately in the gating step above.
 
 Each dimension contributes a positive, negative, or zero score. The total is the structure's affinity score. The top three become the shortlist, ranked in order.
 
