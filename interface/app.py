@@ -287,13 +287,24 @@ def _variant_label_with_strikes(structure_id: str, pv) -> str:
                     f"{wing_part.strip()} {strikes[2]}"
                 )
 
-    if structure_id in {"1x1.5_spread", "1x2_spread", "european_rko"} and len(strikes) >= 2:
+    if structure_id in {"1x1.5_spread", "1x2_spread"} and len(strikes) >= 2:
         if " / " in label:
             left, right = label.split(" / ", 1)
             return f"{left.strip()} {strikes[0]} / {right.strip()} {strikes[1]}"
 
-    if structure_id in {"european_digital", "european_digital_rko"} and strikes:
+    if structure_id == "european_rko" and strikes:
+        ko = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
+        return f"{label} {strikes[0]}  ·  KO at {ko}"
+
+    if structure_id == "european_digital" and strikes:
         return f"{label} {strikes[0]}"
+
+    if structure_id == "european_digital_rko" and strikes:
+        american_barrier = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
+        return (
+            f"{label}  ·  European barrier {strikes[0]}  ·  "
+            f"American barrier {american_barrier}"
+        )
 
     if strikes:
         return f"{label}  ·  Strikes: {' / '.join(strikes)}"
@@ -954,18 +965,6 @@ else:
                 "**Payout/$1**: gross payoff at target per $1 of max loss (zero-cost seagull: "
                 "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
             )
-            _base_ccy, _quote_ccy = flow.view.pair[:3], flow.view.pair[3:]
-            _long_leg  = "call" if _is_call else "put"
-            _short_leg = "put"  if _is_call else "call"
-            _variant_title = {
-                "vanilla":              f"{_base_ccy} {_long_leg}",
-                "1x1_spread":           f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread",
-                "1x2_spread":           f"{_base_ccy} 1×2 {_long_leg} spread",
-                "european_rko":         f"{_base_ccy} {_long_leg} ERKO",
-                "seagull":              f"{_base_ccy} {_long_leg} / {_quote_ccy} {_short_leg} spread + sold {_base_ccy} {_short_leg}",
-                "european_digital":     f"{_base_ccy} {_long_leg} digital",
-                "european_digital_rko": f"{_base_ccy} {_long_leg} digital + KO",
-            }
             for _i, _item in enumerate(_primary_items):
                 try:
                     _pvs = _price_variants(ms, _item.structure_id, target=_target, is_call=_is_call, stop_price=_stop_price, loss_budget=_loss_budget)
@@ -974,7 +973,7 @@ else:
                     continue
                 if not _pvs:
                     continue
-                _title = _variant_title.get(_item.structure_id, _item.display_name)
+                _title = _item.display_name
                 with st.expander(_title, expanded=(_i == 0)):
                     _rows = []
                     _has_barrier = any(pv.barrier is not None for pv in _pvs)
@@ -1079,18 +1078,7 @@ else:
         _ev_weights  = _ev_weighter.weights
         _ev_multipliers = _ev_weighter.multipliers
 
-        _ev_base, _ev_quote = flow.view.pair[:3], flow.view.pair[3:]
-        _ev_long = "call" if _ev_is_call else "put"
-        _ev_short = "put" if _ev_is_call else "call"
-        _ev_vtitles = {
-            "vanilla":              f"{_ev_base} {_ev_long}",
-            "1x1_spread":           f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread",
-            "1x2_spread":           f"{_ev_base} 1×2 {_ev_long} spread",
-            "european_rko":         f"{_ev_base} {_ev_long} ERKO",
-            "seagull":              f"{_ev_base} {_ev_long} / {_ev_quote} {_ev_short} spread + sold {_ev_base} {_ev_short}",
-            "european_digital":     f"{_ev_base} {_ev_long} digital",
-            "european_digital_rko": f"{_ev_base} {_ev_long} digital + KO",
-        }
+        _ev_base = flow.view.pair[:3]
 
         _ev_inputs = {
             "spot": _ev_ms.spot,
@@ -1134,7 +1122,7 @@ else:
             _ev_structs.append({
                 "item":     _ev_item,
                 "variants": _ev_variants,
-                "label":    _ev_vtitles.get(_ev_item.structure_id, _ev_item.display_name),
+                "label":    _ev_item.display_name,
             })
 
         if _ev_structs:

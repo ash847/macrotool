@@ -474,8 +474,6 @@ class TestSizing:
         assert any(pv.structure_notional is not None and pv.structure_notional <= 500.0 for pv in pvs)
 
     def test_price_variants_no_budget_leaves_fields_none(self):
-        from analytics.structure_pricer import price_variants
-        from analytics.market_state import compute_market_state
         ms = compute_market_state(
             spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
             target=5.30, direction="base_higher",

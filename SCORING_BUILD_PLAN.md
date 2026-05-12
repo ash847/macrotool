@@ -1,5 +1,7 @@
 # Two-Tier Scenario Scoring — Build Plan
 
+Status: the core scenario weighting and scoring system described here has since been implemented. Treat this file as design history and tuning context rather than the latest source of truth for live behavior.
+
 ## Goal
 
 Convert the current scenario evaluation output (raw P&L per scenario) into a single weighted score per shortlisted structure, where:

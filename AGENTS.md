@@ -163,10 +163,13 @@ GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys o
 2. **Selection plumbing** ✅ — `Structure constraint` wired into affinity scoring as a 5th dimension.
    - `structure_constraint` field added to every structure in `affinity_scores.json`.
    - Bucket = the preference string directly (no numeric conversion needed).
-   - Default scores: 0 = compatible, −5 = penalised (reliable exclusion from top 3).
+   - Default scores: 0 = compatible, −5 = penalised (strong soft preference, but not a hard guarantee by itself).
    - Editable via **Structure Constraint** tab in the Structure Selection page.
    - `score_structures(market_state, structure_constraint=...)` — defaults to "No restriction" so all existing callers are unchanged.
    - `flow.structure_constraint` set from `pref_structure_constraint` session state before each engine run.
+   - Additional hard gates now enforce the strongest exclusions directly in Python:
+     - `Avoid complex structures` excludes `seagull`, `rko`, `european_rko`, `european_digital_rko`
+     - `Avoid tail-risky structures` excludes `seagull`, `1x2_spread`
 
 3. **Context plumbing** ✅ — `Primary objective` and `Trade management style` are routed into context selection.
    - 5 preference-aware contexts at the top of `scenario_weights.json`: `classic_carry`, `cheap_carry`, `conservative_carry`, `delta_carry`, `big_move`. First-match selection — exactly one context fires per trade.
