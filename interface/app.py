@@ -1285,9 +1285,9 @@ else:
         # Structured input (only on Trade View page)
         with st.form("trade_view_form", clear_on_submit=False):
             _pair_options = list(flow._snapshot.currencies.keys())
-            _default_pair = _pair_options[0]
-            _pair_ix = 0
-            _dir_label_default = "Higher"
+            _default_pair = "USDBRL" if "USDBRL" in _pair_options else _pair_options[0]
+            _pair_ix = _pair_options.index(_default_pair)
+            _dir_label_default = "Lower"
             _horizon_days_default = _HORIZON_OPTIONS[2][1]
             _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
             _horizon_values = [days for _, days in _HORIZON_OPTIONS]
@@ -1305,8 +1305,7 @@ else:
             with c3:
                 form_horizon_label = st.selectbox("Horizon", _horizon_labels, index=_h_ix)
             with c4:
-                _pair_spot = flow._snapshot.get(_default_pair).spot
-                _fallback_target = _pair_spot * 1.05
+                _fallback_target = 5.60
                 form_target = st.number_input(
                     "Target",
                     min_value=0.0001,
