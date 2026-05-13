@@ -31,13 +31,13 @@ class TestConditionRoundTrip:
             {"field": "with_carry", "op": "==", "value": True},
         ]
         df = _conditions_to_df(when)
-        conds, errors = _df_to_conditions(df)
+        conds, errors = _df_to_conditions(df, ["carry_regime", "with_carry"])
         assert errors == []
         assert conds == when
 
     def test_blank_rows_skipped(self):
         df = pd.DataFrame([{"field": "", "op": "", "value": ""}])
-        conds, errors = _df_to_conditions(df)
+        conds, errors = _df_to_conditions(df, ["carry_regime"])
         assert conds == []
         assert errors == []
 
@@ -62,6 +62,29 @@ class TestSimulateContextFire:
             "prefs": {"primary_objective": "Balanced", "trade_management": "Standard hold"},
         })
         assert fired == "first"
+
+    def test_all_matches_mode_returns_all_matching_ids(self):
+        contexts = [
+            {"id": "cost", "when": [{"field": "primary_objective", "op": "==", "value": "Keep cost low"}], "multipliers": {}},
+            {"id": "mtm", "when": [{"field": "trade_management", "op": "==", "value": "Need defendable mark-to-market"}], "multipliers": {}},
+        ]
+
+        class _MS:
+            carry_regime = 1
+            with_carry = True
+            T = 0.25
+            vol = 0.25
+            target_z = 1.0
+            atmfsratio = 1.0
+
+        fired = _simulate_context_fire(contexts, {
+            "ms": _MS,
+            "prefs": {
+                "primary_objective": "Keep cost low",
+                "trade_management": "Need defendable mark-to-market",
+            },
+        }, all_matches=True)
+        assert fired == ["cost", "mtm"]
 
 
 class TestValidateContexts:
@@ -91,11 +114,11 @@ class TestScenarioWeightPersistenceHelpers:
             "multipliers": {},
         }]
         latest_cfg = {
-            "weightings": [{
+            "base_weightings": [{
                 "id": "classic_carry",
                 "multipliers": {"Expiry|K": 1.6},
             }]
         }
-        merged = _merge_contexts_with_latest_multipliers(contexts, latest_cfg)
+        merged = _merge_contexts_with_latest_multipliers(contexts, latest_cfg, config_key="base_weightings")
         assert merged[0]["id"] == "classic_carry_v2"
         assert merged[0]["multipliers"] == {"Expiry|K": 1.6}
