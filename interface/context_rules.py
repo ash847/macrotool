@@ -131,6 +131,9 @@ def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> No
 
 def _render_context_weights(cfg: dict) -> None:
     contexts = cfg["base_weightings"]
+    if not contexts:
+        st.info("No base weightings configured yet.")
+        return
     labels = [_ctx_label(c) for c in contexts]
     selected = st.selectbox("Weighting", labels, key="ctx_grid_select")
     ctx = next(c for c in contexts if _ctx_label(c) == selected)
@@ -180,6 +183,9 @@ def _render_choosing_a_context(cfg: dict) -> None:
 
 def _render_overlay_weights(cfg: dict) -> None:
     overlays = cfg["preference_overlays"]
+    if not overlays:
+        st.info("No PM overlays configured yet.")
+        return
     labels = [_ctx_label(c) for c in overlays]
     selected = st.selectbox("Overlay", labels, key="overlay_grid_select")
     ctx = next(c for c in overlays if _ctx_label(c) == selected)

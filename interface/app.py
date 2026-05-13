@@ -1144,11 +1144,16 @@ else:
             st.subheader("Structure Evaluation")
 
             # Active weighting — show prominently so it's visible without expanding.
+            _base_fired = getattr(_ev_weighter, "base_fired", None)
+            _overlay_fired = getattr(_ev_weighter, "overlay_fired", [])
+            _fired_all = getattr(_ev_weighter, "fired", [])
             _active_parts = []
-            if _ev_weighter.base_fired:
-                _active_parts.append(_ev_weighter.base_fired.id.replace("_", " ").title())
-            if _ev_weighter.overlay_fired:
-                _active_parts.extend(_ctx.id.replace("_", " ").title() for _ctx in _ev_weighter.overlay_fired)
+            if _base_fired:
+                _active_parts.append(_base_fired.id.replace("_", " ").title())
+            if _overlay_fired:
+                _active_parts.extend(_ctx.id.replace("_", " ").title() for _ctx in _overlay_fired)
+            if not _active_parts and _fired_all:
+                _active_parts.append(_fired_all[0].id.replace("_", " ").title())
             _active_ctx = " + ".join(_active_parts) if _active_parts else "Baseline grid"
             st.markdown(f"**Active scenario weighting:** {_active_ctx}")
 
@@ -1184,12 +1189,12 @@ else:
                             "Weight": f"{_ev_weights[_cid]:.1%}",
                         })
                 st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
-                if _ev_weighter.fired:
+                if _fired_all:
                     _ctx_rows = [{
-                        "Layer": "Base" if _ctx == _ev_weighter.base_fired else "Overlay",
+                        "Layer": "Base" if _ctx == _base_fired else "Overlay",
                         "Weighting": _ctx.id.replace("_", " "),
                         "Reasoning": _ctx.comment,
-                    } for _ctx in _ev_weighter.fired]
+                    } for _ctx in _fired_all]
                     st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
                 else:
                     st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
