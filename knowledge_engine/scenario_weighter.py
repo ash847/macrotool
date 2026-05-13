@@ -38,6 +38,8 @@ class WeighterResult:
     weights: dict[str, float]
     multipliers: dict[str, float]
     fired: list[FiredWeighting]
+    base_fired: FiredWeighting | None
+    overlay_fired: list[FiredWeighting]
     baseline: float
     min_multiplier: float
 
@@ -54,11 +56,53 @@ def _migrate_config_shape(cfg: dict) -> dict:
     cfg = dict(cfg)
     cfg.setdefault("baseline", 1.0)
     cfg.setdefault("min_multiplier", 0.1)
-    cfg.setdefault("weightings", [])
-    for ctx in cfg["weightings"]:
-        if "multipliers" not in ctx:
-            ctx["multipliers"] = {}
-        ctx.pop("adjustments", None)
+    raw_weightings = cfg.pop("weightings", None)
+    if raw_weightings is not None:
+        base_weightings = []
+        preference_overlays = []
+        for ctx in raw_weightings:
+            migrated = dict(ctx)
+            migrated.setdefault("multipliers", {})
+            migrated.pop("adjustments", None)
+            ctx_id = str(migrated.get("id", ""))
+            if ctx_id == "cheap_carry":
+                preference_overlays.append({
+                    "id": "objective_keep_cost_low",
+                    "comment": migrated.get("comment", ""),
+                    "when": [{"field": "primary_objective", "op": "==", "value": "Keep cost low"}],
+                    "multipliers": migrated.get("multipliers", {}),
+                })
+                continue
+            if ctx_id == "conservative_carry":
+                preference_overlays.append({
+                    "id": "objective_keep_risk_clean",
+                    "comment": migrated.get("comment", ""),
+                    "when": [{"field": "primary_objective", "op": "==", "value": "Keep risk clean"}],
+                    "multipliers": migrated.get("multipliers", {}),
+                })
+                continue
+            if ctx_id == "delta_carry":
+                preference_overlays.append({
+                    "id": "management_monetise_early",
+                    "comment": migrated.get("comment", ""),
+                    "when": [{"field": "trade_management", "op": "==", "value": "May monetise early"}],
+                    "multipliers": migrated.get("multipliers", {}),
+                })
+                continue
+            migrated["when"] = [
+                cond for cond in migrated.get("when", [])
+                if cond.get("field") not in {"primary_objective", "trade_management"}
+            ]
+            base_weightings.append(migrated)
+        cfg["base_weightings"] = base_weightings
+        cfg["preference_overlays"] = preference_overlays
+    cfg.setdefault("base_weightings", [])
+    cfg.setdefault("preference_overlays", [])
+    for bucket in ("base_weightings", "preference_overlays"):
+        for ctx in cfg[bucket]:
+            if "multipliers" not in ctx:
+                ctx["multipliers"] = {}
+            ctx.pop("adjustments", None)
     return cfg
 
 
@@ -153,20 +197,36 @@ def compute_family_weights(
         "trade_management": trade_management,
     }
 
-    fired: list[FiredContext] = []
-    for ctx in cfg["weightings"]:
+    base_fired: FiredContext | None = None
+    for ctx in cfg["base_weightings"]:
         if not _all_conditions_met(ctx.get("when", []), ms, prefs):
             continue
         overrides = ctx.get("multipliers", {})
         for cid, value in overrides.items():
             if cid in multipliers:
                 multipliers[cid] = max(float(value), min_multiplier)
-        fired.append(FiredWeighting(
+        base_fired = FiredWeighting(
+            id=ctx["id"],
+            multipliers={cid: multipliers[cid] for cid in valid_cells},
+            comment=ctx.get("comment", ""),
+        )
+        break
+
+    overlay_fired: list[FiredWeighting] = []
+    for ctx in cfg["preference_overlays"]:
+        if not _all_conditions_met(ctx.get("when", []), ms, prefs):
+            continue
+        overrides = ctx.get("multipliers", {})
+        for cid, value in overrides.items():
+            if cid in multipliers:
+                multipliers[cid] = max(multipliers[cid] * float(value), min_multiplier)
+        overlay_fired.append(FiredWeighting(
             id=ctx["id"],
             multipliers={cid: multipliers[cid] for cid in valid_cells},
             comment=ctx.get("comment", ""),
         ))
-        break
+
+    fired: list[FiredContext] = ([base_fired] if base_fired else []) + overlay_fired
 
     total = sum(multipliers.values())
     if total <= 0:
@@ -178,6 +238,8 @@ def compute_family_weights(
         weights=weights,
         multipliers=multipliers,
         fired=fired,
+        base_fired=base_fired,
+        overlay_fired=overlay_fired,
         baseline=baseline,
         min_multiplier=min_multiplier,
     )

@@ -1,8 +1,8 @@
 {
-  "_description": "Scenario grid multipliers. Each trade activates at most one market-state context (first match in priority order). The selected context supplies explicit scenario-grid multipliers, which are converted to normalized weights for weighted-average structure evaluation.",
-  "_selection": "first_match — contexts are evaluated top-to-bottom; the first one whose conditions are all satisfied is applied. Order matters: more specific conditions should come before broader ones.",
+  "_description": "Scenario grid multipliers. Each trade activates at most one base market-state weighting (first match in priority order). Zero or more PM preference overlays are then applied on top. The combined multipliers are converted to normalized weights for weighted-average structure evaluation.",
+  "_selection": "Base weightings are evaluated top-to-bottom and the first full match is applied. PM overlays are evaluated independently and all matching overlays stack on top of the base grid. Order matters for base weightings, but not for overlays.",
   "_what_the_weights_mean": "Each multiplier scales the importance of one explicit grid cell. A value of 1.0 means baseline importance; higher values emphasize the scenario, lower values de-emphasize it. Final structure scoring uses a weighted average across valid cells.",
-  "_baseline_logic": "All valid grid cells start at the universal baseline multiplier. The active context overrides individual cells. Final scenario weights are the normalized multipliers over the valid cells for that tenor.",
+  "_baseline_logic": "All valid grid cells start at the universal baseline multiplier. The active base weighting overrides individual cells. Matching PM overlays then multiply specific cells on top. Final scenario weights are the normalized multipliers over the valid cells for that tenor.",
   "_grid_rows": [
     "1w",
     "25%T",
@@ -20,10 +20,10 @@
   ],
   "baseline": 1.0,
   "min_multiplier": 0.1,
-  "weightings": [
+  "base_weightings": [
     {
       "id": "classic_carry",
-      "comment": "Baseline carry trade: carry-to-vol H or M, moderate target distance, with carry, neutral PM preferences. The PM is collecting carry without a strong stylistic preference — start at baseline and tune adjustments to favour carry-collection scenarios.",
+      "comment": "Baseline carry trade: carry-to-vol H or M, moderate target distance, with carry. PM preferences are handled separately as overlays.",
       "when": [
         {
           "field": "carry_regime",
@@ -42,149 +42,18 @@
           "field": "with_carry",
           "op": "==",
           "value": true
-        },
-        {
-          "field": "primary_objective",
-          "op": "in",
-          "value": [
-            "Balanced",
-            "Hold up if the path is slow/noisy"
-          ]
-        },
-        {
-          "field": "trade_management",
-          "op": "in",
-          "value": [
-            "Standard hold",
-            "Need defendable mark-to-market"
-          ]
-        }
-      ],
-      "multipliers": {}
-    },
-    {
-      "id": "cheap_carry",
-      "comment": "Cost-focused carry trade: same setup as classic carry but PM wants to keep premium low. Penalise scenarios where premium decays without payout — particularly NO_MOVE and slow-bleed paths.",
-      "when": [
-        {
-          "field": "carry_regime",
-          "op": "in",
-          "value": [
-            1,
-            2
-          ]
-        },
-        {
-          "field": "target_z_abs",
-          "op": "<=",
-          "value": 1.25
-        },
-        {
-          "field": "with_carry",
-          "op": "==",
-          "value": true
-        },
-        {
-          "field": "primary_objective",
-          "op": "==",
-          "value": "Keep cost low"
-        },
-        {
-          "field": "trade_management",
-          "op": "in",
-          "value": [
-            "Standard hold",
-            "Need defendable mark-to-market"
-          ]
-        }
-      ],
-      "multipliers": {}
-    },
-    {
-      "id": "conservative_carry",
-      "comment": "Risk-clean carry trade: same setup but PM wants no nasty tails. Penalise WRONG_WAY and OVERSHOOT heavily — clean exit beats marginal extra payout.",
-      "when": [
-        {
-          "field": "carry_regime",
-          "op": "in",
-          "value": [
-            1,
-            2
-          ]
-        },
-        {
-          "field": "target_z_abs",
-          "op": "<=",
-          "value": 1.25
-        },
-        {
-          "field": "with_carry",
-          "op": "==",
-          "value": true
-        },
-        {
-          "field": "primary_objective",
-          "op": "==",
-          "value": "Keep risk clean"
-        }
-      ],
-      "multipliers": {}
-    },
-    {
-      "id": "delta_carry",
-      "comment": "Carry trade where PM intends to monetise early. Penalise structures with low inception delta (i.e. structures whose value response to small moves early in the life is muted) — favour high-delta scenarios where mark-to-market moves quickly.",
-      "when": [
-        {
-          "field": "carry_regime",
-          "op": "in",
-          "value": [
-            1,
-            2
-          ]
-        },
-        {
-          "field": "target_z_abs",
-          "op": "<=",
-          "value": 1.25
-        },
-        {
-          "field": "with_carry",
-          "op": "==",
-          "value": true
-        },
-        {
-          "field": "primary_objective",
-          "op": "in",
-          "value": [
-            "Balanced",
-            "Keep cost low",
-            "Hold up if the path is slow/noisy"
-          ]
-        },
-        {
-          "field": "trade_management",
-          "op": "==",
-          "value": "May monetise early"
         }
       ],
       "multipliers": {}
     },
     {
       "id": "big_move",
-      "comment": "Large expected move (>1.25σ from forward), any carry, any direction. PM is positioned for a meaningful displacement — amplify reward scenarios (CORRECT_PATH, OVERSHOOT) and penalise WRONG_WAY heavily. Excludes the 'defendable MtM' style which prefers smaller, smoother trades.",
+      "comment": "Large expected move (>1.25σ from forward), any carry, any direction. PM style overlays can further tilt this, but the base market state is simply that the trade is positioned for a meaningful displacement.",
       "when": [
         {
           "field": "target_z_abs",
           "op": ">",
           "value": 1.25
-        },
-        {
-          "field": "trade_management",
-          "op": "in",
-          "value": [
-            "Standard hold",
-            "May monetise early"
-          ]
         }
       ],
       "multipliers": {}
@@ -352,6 +221,56 @@
           "field": "vol",
           "op": ">",
           "value": 0.2
+        }
+      ],
+      "multipliers": {}
+    }
+  ],
+  "preference_overlays": [
+    {
+      "id": "objective_keep_cost_low",
+      "comment": "Cost-focused PM overlay. Penalise scenarios where premium decays without payout, especially slow-bleed or flat paths.",
+      "when": [
+        {
+          "field": "primary_objective",
+          "op": "==",
+          "value": "Keep cost low"
+        }
+      ],
+      "multipliers": {}
+    },
+    {
+      "id": "objective_keep_risk_clean",
+      "comment": "Risk-clean PM overlay. Penalise ugly tail or overshoot outcomes where a structure can leave a messy mark-to-market.",
+      "when": [
+        {
+          "field": "primary_objective",
+          "op": "==",
+          "value": "Keep risk clean"
+        }
+      ],
+      "multipliers": {}
+    },
+    {
+      "id": "management_monetise_early",
+      "comment": "Early-monetisation PM overlay. Favour scenarios where mark-to-market responds faster early in the trade life.",
+      "when": [
+        {
+          "field": "trade_management",
+          "op": "==",
+          "value": "May monetise early"
+        }
+      ],
+      "multipliers": {}
+    },
+    {
+      "id": "management_defendable_mtm",
+      "comment": "Defendable mark-to-market PM overlay. Tilt away from noisy or extreme paths and toward smoother, easier-to-defend outcomes.",
+      "when": [
+        {
+          "field": "trade_management",
+          "op": "==",
+          "value": "Need defendable mark-to-market"
         }
       ],
       "multipliers": {}

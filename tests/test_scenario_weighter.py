@@ -36,7 +36,7 @@ class TestStructuralInvariants:
         assert set(result.multipliers) == set(result.weights)
         assert all(v > 0 for v in result.multipliers.values())
 
-    def test_at_most_one_context_fires(self):
+    def test_at_most_one_base_context_fires(self):
         states = [
             _ms(target_z=2.0, carry_regime=2, with_carry=True),
             _ms(target_z=0.2, carry_regime=0, with_carry=False, T=0.75, vol=0.25),
@@ -44,36 +44,50 @@ class TestStructuralInvariants:
         ]
         for ms in states:
             r = compute_family_weights(ms)
-            assert len(r.fired) <= 1
+            assert r.base_fired is None or isinstance(r.base_fired, FiredWeighting)
+            assert len([ctx for ctx in r.fired if ctx == r.base_fired]) <= 1
 
 
 class TestSelection:
     def test_default_state_fires_classic(self):
         r = compute_family_weights(_ms())
-        assert len(r.fired) == 1
-        assert r.fired[0].id == "classic_carry"
+        assert r.base_fired is not None
+        assert r.base_fired.id == "classic_carry"
+        assert r.overlay_fired == []
 
-    def test_keep_cost_low_fires_cheap_carry(self):
+    def test_keep_cost_low_applies_overlay(self):
         r = compute_family_weights(_ms(carry_regime=2), primary_objective="Keep cost low")
-        assert r.fired[0].id == "cheap_carry"
+        assert r.base_fired is not None
+        assert r.base_fired.id == "classic_carry"
+        assert [ctx.id for ctx in r.overlay_fired] == ["objective_keep_cost_low"]
 
     def test_big_move_still_fires(self):
         r = compute_family_weights(_ms(target_z=1.5))
-        assert r.fired[0].id == "big_move"
+        assert r.base_fired is not None
+        assert r.base_fired.id == "big_move"
 
     def test_target_none_falls_back_to_no_context(self):
         r = compute_family_weights(_ms(target_z=None, carry_regime=1))
+        assert r.base_fired is None
         assert r.fired == []
+
+    def test_trade_management_overlay_stacks(self):
+        r = compute_family_weights(_ms(), trade_management="May monetise early")
+        assert r.base_fired is not None
+        assert r.base_fired.id == "classic_carry"
+        assert [ctx.id for ctx in r.overlay_fired] == ["management_monetise_early"]
 
 
 class TestTransparencyAndConfig:
     def test_fired_context_type(self):
         r = compute_family_weights(_ms())
-        assert isinstance(r.fired[0], FiredWeighting)
+        assert isinstance(r.base_fired, FiredWeighting)
 
     def test_config_uses_multipliers_shape(self):
         cfg = load_scenario_weights_config()
         assert "baseline" in cfg
         assert "min_multiplier" in cfg
-        for ctx in cfg["weightings"]:
+        assert "base_weightings" in cfg
+        assert "preference_overlays" in cfg
+        for ctx in cfg["base_weightings"] + cfg["preference_overlays"]:
             assert "multipliers" in ctx

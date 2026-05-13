@@ -1078,6 +1078,14 @@ else:
         )
         _ev_weights  = _ev_weighter.weights
         _ev_multipliers = _ev_weighter.multipliers
+        _ev_base_fired = getattr(_ev_weighter, "base_fired", None)
+        if _ev_base_fired is not None:
+            _ev_base_weights = {
+                _cid: _ev_base_fired.multipliers[_cid] / sum(_ev_base_fired.multipliers.values())
+                for _cid in _ev_base_fired.multipliers
+            }
+        else:
+            _ev_base_weights = _ev_weights
 
         _ev_base = flow.view.pair[:3]
 
@@ -1111,12 +1119,12 @@ else:
                     _ev_pv, _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
                 )
                 _ev_score = _score_struct(_ev_rows, _ev_weights)
-                _ev_score_bl = _score_struct(_ev_rows, {r["scenario_id"]: 1.0 for r in _ev_rows})
+                _ev_score_base = _score_struct(_ev_rows, _ev_base_weights)
                 _ev_variants.append({
                     "pv": _ev_pv,
                     "rows": _ev_rows,
                     "score": _ev_score,
-                    "score_bl": _ev_score_bl,
+                    "score_base": _ev_score_base,
                 })
             if not _ev_variants:
                 continue
@@ -1133,10 +1141,17 @@ else:
             st.subheader("Structure Evaluation")
 
             # Active weighting — show prominently so it's visible without expanding.
-            _active_ctx = (
-                _ev_weighter.fired[0].id.replace("_", " ").title()
-                if _ev_weighter.fired else "Baseline grid"
-            )
+            _base_fired = getattr(_ev_weighter, "base_fired", None)
+            _overlay_fired = getattr(_ev_weighter, "overlay_fired", [])
+            _fired_all = getattr(_ev_weighter, "fired", [])
+            _active_parts = []
+            if _base_fired:
+                _active_parts.append(_base_fired.id.replace("_", " ").title())
+            if _overlay_fired:
+                _active_parts.extend(_ctx.id.replace("_", " ").title() for _ctx in _overlay_fired)
+            if not _active_parts and _fired_all:
+                _active_parts.append(_fired_all[0].id.replace("_", " ").title())
+            _active_ctx = " + ".join(_active_parts) if _active_parts else "Baseline grid"
             st.markdown(f"**Active scenario weighting:** {_active_ctx}")
 
             # Supporting market state detail for sense-checking.
@@ -1171,11 +1186,12 @@ else:
                             "Weight": f"{_ev_weights[_cid]:.1%}",
                         })
                 st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
-                if _ev_weighter.fired:
+                if _fired_all:
                     _ctx_rows = [{
+                        "Layer": "Base" if _ctx == _base_fired else "Overlay",
                         "Weighting": _ctx.id.replace("_", " "),
                         "Reasoning": _ctx.comment,
-                    } for _ctx in _ev_weighter.fired]
+                    } for _ctx in _fired_all]
                     st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
                 else:
                     st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
@@ -1185,7 +1201,7 @@ else:
                     for _ix, _ev_v in enumerate(_ev_s["variants"]):
                         _pv0 = _ev_v["pv"]
                         _score = _ev_v["score"]
-                        _score_bl = _ev_v["score_bl"]
+                        _score_base = _ev_v["score_base"]
                         _notional_str = (
                             _fmt_ccy(_pv0.structure_notional, _ev_base)
                             if _pv0.structure_notional is not None else None
@@ -1195,10 +1211,10 @@ else:
                             _variant_title += f"  ·  Notional: {_notional_str}"
                         elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
                             _variant_title += "  ·  Notional: unscaled"
-                        _bl_pct = f"{_score_bl.score_pct:.2%}"
-                        _bl_ccy = (
-                            f"  ({_fmt_ccy_label(_score_bl.score_ccy, _ev_base)})"
-                            if _score_bl.score_ccy is not None
+                        _base_pct = f"{_score_base.score_pct:.2%}"
+                        _base_ccy = (
+                            f"  ({_fmt_ccy_label(_score_base.score_ccy, _ev_base)})"
+                            if _score_base.score_ccy is not None
                             else ("  (unscaled)" if _pv0.structure_notional is None else "")
                         )
                         _ctx_pct = f"{_score.score_pct:.2%}"
@@ -1208,8 +1224,8 @@ else:
                             else ("  (unscaled)" if _pv0.structure_notional is None else "")
                         )
                         _variant_title += (
-                            f"  ·  Weighted P&L (baseline): {_bl_pct}{_bl_ccy}"
-                            f"  ·  (scenario weighted): {_ctx_pct}{_ctx_ccy}"
+                            f"  ·  Scenario weighted P&L: {_base_pct}{_base_ccy}"
+                            f"  ·  PM overlay weighted P&L: {_ctx_pct}{_ctx_ccy}"
                         )
 
                         with st.expander(_variant_title, expanded=(_ix == 0)):
