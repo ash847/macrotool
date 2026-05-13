@@ -58,6 +58,16 @@ _FIELD_LABELS = {
     "trade_management": "Trade management",
 }
 
+_PM_OVERLAY_SPECS = [
+    ("primary_objective", "Balanced", "Primary objective"),
+    ("primary_objective", "Keep cost low", "Primary objective"),
+    ("primary_objective", "Hold up if the path is slow/noisy", "Primary objective"),
+    ("primary_objective", "Keep risk clean", "Primary objective"),
+    ("trade_management", "Standard hold", "Trade management style"),
+    ("trade_management", "May monetise early", "Trade management style"),
+    ("trade_management", "Need defendable mark-to-market", "Trade management style"),
+]
+
 
 def _valid_cell_ids() -> list[str]:
     return [cell_id(r, c) for r in GRID_ROWS for c in VALID_GRID_CELLS[r]]
@@ -65,6 +75,45 @@ def _valid_cell_ids() -> list[str]:
 
 def _ctx_label(ctx: dict) -> str:
     return ctx["id"].replace("_", " ")
+
+
+def _overlay_id_for_preference(field: str, value: str) -> str:
+    prefix = "objective" if field == "primary_objective" else "management"
+    slug = "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return f"{prefix}_{slug}"
+
+
+def _overlay_comment_for_preference(field: str, value: str, current_comment: str = "") -> str:
+    if current_comment:
+        return current_comment
+    if field == "primary_objective":
+        return f"PM overlay for the '{value}' primary objective."
+    return f"PM overlay for the '{value}' trade management style."
+
+
+def _label_for_preference(field: str, value: str, label: str) -> str:
+    return f"{label}: {value}"
+
+
+def _ensure_preference_overlays(cfg: dict) -> list[dict]:
+    existing = {
+        str(ctx.get("id", "")): copy.deepcopy(ctx)
+        for ctx in cfg.get("preference_overlays", [])
+    }
+    overlays: list[dict] = []
+    for field, value, label in _PM_OVERLAY_SPECS:
+        overlay_id = _overlay_id_for_preference(field, value)
+        ctx = existing.get(overlay_id, {})
+        overlays.append({
+            "id": overlay_id,
+            "comment": _overlay_comment_for_preference(field, value, str(ctx.get("comment", ""))),
+            "when": [{"field": field, "op": "==", "value": value}],
+            "multipliers": copy.deepcopy(ctx.get("multipliers", {})),
+            "_display_label": _label_for_preference(field, value, label),
+        })
+    return overlays
 
 
 def _fmt_conditions(when: list[dict]) -> str:
@@ -181,24 +230,31 @@ def _render_choosing_a_context(cfg: dict) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_overlay_weights(cfg: dict) -> None:
-    overlays = cfg["preference_overlays"]
-    if not overlays:
-        st.info("No PM overlays configured yet.")
-        return
-    labels = [_ctx_label(c) for c in overlays]
-    selected = st.selectbox("Overlay", labels, key="overlay_grid_select")
-    ctx = next(c for c in overlays if _ctx_label(c) == selected)
+def _render_pm_overlay_editor(cfg: dict) -> None:
+    overlays = _ensure_preference_overlays(cfg)
+    cfg["preference_overlays"] = [
+        {k: copy.deepcopy(v) for k, v in ctx.items() if not k.startswith("_")}
+        for ctx in overlays
+    ]
+    labels = [ctx["_display_label"] for ctx in overlays]
+    selected = st.selectbox("PM preference", labels, key="overlay_grid_select")
+    ctx = next(c for c in overlays if c["_display_label"] == selected)
     overrides = {
         cid: val for cid, val in ctx.get("multipliers", {}).items()
         if abs(float(val) - float(cfg["baseline"])) > 1e-9
     }
-    st.markdown(f"**Reasoning:** {ctx.get('comment', '')}")
     st.markdown(f"**Applies when:** {_fmt_conditions(ctx.get('when', []))}")
-    st.caption(f"Explicit overrides in this overlay: **{len(overrides)}**")
+    st.caption(
+        f"Editing the PM overlay for **{selected}**. "
+        f"Explicit overrides in this grid: **{len(overrides)}**."
+    )
     _render_grid_editor(ctx, cfg["baseline"], cfg["min_multiplier"])
+    for idx, existing_ctx in enumerate(cfg["preference_overlays"]):
+        if existing_ctx["id"] == ctx["id"]:
+            cfg["preference_overlays"][idx]["multipliers"] = copy.deepcopy(ctx["multipliers"])
+            break
 
-    if st.button("Save overlay multipliers", type="primary", use_container_width=True):
+    if st.button("Save PM overlay", type="primary", use_container_width=True):
         try:
             from interface.supabase_logger import save_config as _save
             ok = _save(
@@ -209,28 +265,11 @@ def _render_overlay_weights(cfg: dict) -> None:
             )
             if ok:
                 clear_scenario_weights_cache()
-                st.success("Saved. New PM overlay multipliers apply on the next trade query.")
+                st.success("Saved. This PM overlay will apply on the next trade query.")
             else:
                 st.error("Save failed — Supabase not configured or unreachable.")
         except Exception as e:
             st.error(f"Save error: {e}")
-
-
-def _render_choosing_an_overlay(cfg: dict) -> None:
-    rows = []
-    for ctx in cfg["preference_overlays"]:
-        overrides = sum(
-            1
-            for cid, val in ctx.get("multipliers", {}).items()
-            if cid in _valid_cell_ids() and abs(float(val) - float(cfg["baseline"])) > 1e-9
-        )
-        rows.append({
-            "Overlay": _ctx_label(ctx),
-            "Applies when": _fmt_conditions(ctx.get("when", [])),
-            "Overrides": overrides,
-            "Reasoning": ctx.get("comment", ""),
-        })
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _init_priority_state(cfg: dict) -> list[dict]:
@@ -461,111 +500,6 @@ def _render_base_priority_conditions(cfg: dict) -> None:
         st.rerun()
 
 
-def _render_overlay_priority_conditions(cfg: dict) -> None:
-    if _OVERLAY_PRIORITY_STATE_KEY not in st.session_state:
-        st.session_state[_OVERLAY_PRIORITY_STATE_KEY] = _init_priority_state({"weightings": cfg["preference_overlays"]})
-    contexts: list[dict] = st.session_state[_OVERLAY_PRIORITY_STATE_KEY]
-
-    st.subheader("Live preview")
-    p1 = st.columns(2)
-    with p1[0]:
-        prev_prim = st.selectbox("Primary objective", _PRIM_OPTS, index=0, key="overlay_pv_prim")
-    with p1[1]:
-        prev_mgmt = st.selectbox("Trade management", _MGMT_OPTS, index=0, key="overlay_pv_mgmt")
-
-    class _PreviewMS:
-        carry_regime = 1
-        with_carry = True
-        T = 0.25
-        vol = 0.12
-        target_z = 1.0
-        atmfsratio = 1.0
-
-    fired = _simulate_context_fire(
-        contexts,
-        {"ms": _PreviewMS, "prefs": {"primary_objective": prev_prim, "trade_management": prev_mgmt}},
-        all_matches=True,
-    )
-    st.success(f"Applies: **{', '.join(fired)}**") if fired else st.info("No overlay matches")
-
-    st.divider()
-    for i, ctx in enumerate(contexts):
-        uid = ctx.get("_uid", str(i))
-        with st.expander(f"**#{i + 1}** — {ctx.get('id', '(unnamed)')}"):
-            b = st.columns([1, 1, 1, 5])
-            if b[0].button("▲ Up", key=f"overlay_up_{uid}", disabled=(i == 0), use_container_width=True):
-                contexts[i - 1], contexts[i] = contexts[i], contexts[i - 1]
-                st.rerun()
-            if b[1].button("▼ Down", key=f"overlay_dn_{uid}", disabled=(i == len(contexts) - 1), use_container_width=True):
-                contexts[i], contexts[i + 1] = contexts[i + 1], contexts[i]
-                st.rerun()
-            if b[2].button("Delete", key=f"overlay_del_{uid}", use_container_width=True):
-                contexts.pop(i)
-                st.rerun()
-            id_col, cmt_col = st.columns([1, 2])
-            ctx["id"] = id_col.text_input("Overlay ID", value=ctx.get("id", ""), key=f"overlay_cid_{uid}")
-            ctx["comment"] = cmt_col.text_area("Reasoning / comment", value=ctx.get("comment", ""), key=f"overlay_cmt_{uid}", height=110)
-            cond_df = _conditions_to_df(ctx.get("when", []))
-            edited_df = st.data_editor(
-                cond_df, key=f"overlay_cond_{uid}", use_container_width=True, num_rows="dynamic",
-                column_config={
-                    "field": st.column_config.SelectboxColumn("Field", options=_OVERLAY_COND_FIELDS, required=True),
-                    "op": st.column_config.SelectboxColumn("Op", options=["==", "!=", "in"], required=True),
-                    "value": st.column_config.TextColumn("Value"),
-                },
-            )
-            new_conds, parse_errs = _df_to_conditions(edited_df, _OVERLAY_COND_FIELDS)
-            for err in parse_errs:
-                st.caption(f"⚠️ {err}")
-            ctx["when"] = new_conds
-
-    if st.button("➕ Add overlay", key="add_overlay_btn"):
-        contexts.append({
-            "_uid": str(uuid.uuid4()),
-            "_original_id": "",
-            "id": f"new_overlay_{len(contexts) + 1}",
-            "comment": "",
-            "when": [],
-            "multipliers": {},
-        })
-        st.rerun()
-
-    save_col, revert_col, _ = st.columns([1, 1, 4])
-    if save_col.button("Save overlay rules", type="primary", key="save_overlay_prio", use_container_width=True):
-        errors = _validate_contexts(contexts)
-        if errors:
-            for e in errors:
-                st.error(e)
-        else:
-            try:
-                from interface.supabase_logger import save_config as _save_cfg
-                clear_scenario_weights_cache()
-                latest_cfg = load_scenario_weights_config()
-                new_cfg = copy.deepcopy(latest_cfg)
-                new_cfg["preference_overlays"] = _merge_contexts_with_latest_multipliers(
-                    contexts,
-                    latest_cfg,
-                    config_key="preference_overlays",
-                )
-                ok = _save_cfg(
-                    "scenario_definitions",
-                    new_cfg,
-                    _admin=is_admin_user(),
-                    user_email=current_user_email(),
-                )
-                if ok:
-                    clear_scenario_weights_cache()
-                    st.success("Saved. Updated PM overlay rules apply on the next trade query.")
-                else:
-                    st.error("Save failed — Supabase not configured or unreachable.")
-            except Exception as e:
-                st.error(f"Save error: {e}")
-    if revert_col.button("Revert overlays", key="revert_overlay_prio", use_container_width=True):
-        st.session_state.pop(_OVERLAY_PRIORITY_STATE_KEY, None)
-        clear_scenario_weights_cache()
-        st.rerun()
-
-
 def render() -> None:
     assert_admin()
     st.header("Scenario Weightings")
@@ -575,13 +509,11 @@ def render() -> None:
     )
     cfg = load_scenario_weights_config()
     st.caption(f"Loaded from: `{get_scenario_weights_source()}`")
-    tab_base_grid, tab_base_read, tab_base_write, tab_overlay_grid, tab_overlay_read, tab_overlay_write = st.tabs(
+    tab_base_grid, tab_base_read, tab_base_write, tab_pm_overlay = st.tabs(
         [
             "Base scenario grid",
             "Base weighting selection",
             "Base weighting editor",
-            "PM overlay grids",
-            "PM overlay selection",
             "PM overlay editor",
         ]
     )
@@ -591,9 +523,5 @@ def render() -> None:
         _render_choosing_a_context(cfg)
     with tab_base_write:
         _render_base_priority_conditions(cfg)
-    with tab_overlay_grid:
-        _render_overlay_weights(cfg)
-    with tab_overlay_read:
-        _render_choosing_an_overlay(cfg)
-    with tab_overlay_write:
-        _render_overlay_priority_conditions(cfg)
+    with tab_pm_overlay:
+        _render_pm_overlay_editor(cfg)
