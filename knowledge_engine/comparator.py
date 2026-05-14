@@ -18,6 +18,7 @@ from typing import Literal
 
 from analytics.market_state import MarketState
 from knowledge_engine.models import StructureSelectionResult, StructureShortlistItem
+from knowledge_engine.scenario_scorer import ScoreResult
 
 
 Polarity = Literal["chosen_edge", "challenger_edge", "caveat", "counterfactual"]
@@ -76,6 +77,31 @@ class PMPreferences:
     primary_objective: str = "Balanced"
     trade_management: str = "Standard hold"
     structure_constraint: str = "No restriction"
+
+
+@dataclass(frozen=True)
+class StructureScorePair:
+    base: ScoreResult | None
+    pm: ScoreResult | None
+
+
+@dataclass(frozen=True)
+class VariantEvaluation:
+    variant: object
+    rows: list[dict]
+    base_score: ScoreResult
+    pm_score: ScoreResult
+
+
+@dataclass(frozen=True)
+class ComparatorInputs:
+    scenarios: list[dict]
+    priced_variants_by_structure: dict[str, list[object]]
+    scenario_rows_by_structure: dict[str, list[dict]]
+    base_scores_by_structure: dict[str, ScoreResult]
+    pm_scores_by_structure: dict[str, ScoreResult]
+    score_pairs_by_structure: dict[str, StructureScorePair]
+    variant_evaluations_by_structure: dict[str, list[VariantEvaluation]]
 
 
 @dataclass(frozen=True)
@@ -302,6 +328,112 @@ def build_recommendation_pack(
     )
 
 
+def build_comparator_inputs(
+    market_state: MarketState,
+    selector_result: StructureSelectionResult,
+    *,
+    target: float,
+    is_call: bool,
+    stop_price: float | None,
+    loss_budget: float | None,
+    preferences: PMPreferences | None = None,
+) -> ComparatorInputs:
+    """
+    Build real pricing/scenario inputs for the comparator from existing engines.
+
+    The comparator should remain an explanation layer, so this function is only
+    a thin adapter around the existing variant pricer, scenario generator,
+    scenario pricer, scenario weighter, and scenario scorer.
+    """
+    from analytics.scenario_generator import generate_scenarios
+    from analytics.scenario_pricer import price_scenarios
+    from analytics.structure_pricer import price_variants
+    from knowledge_engine.scenario_scorer import score_structure
+    from knowledge_engine.scenario_weighter import compute_family_weights
+
+    prefs = preferences or PMPreferences()
+    trade_inputs = {
+        "spot": market_state.spot,
+        "forward": market_state.fwd,
+        "implied_vol": market_state.vol,
+        "tenor_years": market_state.T,
+        "target": target,
+        "r_d": market_state.r_d,
+        "r_f": market_state.r_f,
+    }
+    scenarios = generate_scenarios(trade_inputs)
+    weighter = compute_family_weights(
+        market_state,
+        primary_objective=prefs.primary_objective,
+        trade_management=prefs.trade_management,
+    )
+    base_weights = _base_weights_from_weighter(weighter)
+
+    priced_variants_by_structure: dict[str, list[object]] = {}
+    scenario_rows_by_structure: dict[str, list[dict]] = {}
+    base_scores_by_structure: dict[str, ScoreResult] = {}
+    pm_scores_by_structure: dict[str, ScoreResult] = {}
+    score_pairs_by_structure: dict[str, StructureScorePair] = {}
+    variant_evaluations_by_structure: dict[str, list[VariantEvaluation]] = {}
+
+    for item in selector_result.shortlist:
+        try:
+            variants = price_variants(
+                market_state,
+                item.structure_id,
+                target=target,
+                is_call=is_call,
+                stop_price=stop_price,
+                loss_budget=loss_budget,
+            )
+        except Exception:
+            variants = []
+        if not variants:
+            continue
+
+        priced_variants_by_structure[item.structure_id] = variants
+        evaluations: list[VariantEvaluation] = []
+        for variant in variants:
+            rows = price_scenarios(
+                variant,
+                item.structure_id,
+                scenarios,
+                trade_inputs,
+                is_call,
+            )
+            base_score = score_structure(rows, base_weights)
+            pm_score = score_structure(rows, weighter.weights)
+            evaluations.append(VariantEvaluation(
+                variant=variant,
+                rows=rows,
+                base_score=base_score,
+                pm_score=pm_score,
+            ))
+
+        if not evaluations:
+            continue
+
+        primary = evaluations[0]
+        scenario_rows_by_structure[item.structure_id] = primary.rows
+        base_scores_by_structure[item.structure_id] = primary.base_score
+        pm_scores_by_structure[item.structure_id] = primary.pm_score
+        score_pairs_by_structure[item.structure_id] = StructureScorePair(
+            base=primary.base_score,
+            pm=primary.pm_score,
+        )
+        variant_evaluations_by_structure[item.structure_id] = evaluations
+
+    return ComparatorInputs(
+        scenarios=scenarios,
+        priced_variants_by_structure=priced_variants_by_structure,
+        scenario_rows_by_structure=scenario_rows_by_structure,
+        base_scores_by_structure=base_scores_by_structure,
+        pm_scores_by_structure=pm_scores_by_structure,
+        score_pairs_by_structure=score_pairs_by_structure,
+        variant_evaluations_by_structure=variant_evaluations_by_structure,
+    )
+
+
 def _pick_comparison_targets(
     selector_result: StructureSelectionResult,
     scenario_scores_by_structure: dict[str, object],
@@ -407,3 +539,14 @@ def _dedupe_reasons(reasons: list[Reason]) -> list[Reason]:
         seen.add(key)
         result.append(reason)
     return result
+
+
+def _base_weights_from_weighter(weighter: object) -> dict[str, float]:
+    base_fired = getattr(weighter, "base_fired", None)
+    if base_fired is None:
+        return dict(getattr(weighter, "weights"))
+    multipliers = dict(base_fired.multipliers)
+    total = sum(multipliers.values())
+    if total <= 0:
+        return {cid: 1.0 / len(multipliers) for cid in multipliers}
+    return {cid: value / total for cid, value in multipliers.items()}

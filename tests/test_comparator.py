@@ -15,13 +15,16 @@ import pytest
 from analytics.market_state import MarketState
 from analytics.structure_pricer import PricedVariant
 from knowledge_engine.comparator import (
+    ComparatorInputs,
     ConstructionReason,
     PMPreferences,
     PairwiseComparison,
     REASON_CATALOG,
     RecommendationExplanationPack,
     Reason,
+    StructureScorePair,
     build_recommendation_pack,
+    build_comparator_inputs,
     compare_structures,
     make_reason,
 )
@@ -248,3 +251,55 @@ class TestRecommendationPackMVP:
             },
         )
         assert all(r.code != "selection_fit.target_supports_spread" for r in pack.summary_reasons)
+
+
+class TestComparatorInputBuilder:
+    def test_build_comparator_inputs_uses_real_pricing_and_scenarios(self):
+        chosen = _item("vanilla", 1, "Vanilla")
+        digital = _item("european_digital", 2, "European Digital")
+        selector_result = _selection_result(chosen, digital)
+
+        inputs = build_comparator_inputs(
+            _ms(),
+            selector_result,
+            target=5.00,
+            is_call=False,
+            stop_price=5.35,
+            loss_budget=2.0,
+        )
+
+        assert isinstance(inputs, ComparatorInputs)
+        assert set(inputs.priced_variants_by_structure) == {"vanilla", "european_digital"}
+        assert set(inputs.scenario_rows_by_structure) == {"vanilla", "european_digital"}
+        assert set(inputs.base_scores_by_structure) == {"vanilla", "european_digital"}
+        assert set(inputs.pm_scores_by_structure) == {"vanilla", "european_digital"}
+        assert isinstance(inputs.score_pairs_by_structure["vanilla"], StructureScorePair)
+        assert inputs.score_pairs_by_structure["vanilla"].base is inputs.base_scores_by_structure["vanilla"]
+        assert inputs.score_pairs_by_structure["vanilla"].pm is inputs.pm_scores_by_structure["vanilla"]
+        assert len(inputs.scenarios) == 20
+        assert len(inputs.scenario_rows_by_structure["vanilla"]) == 20
+        assert inputs.variant_evaluations_by_structure["vanilla"]
+        assert inputs.variant_evaluations_by_structure["vanilla"][0].rows
+
+    def test_real_inputs_feed_existing_pack_builder(self):
+        chosen = _item("vanilla", 1, "Vanilla")
+        digital = _item("european_digital", 2, "European Digital")
+        selector_result = _selection_result(chosen, digital)
+
+        inputs = build_comparator_inputs(
+            _ms(),
+            selector_result,
+            target=5.00,
+            is_call=False,
+            stop_price=5.35,
+            loss_budget=2.0,
+        )
+        pack = build_recommendation_pack(
+            _ms(),
+            selector_result,
+            inputs.priced_variants_by_structure,
+            inputs.pm_scores_by_structure,
+        )
+
+        assert pack.chosen_id == "vanilla"
+        assert "european_digital" in pack.comparisons
