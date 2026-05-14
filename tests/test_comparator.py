@@ -24,6 +24,7 @@ from knowledge_engine.comparator import (
     Reason,
     ScenarioAggregates,
     StructureScorePair,
+    rank_structures_by_scenario_score,
     build_recommendation_pack,
     build_comparator_inputs,
     compare_structures,
@@ -254,6 +255,51 @@ class TestRecommendationPackMVP:
         )
         assert all(r.code != "selection_fit.target_supports_spread" for r in pack.summary_reasons)
 
+    def test_build_pack_chooses_best_scenario_score_not_affinity_rank(self):
+        affinity_winner = _item("1x1_spread", 1, "1x1 Spread")
+        scenario_winner = _item("vanilla", 2, "Vanilla")
+
+        pack = build_recommendation_pack(
+            _ms(),
+            _selection_result(affinity_winner, scenario_winner),
+            {
+                "1x1_spread": [_variant(0.010)],
+                "vanilla": [_variant(0.016)],
+            },
+            {
+                "1x1_spread": _score(0.010),
+                "vanilla": _score(0.030),
+            },
+        )
+
+        assert pack.chosen_id == "vanilla"
+        assert pack.chosen_display_name == "Vanilla"
+        assert pack.recommendation_basis == "scenario_weighted_pnl"
+        assert [r.structure_id for r in pack.ranked_structures] == ["vanilla", "1x1_spread"]
+        assert pack.ranked_structures[0].affinity_rank == 2
+        assert pack.ranked_structures[0].scenario_rank == 1
+
+    def test_rank_structures_by_scenario_score_preserves_affinity_rank_metadata(self):
+        first = _item("1x1_spread", 1, "1x1 Spread")
+        second = _item("vanilla", 2, "Vanilla")
+        ranked = rank_structures_by_scenario_score(
+            _selection_result(first, second),
+            {
+                "1x1_spread": _score(0.010),
+                "vanilla": _score(0.030),
+            },
+            {
+                "1x1_spread": _score(0.012),
+                "vanilla": _score(0.025),
+            },
+        )
+
+        assert [r.structure_id for r in ranked] == ["vanilla", "1x1_spread"]
+        assert ranked[0].scenario_rank == 1
+        assert ranked[0].affinity_rank == 2
+        assert ranked[0].base_score_pct == pytest.approx(0.025)
+        assert ranked[0].pm_score_pct == pytest.approx(0.030)
+
 
 class TestComparatorInputBuilder:
     def test_build_comparator_inputs_uses_real_pricing_and_scenarios(self):
@@ -305,7 +351,8 @@ class TestComparatorInputBuilder:
             inputs.pm_scores_by_structure,
         )
 
-        assert pack.chosen_id == "vanilla"
+        assert pack.ranked_structures
+        assert pack.chosen_id == pack.ranked_structures[0].structure_id
         assert "european_digital" in pack.comparisons
 
 

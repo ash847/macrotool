@@ -66,6 +66,8 @@ class PairwiseComparison:
 class RecommendationExplanationPack:
     chosen_id: str
     chosen_display_name: str
+    recommendation_basis: Literal["scenario_weighted_pnl", "affinity_rank"] = "scenario_weighted_pnl"
+    ranked_structures: list["RankedStructure"] = field(default_factory=list)
     summary_reasons: list[Reason] = field(default_factory=list)
     construction_reasons: list[ConstructionReason] = field(default_factory=list)
     risk_reasons: list[Reason] = field(default_factory=list)
@@ -83,6 +85,16 @@ class PMPreferences:
 class StructureScorePair:
     base: ScoreResult | None
     pm: ScoreResult | None
+
+
+@dataclass(frozen=True)
+class RankedStructure:
+    structure_id: str
+    display_name: str
+    affinity_rank: int
+    scenario_rank: int
+    base_score_pct: float | None
+    pm_score_pct: float | None
 
 
 @dataclass(frozen=True)
@@ -302,12 +314,17 @@ def build_recommendation_pack(
         raise ValueError("Cannot build explanation pack without a shortlisted chosen structure")
 
     prefs = preferences or PMPreferences()
-    chosen = selector_result.shortlist[0]
+    ranked_structures = rank_structures_by_scenario_score(selector_result, scenario_scores_by_structure)
+    chosen_rank = ranked_structures[0] if ranked_structures else None
+    chosen = _item_for_structure_id(
+        selector_result,
+        chosen_rank.structure_id if chosen_rank is not None else selector_result.shortlist[0].structure_id,
+    )
 
     summary_reasons: list[Reason] = []
     risk_reasons = _risk_reasons_for_structure(chosen.structure_id)
 
-    comparison_targets = _pick_comparison_targets(selector_result, scenario_scores_by_structure)
+    comparison_targets = _pick_comparison_targets(selector_result, scenario_scores_by_structure, chosen.structure_id)
     if comparison_targets:
         first_challenger = comparison_targets[0]
         chosen_score = _score_pct(scenario_scores_by_structure.get(chosen.structure_id))
@@ -342,11 +359,47 @@ def build_recommendation_pack(
     return RecommendationExplanationPack(
         chosen_id=chosen.structure_id,
         chosen_display_name=chosen.display_name,
+        recommendation_basis="scenario_weighted_pnl" if ranked_structures else "affinity_rank",
+        ranked_structures=ranked_structures,
         summary_reasons=_dedupe_reasons(summary_reasons),
         construction_reasons=[],
         risk_reasons=_dedupe_reasons(risk_reasons),
         comparisons=comparisons,
     )
+
+
+def rank_structures_by_scenario_score(
+    selector_result: StructureSelectionResult,
+    scenario_scores_by_structure: dict[str, object],
+    base_scores_by_structure: dict[str, object] | None = None,
+) -> list[RankedStructure]:
+    """Rank priceable shortlisted structures by scenario score, preserving affinity rank."""
+    by_score: list[tuple[float, int, StructureShortlistItem]] = []
+    for item in selector_result.shortlist:
+        score = scenario_scores_by_structure.get(item.structure_id)
+        if score is None:
+            continue
+        by_score.append((_score_pct(score), item.rank, item))
+
+    by_score.sort(key=lambda x: (-x[0], x[1]))
+
+    ranked: list[RankedStructure] = []
+    for scenario_rank, (_, _, item) in enumerate(by_score, start=1):
+        base_score = (
+            _score_pct(base_scores_by_structure.get(item.structure_id))
+            if base_scores_by_structure and item.structure_id in base_scores_by_structure
+            else None
+        )
+        pm_score = _score_pct(scenario_scores_by_structure.get(item.structure_id))
+        ranked.append(RankedStructure(
+            structure_id=item.structure_id,
+            display_name=item.display_name,
+            affinity_rank=item.rank,
+            scenario_rank=scenario_rank,
+            base_score_pct=base_score,
+            pm_score_pct=pm_score,
+        ))
+    return ranked
 
 
 def build_comparator_inputs(
@@ -475,17 +528,18 @@ def summarize_scenario_rows(rows: list[dict]) -> ScenarioAggregates:
 def _pick_comparison_targets(
     selector_result: StructureSelectionResult,
     scenario_scores_by_structure: dict[str, object],
+    chosen_structure_id: str | None = None,
 ) -> list[StructureShortlistItem]:
     if not selector_result.shortlist:
         return []
 
-    chosen = selector_result.shortlist[0]
+    chosen_id = chosen_structure_id or selector_result.shortlist[0].structure_id
     targets: list[StructureShortlistItem] = []
 
     vanilla = next(
         (
             item for item in selector_result.shortlist
-            if item.structure_id == "vanilla" and item.structure_id != chosen.structure_id
+            if item.structure_id == "vanilla" and item.structure_id != chosen_id
         ),
         None,
     )
@@ -493,7 +547,7 @@ def _pick_comparison_targets(
         targets.append(vanilla)
 
     for item in selector_result.shortlist[1:]:
-        if item.structure_id == chosen.structure_id:
+        if item.structure_id == chosen_id:
             continue
         if any(existing.structure_id == item.structure_id for existing in targets):
             continue
@@ -502,6 +556,16 @@ def _pick_comparison_targets(
             break
 
     return targets[:2]
+
+
+def _item_for_structure_id(
+    selector_result: StructureSelectionResult,
+    structure_id: str,
+) -> StructureShortlistItem:
+    for item in selector_result.shortlist:
+        if item.structure_id == structure_id:
+            return item
+    raise KeyError(f"Structure {structure_id!r} is not in the shortlist")
 
 
 def _risk_reasons_for_structure(structure_id: str) -> list[Reason]:

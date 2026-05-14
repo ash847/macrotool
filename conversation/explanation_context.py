@@ -19,8 +19,19 @@ def render_explanation_pack(
     lines: list[str] = [
         "RECOMMENDATION EXPLANATION PACK",
         f"Chosen: {pack.chosen_display_name}",
+        f"Recommendation basis: {pack.recommendation_basis}",
         "",
     ]
+
+    if pack.ranked_structures:
+        ranking_lines = [
+            (
+                f"- {r.scenario_rank}. {r.display_name} "
+                f"(affinity rank {r.affinity_rank}, PM weighted P&L {_fmt_pct(r.pm_score_pct)})"
+            )
+            for r in pack.ranked_structures
+        ]
+        lines.extend(_section("Scenario ranking", ranking_lines))
 
     if pack.summary_reasons:
         lines.extend(_section("Summary", _reason_lines(pack.summary_reasons)))
@@ -85,3 +96,7 @@ def _reason_lines(reasons: list[Reason]) -> list[str]:
             line += f" {reason.detail}"
         lines.append(line)
     return lines
+
+
+def _fmt_pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2%}"
