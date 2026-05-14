@@ -52,6 +52,13 @@ def render_explanation_pack(
     for comparison in comparisons:
         lines.extend(_render_comparison(comparison))
 
+    if pack.unavailable_comparisons:
+        unavailable = [
+            f"- {item.challenger_display_name}: {item.plain}"
+            for item in pack.unavailable_comparisons
+        ]
+        lines.extend(_section("Unavailable comparisons", unavailable))
+
     lines.extend([
         "Disclosure:",
         "- Explain qualitatively.",

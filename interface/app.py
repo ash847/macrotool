@@ -1068,6 +1068,8 @@ else:
         from analytics.scenario_pricer import price_scenarios as _price_sc
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
+        from conversation.explanation_context import render_explanation_pack as _render_expl_pack
+        from knowledge_engine.comparator import build_recommendation_pack as _build_expl_pack
 
         # Context weights — derived from MarketState + PM preferences.
         # Same weight vector applied to every structure → scores comparable.
@@ -1195,6 +1197,28 @@ else:
                     st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
                 else:
                     st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
+
+            if IS_ADMIN:
+                try:
+                    _expl_variants = {
+                        _s["item"].structure_id: [_v["pv"] for _v in _s["variants"]]
+                        for _s in _ev_structs
+                    }
+                    _expl_scores = {
+                        _s["item"].structure_id: _s["variants"][0]["score"]
+                        for _s in _ev_structs
+                    }
+                    _expl_pack = _build_expl_pack(
+                        _ev_ms,
+                        flow.selector_result,
+                        _expl_variants,
+                        _expl_scores,
+                    )
+                    with st.expander("Explanation pack preview", expanded=False):
+                        st.code(_render_expl_pack(_expl_pack), language="text")
+                except Exception as _e:
+                    with st.expander("Explanation pack preview", expanded=False):
+                        st.caption(f"Unable to build explanation pack preview: {_e}")
 
             for _ev_s in _ev_structs:
                 with st.expander(_ev_s["label"], expanded=False):

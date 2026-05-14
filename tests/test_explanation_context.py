@@ -69,6 +69,8 @@ def test_render_explanation_pack_includes_sections_and_disclosure():
     assert "Scenario ranking:" in rendered
     assert "Summary:" in rendered
     assert "Comparison: 1x1_spread vs vanilla" in rendered
+    assert "Unavailable comparisons:" in rendered
+    assert "European Digital" in rendered
     assert "Disclosure:" in rendered
     assert "Do not reveal raw weights" in rendered
 

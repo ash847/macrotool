@@ -24,6 +24,7 @@ from knowledge_engine.comparator import (
     Reason,
     ScenarioAggregates,
     StructureScorePair,
+    UnavailableComparison,
     rank_structures_by_scenario_score,
     build_recommendation_pack,
     build_comparator_inputs,
@@ -237,6 +238,7 @@ class TestRecommendationPackMVP:
         assert any(r.code == "selection_fit.target_supports_spread" for r in pack.summary_reasons)
         assert any(r.code == "risk.capped_upside" for r in pack.risk_reasons)
         assert set(pack.comparisons) == {"vanilla", "european_digital"}
+        assert any(item.challenger_id == "european_digital_rko" for item in pack.unavailable_comparisons)
 
     def test_pack_omits_target_support_reason_when_no_target(self):
         chosen = _item("1x1_spread", 1, "1x1 Spread")
@@ -278,6 +280,72 @@ class TestRecommendationPackMVP:
         assert [r.structure_id for r in pack.ranked_structures] == ["vanilla", "1x1_spread"]
         assert pack.ranked_structures[0].affinity_rank == 2
         assert pack.ranked_structures[0].scenario_rank == 1
+
+    def test_unavailable_key_challengers_capture_not_shortlisted(self):
+        chosen = _item("1x1_spread", 1, "1x1 Spread")
+        pack = build_recommendation_pack(
+            _ms(),
+            _selection_result(chosen),
+            {"1x1_spread": [_variant(0.010)]},
+            {"1x1_spread": _score(0.030)},
+        )
+
+        unavailable = {item.challenger_id: item for item in pack.unavailable_comparisons}
+
+        assert isinstance(unavailable["vanilla"], UnavailableComparison)
+        assert unavailable["vanilla"].reason == "not_shortlisted"
+        assert unavailable["european_digital"].reason == "not_shortlisted"
+        assert unavailable["european_digital_rko"].reason == "not_shortlisted"
+
+    def test_unavailable_key_challengers_capture_not_priceable(self):
+        chosen = _item("1x1_spread", 1, "1x1 Spread")
+        digital = _item("european_digital", 2, "European Digital")
+        pack = build_recommendation_pack(
+            _ms(),
+            _selection_result(chosen, digital),
+            {"1x1_spread": [_variant(0.010)]},
+            {"1x1_spread": _score(0.030)},
+        )
+
+        unavailable = {item.challenger_id: item for item in pack.unavailable_comparisons}
+
+        assert unavailable["european_digital"].reason == "not_priceable"
+
+    def test_pack_builds_up_to_five_comparisons_from_scenario_ranked_targets(self):
+        chosen = _item("vanilla", 1, "Vanilla")
+        items = [
+            chosen,
+            _item("1x1_spread", 2, "1x1 Spread"),
+            _item("european_digital", 3, "European Digital"),
+            _item("european_digital_rko", 4, "European Digital with RKO"),
+            _item("seagull", 5, "Seagull"),
+            _item("1x2_spread", 6, "1x2 Spread"),
+        ]
+        variants = {item.structure_id: [_variant(0.010 + item.rank / 1000)] for item in items}
+        scores = {
+            "vanilla": _score(0.060),
+            "1x1_spread": _score(0.050),
+            "european_digital": _score(0.040),
+            "european_digital_rko": _score(0.030),
+            "seagull": _score(0.020),
+            "1x2_spread": _score(0.010),
+        }
+
+        pack = build_recommendation_pack(
+            _ms(),
+            _selection_result(*items),
+            variants,
+            scores,
+        )
+
+        assert len(pack.comparisons) == 5
+        assert set(pack.comparisons) == {
+            "1x1_spread",
+            "european_digital",
+            "european_digital_rko",
+            "seagull",
+            "1x2_spread",
+        }
 
     def test_rank_structures_by_scenario_score_preserves_affinity_rank_metadata(self):
         first = _item("1x1_spread", 1, "1x1 Spread")

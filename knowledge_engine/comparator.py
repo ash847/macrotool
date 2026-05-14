@@ -28,6 +28,11 @@ _CAPPED_STRUCTURES = {"1x1_spread", "1x1.5_spread", "1x2_spread", "seagull"}
 _BINARY_STRUCTURES = {"european_digital", "european_digital_rko"}
 _BARRIER_STRUCTURES = {"rko", "european_rko", "european_digital_rko"}
 _SPREAD_STRUCTURES = {"1x1_spread", "1x1.5_spread", "1x2_spread"}
+_KEY_CHALLENGERS = {
+    "vanilla": "Vanilla Option",
+    "european_digital": "European Digital",
+    "european_digital_rko": "European Digital with RKO",
+}
 
 
 @dataclass
@@ -63,6 +68,14 @@ class PairwiseComparison:
 
 
 @dataclass
+class UnavailableComparison:
+    challenger_id: str
+    challenger_display_name: str
+    reason: Literal["not_shortlisted", "not_priceable", "no_scenario_rows"]
+    plain: str
+
+
+@dataclass
 class RecommendationExplanationPack:
     chosen_id: str
     chosen_display_name: str
@@ -72,6 +85,7 @@ class RecommendationExplanationPack:
     construction_reasons: list[ConstructionReason] = field(default_factory=list)
     risk_reasons: list[Reason] = field(default_factory=list)
     comparisons: dict[str, PairwiseComparison] = field(default_factory=dict)
+    unavailable_comparisons: list[UnavailableComparison] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -355,6 +369,12 @@ def build_recommendation_pack(
         )
         for challenger in comparison_targets
     }
+    unavailable_comparisons = _unavailable_key_comparisons(
+        selector_result,
+        chosen.structure_id,
+        priced_variants_by_structure,
+        scenario_scores_by_structure,
+    )
 
     return RecommendationExplanationPack(
         chosen_id=chosen.structure_id,
@@ -365,6 +385,7 @@ def build_recommendation_pack(
         construction_reasons=[],
         risk_reasons=_dedupe_reasons(risk_reasons),
         comparisons=comparisons,
+        unavailable_comparisons=unavailable_comparisons,
     )
 
 
@@ -555,7 +576,62 @@ def _pick_comparison_targets(
         if len(targets) >= 2:
             break
 
-    return targets[:2]
+    for item in _scenario_ranked_items(selector_result, scenario_scores_by_structure):
+        if item.structure_id == chosen_id:
+            continue
+        if any(existing.structure_id == item.structure_id for existing in targets):
+            continue
+        targets.append(item)
+        if len(targets) >= 5:
+            break
+
+    return targets[:5]
+
+
+def _scenario_ranked_items(
+    selector_result: StructureSelectionResult,
+    scenario_scores_by_structure: dict[str, object],
+) -> list[StructureShortlistItem]:
+    by_id = {item.structure_id: item for item in selector_result.shortlist}
+    ranked = rank_structures_by_scenario_score(selector_result, scenario_scores_by_structure)
+    return [by_id[r.structure_id] for r in ranked if r.structure_id in by_id]
+
+
+def _unavailable_key_comparisons(
+    selector_result: StructureSelectionResult,
+    chosen_structure_id: str,
+    priced_variants_by_structure: dict[str, list[object]],
+    scenario_scores_by_structure: dict[str, object],
+) -> list[UnavailableComparison]:
+    shortlisted_ids = {item.structure_id for item in selector_result.shortlist}
+    result: list[UnavailableComparison] = []
+    for structure_id, display_name in _KEY_CHALLENGERS.items():
+        if structure_id == chosen_structure_id:
+            continue
+        if structure_id not in shortlisted_ids:
+            result.append(UnavailableComparison(
+                challenger_id=structure_id,
+                challenger_display_name=display_name,
+                reason="not_shortlisted",
+                plain="Not scenario-priced because it did not make the affinity shortlist.",
+            ))
+            continue
+        if structure_id not in priced_variants_by_structure:
+            result.append(UnavailableComparison(
+                challenger_id=structure_id,
+                challenger_display_name=display_name,
+                reason="not_priceable",
+                plain="Shortlisted, but no priceable variant was available for the scenario grid.",
+            ))
+            continue
+        if structure_id not in scenario_scores_by_structure:
+            result.append(UnavailableComparison(
+                challenger_id=structure_id,
+                challenger_display_name=display_name,
+                reason="no_scenario_rows",
+                plain="Shortlisted and priceable, but no scenario-ranked comparison was available.",
+            ))
+    return result
 
 
 def _item_for_structure_id(
