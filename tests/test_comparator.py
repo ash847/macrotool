@@ -21,15 +21,17 @@ from knowledge_engine.comparator import (
     PairwiseComparison,
     REASON_CATALOG,
     RecommendationExplanationPack,
+    RankedVariant,
     Reason,
     ScenarioAggregates,
     StructureScorePair,
     UnavailableComparison,
-    rank_structures_by_scenario_score,
     build_recommendation_pack,
     build_comparator_inputs,
     compare_structures,
     make_reason,
+    rank_structures_by_scenario_score,
+    rank_variants_by_scenario_ccy,
     summarize_scenario_rows,
 )
 from knowledge_engine.models import StructureSelectionResult, StructureShortlistItem
@@ -69,8 +71,8 @@ def _selection_result(*items: StructureShortlistItem) -> StructureSelectionResul
     return StructureSelectionResult(shortlist=list(items), rules_fired=["test"])
 
 
-def _score(score_pct: float):
-    return SimpleNamespace(score_pct=score_pct)
+def _score(score_pct: float, score_ccy: float | None = None):
+    return SimpleNamespace(score_pct=score_pct, score_ccy=score_ccy)
 
 
 def _variant(net_premium_pct: float) -> PricedVariant:
@@ -151,8 +153,8 @@ class TestPairwiseComparisonMVP:
             challenger,
             _ms(),
             {
-                "1x1_spread": _score(0.030),
-                "vanilla": _score(0.015),
+                "1x1_spread": _score(0.030, 3.0),
+                "vanilla": _score(0.015, 1.5),
             },
             {
                 "1x1_spread": [_variant(0.010)],
@@ -179,8 +181,8 @@ class TestPairwiseComparisonMVP:
             challenger,
             _ms(),
             {
-                "1x1_spread": _score(0.0200),
-                "european_digital": _score(0.0188),
+                "1x1_spread": _score(0.0200, 2.0),
+                "european_digital": _score(0.0188, 1.88),
             },
             {
                 "1x1_spread": [_variant(0.011)],
@@ -198,8 +200,8 @@ class TestPairwiseComparisonMVP:
             challenger,
             _ms(),
             {
-                "1x1_spread": _score(0.028),
-                "european_digital": _score(0.020),
+                "1x1_spread": _score(0.028, 2.8),
+                "european_digital": _score(0.020, 2.0),
             },
             {
                 "1x1_spread": [_variant(0.020)],
@@ -226,9 +228,9 @@ class TestRecommendationPackMVP:
                 "european_digital": [_variant(0.007)],
             },
             {
-                "1x1_spread": _score(0.030),
-                "vanilla": _score(0.015),
-                "european_digital": _score(0.020),
+                "1x1_spread": _score(0.030, 3.0),
+                "vanilla": _score(0.015, 1.5),
+                "european_digital": _score(0.020, 2.0),
             },
         )
 
@@ -277,9 +279,7 @@ class TestRecommendationPackMVP:
         assert pack.chosen_id == "vanilla"
         assert pack.chosen_display_name == "Vanilla"
         assert pack.recommendation_basis == "scenario_weighted_pnl"
-        assert [r.structure_id for r in pack.ranked_structures] == ["vanilla", "1x1_spread"]
-        assert pack.ranked_structures[0].affinity_rank == 2
-        assert pack.ranked_structures[0].scenario_rank == 1
+        assert pack.ranked_variants == []
 
     def test_unavailable_key_challengers_capture_not_shortlisted(self):
         chosen = _item("1x1_spread", 1, "1x1 Spread")
@@ -353,20 +353,43 @@ class TestRecommendationPackMVP:
         ranked = rank_structures_by_scenario_score(
             _selection_result(first, second),
             {
-                "1x1_spread": _score(0.010),
-                "vanilla": _score(0.030),
+                "1x1_spread": _score(0.010, 1.0),
+                "vanilla": _score(0.030, 3.0),
             },
             {
-                "1x1_spread": _score(0.012),
-                "vanilla": _score(0.025),
+                "1x1_spread": _score(0.012, 1.2),
+                "vanilla": _score(0.025, 2.5),
             },
         )
 
         assert [r.structure_id for r in ranked] == ["vanilla", "1x1_spread"]
         assert ranked[0].scenario_rank == 1
         assert ranked[0].affinity_rank == 2
-        assert ranked[0].base_score_pct == pytest.approx(0.025)
-        assert ranked[0].pm_score_pct == pytest.approx(0.030)
+        assert ranked[0].base_score_ccy == pytest.approx(2.5)
+        assert ranked[0].pm_score_ccy == pytest.approx(3.0)
+
+    def test_rank_variants_by_scenario_ccy_uses_specific_variant_labels(self):
+        chosen = _item("vanilla", 1, "Vanilla")
+        digital = _item("european_digital", 2, "European Digital")
+        selector_result = _selection_result(chosen, digital)
+
+        inputs = build_comparator_inputs(
+            _ms(),
+            selector_result,
+            target=5.00,
+            is_call=False,
+            stop_price=5.35,
+            loss_budget=2.0,
+        )
+        ranked = rank_variants_by_scenario_ccy(
+            selector_result,
+            inputs.variant_evaluations_by_structure,
+        )
+
+        assert ranked
+        assert isinstance(ranked[0], RankedVariant)
+        assert "(" in ranked[0].variant_label
+        assert any(ch.isdigit() for ch in ranked[0].variant_label)
 
 
 class TestComparatorInputBuilder:
@@ -417,10 +440,12 @@ class TestComparatorInputBuilder:
             selector_result,
             inputs.priced_variants_by_structure,
             inputs.pm_scores_by_structure,
+            variant_evaluations_by_structure=inputs.variant_evaluations_by_structure,
         )
 
-        assert pack.ranked_structures
-        assert pack.chosen_id == pack.ranked_structures[0].structure_id
+        assert pack.ranked_variants
+        assert pack.chosen_id == pack.ranked_variants[0].structure_id
+        assert pack.chosen_variant_label == pack.ranked_variants[0].variant_label
         assert "european_digital" in pack.comparisons
 
 

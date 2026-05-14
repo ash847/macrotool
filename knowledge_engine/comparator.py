@@ -68,6 +68,15 @@ class PairwiseComparison:
 
 
 @dataclass
+class VariantComparison:
+    chosen: "RankedVariant"
+    challenger: "RankedVariant"
+    verdict: Literal["chosen_preferred", "challenger_preferred", "close_call", "not_comparable"]
+    confidence: Literal["strong", "moderate", "close"]
+    headline: str
+
+
+@dataclass
 class UnavailableComparison:
     challenger_id: str
     challenger_display_name: str
@@ -79,12 +88,14 @@ class UnavailableComparison:
 class RecommendationExplanationPack:
     chosen_id: str
     chosen_display_name: str
+    chosen_variant_label: str | None = None
     recommendation_basis: Literal["scenario_weighted_pnl", "affinity_rank"] = "scenario_weighted_pnl"
-    ranked_structures: list["RankedStructure"] = field(default_factory=list)
+    ranked_variants: list["RankedVariant"] = field(default_factory=list)
     summary_reasons: list[Reason] = field(default_factory=list)
     construction_reasons: list[ConstructionReason] = field(default_factory=list)
     risk_reasons: list[Reason] = field(default_factory=list)
     comparisons: dict[str, PairwiseComparison] = field(default_factory=dict)
+    variant_comparisons: list[VariantComparison] = field(default_factory=list)
     unavailable_comparisons: list[UnavailableComparison] = field(default_factory=list)
 
 
@@ -107,8 +118,22 @@ class RankedStructure:
     display_name: str
     affinity_rank: int
     scenario_rank: int
-    base_score_pct: float | None
-    pm_score_pct: float | None
+    base_score_ccy: float | None
+    pm_score_ccy: float | None
+
+
+@dataclass(frozen=True)
+class RankedVariant:
+    structure_id: str
+    structure_display_name: str
+    variant_label: str
+    affinity_rank: int
+    scenario_rank: int
+    strikes: tuple[float, ...]
+    barrier: float | None
+    notional: float | None
+    base_score_ccy: float
+    pm_score_ccy: float
 
 
 @dataclass(frozen=True)
@@ -222,8 +247,8 @@ def compare_structures(
     preferences: PMPreferences | None = None,
 ) -> PairwiseComparison:
     prefs = preferences or PMPreferences()
-    chosen_score = _score_pct(scenario_scores_by_structure.get(chosen.structure_id))
-    challenger_score = _score_pct(scenario_scores_by_structure.get(challenger.structure_id))
+    chosen_score = _score_ccy(scenario_scores_by_structure.get(chosen.structure_id))
+    challenger_score = _score_ccy(scenario_scores_by_structure.get(challenger.structure_id))
     score_delta = chosen_score - challenger_score
 
     chosen_edges: list[Reason] = []
@@ -234,23 +259,23 @@ def compare_structures(
     verdict: Literal["chosen_preferred", "challenger_preferred", "close_call", "not_comparable"]
     confidence: Literal["strong", "moderate", "close"]
 
-    if abs(score_delta) < 0.0025:
+    if abs(score_delta) < 0.25:
         verdict = "close_call"
         confidence = "close"
     elif score_delta > 0:
         verdict = "chosen_preferred"
-        confidence = "strong" if abs(score_delta) >= 0.01 else "moderate"
+        confidence = "strong" if abs(score_delta) >= 1.0 else "moderate"
     else:
         verdict = "challenger_preferred"
-        confidence = "strong" if abs(score_delta) >= 0.01 else "moderate"
+        confidence = "strong" if abs(score_delta) >= 1.0 else "moderate"
 
-    if score_delta > 0.001:
+    if score_delta > 0.25:
         chosen_edges.append(make_reason(
             "scenario_fit.better_weighted_pnl",
             polarity="chosen_edge",
             materiality=_gap_materiality(score_delta),
         ))
-    elif score_delta < -0.001:
+    elif score_delta < -0.25:
         challenger_edges.append(make_reason(
             "scenario_fit.better_weighted_pnl",
             polarity="challenger_edge",
@@ -323,33 +348,50 @@ def build_recommendation_pack(
     priced_variants_by_structure: dict[str, list[object]],
     scenario_scores_by_structure: dict[str, object],
     preferences: PMPreferences | None = None,
+    variant_evaluations_by_structure: dict[str, list[VariantEvaluation]] | None = None,
 ) -> RecommendationExplanationPack:
     if not selector_result.shortlist:
         raise ValueError("Cannot build explanation pack without a shortlisted chosen structure")
 
     prefs = preferences or PMPreferences()
+    ranked_variants = rank_variants_by_scenario_ccy(selector_result, variant_evaluations_by_structure or {})
     ranked_structures = rank_structures_by_scenario_score(selector_result, scenario_scores_by_structure)
+    chosen_variant = ranked_variants[0] if ranked_variants else None
     chosen_rank = ranked_structures[0] if ranked_structures else None
     chosen = _item_for_structure_id(
         selector_result,
-        chosen_rank.structure_id if chosen_rank is not None else selector_result.shortlist[0].structure_id,
+        (
+            chosen_variant.structure_id
+            if chosen_variant is not None
+            else chosen_rank.structure_id if chosen_rank is not None
+            else selector_result.shortlist[0].structure_id
+        ),
     )
 
     summary_reasons: list[Reason] = []
     risk_reasons = _risk_reasons_for_structure(chosen.structure_id)
 
-    comparison_targets = _pick_comparison_targets(selector_result, scenario_scores_by_structure, chosen.structure_id)
-    if comparison_targets:
+    comparison_targets = _pick_comparison_targets(
+        selector_result,
+        scenario_scores_by_structure,
+        chosen.structure_id,
+    )
+    if len(ranked_variants) >= 2:
+        delta = ranked_variants[0].pm_score_ccy - ranked_variants[1].pm_score_ccy
+    elif comparison_targets:
         first_challenger = comparison_targets[0]
-        chosen_score = _score_pct(scenario_scores_by_structure.get(chosen.structure_id))
-        challenger_score = _score_pct(scenario_scores_by_structure.get(first_challenger.structure_id))
-        delta = chosen_score - challenger_score
-        if delta > 0.001:
-            summary_reasons.append(make_reason(
-                "scenario_fit.better_weighted_pnl",
-                polarity="chosen_edge",
-                materiality=_gap_materiality(delta),
-            ))
+        delta = _score_ccy(scenario_scores_by_structure.get(chosen.structure_id)) - _score_ccy(
+            scenario_scores_by_structure.get(first_challenger.structure_id)
+        )
+    else:
+        delta = 0.0
+
+    if delta > 0.25:
+        summary_reasons.append(make_reason(
+            "scenario_fit.better_weighted_pnl",
+            polarity="chosen_edge",
+            materiality=_gap_materiality(delta),
+        ))
 
     if market_state.target_z is not None and chosen.structure_id in _SPREAD_STRUCTURES:
         summary_reasons.append(make_reason(
@@ -369,6 +411,7 @@ def build_recommendation_pack(
         )
         for challenger in comparison_targets
     }
+    variant_comparisons = _variant_comparisons(ranked_variants)
     unavailable_comparisons = _unavailable_key_comparisons(
         selector_result,
         chosen.structure_id,
@@ -378,13 +421,18 @@ def build_recommendation_pack(
 
     return RecommendationExplanationPack(
         chosen_id=chosen.structure_id,
-        chosen_display_name=chosen.display_name,
-        recommendation_basis="scenario_weighted_pnl" if ranked_structures else "affinity_rank",
-        ranked_structures=ranked_structures,
+        chosen_display_name=(
+            _variant_name(chosen_variant)
+            if chosen_variant is not None else chosen.display_name
+        ),
+        chosen_variant_label=chosen_variant.variant_label if chosen_variant is not None else None,
+        recommendation_basis="scenario_weighted_pnl" if (ranked_variants or ranked_structures) else "affinity_rank",
+        ranked_variants=ranked_variants,
         summary_reasons=_dedupe_reasons(summary_reasons),
         construction_reasons=[],
         risk_reasons=_dedupe_reasons(risk_reasons),
         comparisons=comparisons,
+        variant_comparisons=variant_comparisons,
         unavailable_comparisons=unavailable_comparisons,
     )
 
@@ -394,31 +442,74 @@ def rank_structures_by_scenario_score(
     scenario_scores_by_structure: dict[str, object],
     base_scores_by_structure: dict[str, object] | None = None,
 ) -> list[RankedStructure]:
-    """Rank priceable shortlisted structures by scenario score, preserving affinity rank."""
+    """Rank priceable shortlisted structures by scenario USD P&L, preserving affinity rank."""
     by_score: list[tuple[float, int, StructureShortlistItem]] = []
     for item in selector_result.shortlist:
         score = scenario_scores_by_structure.get(item.structure_id)
         if score is None:
             continue
-        by_score.append((_score_pct(score), item.rank, item))
+        by_score.append((_score_ccy(score), item.rank, item))
 
     by_score.sort(key=lambda x: (-x[0], x[1]))
 
     ranked: list[RankedStructure] = []
     for scenario_rank, (_, _, item) in enumerate(by_score, start=1):
         base_score = (
-            _score_pct(base_scores_by_structure.get(item.structure_id))
+            _score_ccy(base_scores_by_structure.get(item.structure_id))
             if base_scores_by_structure and item.structure_id in base_scores_by_structure
             else None
         )
-        pm_score = _score_pct(scenario_scores_by_structure.get(item.structure_id))
+        pm_score = _score_ccy(scenario_scores_by_structure.get(item.structure_id))
         ranked.append(RankedStructure(
             structure_id=item.structure_id,
             display_name=item.display_name,
             affinity_rank=item.rank,
             scenario_rank=scenario_rank,
-            base_score_pct=base_score,
-            pm_score_pct=pm_score,
+            base_score_ccy=base_score,
+            pm_score_ccy=pm_score,
+        ))
+    return ranked
+
+
+def rank_variants_by_scenario_ccy(
+    selector_result: StructureSelectionResult,
+    variant_evaluations_by_structure: dict[str, list[VariantEvaluation]],
+) -> list[RankedVariant]:
+    """Rank concrete priced variants by PM-overlay weighted P&L in base currency."""
+    items = {item.structure_id: item for item in selector_result.shortlist}
+    by_score: list[tuple[float, int, int, str, VariantEvaluation]] = []
+    for structure_id, evaluations in variant_evaluations_by_structure.items():
+        item = items.get(structure_id)
+        if item is None:
+            continue
+        for variant_index, evaluation in enumerate(evaluations):
+            if evaluation.pm_score.score_ccy is None or evaluation.base_score.score_ccy is None:
+                continue
+            by_score.append((
+                evaluation.pm_score.score_ccy,
+                item.rank,
+                variant_index,
+                structure_id,
+                evaluation,
+            ))
+
+    by_score.sort(key=lambda x: (-x[0], x[1], x[2]))
+
+    ranked: list[RankedVariant] = []
+    for scenario_rank, (_, _, _, structure_id, evaluation) in enumerate(by_score, start=1):
+        item = items[structure_id]
+        variant = evaluation.variant
+        ranked.append(RankedVariant(
+            structure_id=structure_id,
+            structure_display_name=item.display_name,
+            variant_label=_variant_label_with_details(variant),
+            affinity_rank=item.rank,
+            scenario_rank=scenario_rank,
+            strikes=tuple(float(k) for k in getattr(variant, "strikes", [])),
+            barrier=getattr(variant, "barrier", None),
+            notional=getattr(variant, "structure_notional", None),
+            base_score_ccy=float(evaluation.base_score.score_ccy),
+            pm_score_ccy=float(evaluation.pm_score.score_ccy),
         ))
     return ranked
 
@@ -634,6 +725,55 @@ def _unavailable_key_comparisons(
     return result
 
 
+def _variant_comparisons(ranked_variants: list[RankedVariant]) -> list[VariantComparison]:
+    if not ranked_variants:
+        return []
+    chosen = ranked_variants[0]
+    comparisons: list[VariantComparison] = []
+    for challenger in ranked_variants[1:6]:
+        delta = chosen.pm_score_ccy - challenger.pm_score_ccy
+        if abs(delta) < 0.25:
+            verdict: Literal["chosen_preferred", "challenger_preferred", "close_call", "not_comparable"] = "close_call"
+            confidence: Literal["strong", "moderate", "close"] = "close"
+        elif delta > 0:
+            verdict = "chosen_preferred"
+            confidence = "strong" if abs(delta) >= 1.0 else "moderate"
+        else:
+            verdict = "challenger_preferred"
+            confidence = "strong" if abs(delta) >= 1.0 else "moderate"
+        comparisons.append(VariantComparison(
+            chosen=chosen,
+            challenger=challenger,
+            verdict=verdict,
+            confidence=confidence,
+            headline=(
+                f"{_variant_name(chosen)} is preferred to {_variant_name(challenger)} "
+                "on PM weighted P&L"
+                if verdict == "chosen_preferred"
+                else f"{_variant_name(chosen)} and {_variant_name(challenger)} are a close call"
+            ),
+        ))
+    return comparisons
+
+
+def _variant_name(variant: RankedVariant) -> str:
+    return f"{variant.structure_display_name} - {variant.variant_label}"
+
+
+def _variant_label_with_details(variant: object) -> str:
+    label = str(getattr(variant, "variant_label", "")).strip() or "Variant"
+    details: list[str] = []
+    strikes = [float(k) for k in getattr(variant, "strikes", [])]
+    if strikes:
+        details.append(" / ".join(f"{k:.4f}" for k in strikes))
+    barrier = getattr(variant, "barrier", None)
+    if barrier is not None:
+        details.append(f"KO {float(barrier):.4f}")
+    if not details:
+        return label
+    return f"{label} ({'; '.join(details)})"
+
+
 def _item_for_structure_id(
     selector_result: StructureSelectionResult,
     structure_id: str,
@@ -663,6 +803,16 @@ def _score_pct(score: object | None) -> float:
     return float(score)
 
 
+def _score_ccy(score: object | None) -> float:
+    if score is None:
+        return 0.0
+    if hasattr(score, "score_ccy") and getattr(score, "score_ccy") is not None:
+        return float(getattr(score, "score_ccy"))
+    if hasattr(score, "score_pct"):
+        return float(getattr(score, "score_pct"))
+    return float(score)
+
+
 def _premium_pct(variants: list[object]) -> float:
     if not variants:
         return 0.0
@@ -670,9 +820,9 @@ def _premium_pct(variants: list[object]) -> float:
 
 
 def _gap_materiality(delta: float) -> Materiality:
-    if delta >= 0.015:
+    if delta >= 1.0:
         return "high"
-    if delta >= 0.005:
+    if delta >= 0.25:
         return "medium"
     return "low"
 

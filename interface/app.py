@@ -1069,7 +1069,11 @@ else:
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
         from conversation.explanation_context import render_explanation_pack as _render_expl_pack
-        from knowledge_engine.comparator import build_recommendation_pack as _build_expl_pack
+        from knowledge_engine.comparator import (
+            VariantEvaluation as _VariantEvaluation,
+            build_recommendation_pack as _build_expl_pack,
+            summarize_scenario_rows as _summarize_scenario_rows,
+        )
 
         # Context weights — derived from MarketState + PM preferences.
         # Same weight vector applied to every structure → scores comparable.
@@ -1208,11 +1212,25 @@ else:
                         _s["item"].structure_id: _s["variants"][0]["score"]
                         for _s in _ev_structs
                     }
+                    _expl_variant_evals = {
+                        _s["item"].structure_id: [
+                            _VariantEvaluation(
+                                variant=_v["pv"],
+                                rows=_v["rows"],
+                                base_score=_v["score_base"],
+                                pm_score=_v["score"],
+                                aggregates=_summarize_scenario_rows(_v["rows"]),
+                            )
+                            for _v in _s["variants"]
+                        ]
+                        for _s in _ev_structs
+                    }
                     _expl_pack = _build_expl_pack(
                         _ev_ms,
                         flow.selector_result,
                         _expl_variants,
                         _expl_scores,
+                        variant_evaluations_by_structure=_expl_variant_evals,
                     )
                     with st.expander("Explanation pack preview", expanded=False):
                         st.code(_render_expl_pack(_expl_pack), language="text")

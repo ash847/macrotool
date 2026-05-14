@@ -48,27 +48,32 @@ def _item(structure_id: str, rank: int, display_name: str) -> StructureShortlist
 def test_render_explanation_pack_includes_sections_and_disclosure():
     chosen = _item("1x1_spread", 1, "1x1 Spread")
     challenger = _item("vanilla", 2, "Vanilla")
+    selector_result = StructureSelectionResult(shortlist=[chosen, challenger], rules_fired=["test"])
+    inputs = build_comparator_inputs(
+        _ms(),
+        selector_result,
+        target=5.00,
+        is_call=False,
+        stop_price=5.35,
+        loss_budget=2.0,
+        preferences=PMPreferences(),
+    )
     pack = build_recommendation_pack(
         _ms(),
-        StructureSelectionResult(shortlist=[chosen, challenger], rules_fired=["test"]),
-        {
-            "1x1_spread": [SimpleNamespace(net_premium_pct=0.01)],
-            "vanilla": [SimpleNamespace(net_premium_pct=0.02)],
-        },
-        {
-            "1x1_spread": SimpleNamespace(score_pct=0.03),
-            "vanilla": SimpleNamespace(score_pct=0.02),
-        },
+        selector_result,
+        inputs.priced_variants_by_structure,
+        inputs.pm_scores_by_structure,
+        variant_evaluations_by_structure=inputs.variant_evaluations_by_structure,
     )
 
     rendered = render_explanation_pack(pack)
 
     assert "RECOMMENDATION EXPLANATION PACK" in rendered
-    assert "Chosen: 1x1 Spread" in rendered
+    assert "Chosen:" in rendered
     assert "Recommendation basis: scenario_weighted_pnl" in rendered
-    assert "Scenario ranking:" in rendered
+    assert "Variant ranking:" in rendered
     assert "Summary:" in rendered
-    assert "Comparison: 1x1_spread vs vanilla" in rendered
+    assert "Variant comparison:" in rendered
     assert "Unavailable comparisons:" in rendered
     assert "European Digital" in rendered
     assert "Disclosure:" in rendered
@@ -93,6 +98,7 @@ def test_render_explanation_pack_avoids_raw_internal_artifacts():
         selector_result,
         inputs.priced_variants_by_structure,
         inputs.pm_scores_by_structure,
+        variant_evaluations_by_structure=inputs.variant_evaluations_by_structure,
     )
 
     rendered = render_explanation_pack(pack)

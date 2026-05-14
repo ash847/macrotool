@@ -23,15 +23,15 @@ def render_explanation_pack(
         "",
     ]
 
-    if pack.ranked_structures:
+    if pack.ranked_variants:
         ranking_lines = [
             (
-                f"- {r.scenario_rank}. {r.display_name} "
-                f"(affinity rank {r.affinity_rank}, PM weighted P&L {_fmt_pct(r.pm_score_pct)})"
+                f"- {r.scenario_rank}. {_variant_name(r)} "
+                f"(affinity rank {r.affinity_rank}, PM weighted P&L {_fmt_ccy(r.pm_score_ccy)})"
             )
-            for r in pack.ranked_structures
+            for r in pack.ranked_variants
         ]
-        lines.extend(_section("Scenario ranking", ranking_lines))
+        lines.extend(_section("Variant ranking", ranking_lines))
 
     if pack.summary_reasons:
         lines.extend(_section("Summary", _reason_lines(pack.summary_reasons)))
@@ -45,6 +45,12 @@ def render_explanation_pack(
 
     if pack.risk_reasons:
         lines.extend(_section("Risks", _reason_lines(pack.risk_reasons)))
+
+    variant_comparisons = pack.variant_comparisons
+    if max_comparisons is not None:
+        variant_comparisons = variant_comparisons[:max_comparisons]
+    for comparison in variant_comparisons:
+        lines.extend(_render_variant_comparison(comparison))
 
     comparisons = list(pack.comparisons.values())
     if max_comparisons is not None:
@@ -87,6 +93,16 @@ def _render_comparison(comparison: PairwiseComparison) -> list[str]:
     return lines
 
 
+def _render_variant_comparison(comparison) -> list[str]:
+    lines = [
+        f"Variant comparison: {_variant_name(comparison.chosen)} vs {_variant_name(comparison.challenger)}",
+        f"Verdict: {comparison.verdict}; confidence: {comparison.confidence}",
+        f"Headline: {comparison.headline}",
+        "",
+    ]
+    return lines
+
+
 def _section(title: str, body: list[str], *, leading_blank: bool = True) -> list[str]:
     lines = [""] if leading_blank else []
     lines.append(f"{title}:")
@@ -107,3 +123,11 @@ def _reason_lines(reasons: list[Reason]) -> list[str]:
 
 def _fmt_pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2%}"
+
+
+def _fmt_ccy(value: float | None) -> str:
+    return "n/a" if value is None else f"${value:,.2f}"
+
+
+def _variant_name(variant) -> str:
+    return f"{variant.structure_display_name} - {variant.variant_label}"
