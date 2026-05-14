@@ -22,11 +22,13 @@ from knowledge_engine.comparator import (
     REASON_CATALOG,
     RecommendationExplanationPack,
     Reason,
+    ScenarioAggregates,
     StructureScorePair,
     build_recommendation_pack,
     build_comparator_inputs,
     compare_structures,
     make_reason,
+    summarize_scenario_rows,
 )
 from knowledge_engine.models import StructureSelectionResult, StructureShortlistItem
 
@@ -276,10 +278,12 @@ class TestComparatorInputBuilder:
         assert isinstance(inputs.score_pairs_by_structure["vanilla"], StructureScorePair)
         assert inputs.score_pairs_by_structure["vanilla"].base is inputs.base_scores_by_structure["vanilla"]
         assert inputs.score_pairs_by_structure["vanilla"].pm is inputs.pm_scores_by_structure["vanilla"]
+        assert isinstance(inputs.scenario_aggregates_by_structure["vanilla"], ScenarioAggregates)
         assert len(inputs.scenarios) == 20
         assert len(inputs.scenario_rows_by_structure["vanilla"]) == 20
         assert inputs.variant_evaluations_by_structure["vanilla"]
         assert inputs.variant_evaluations_by_structure["vanilla"][0].rows
+        assert inputs.variant_evaluations_by_structure["vanilla"][0].aggregates.correct_path.avg_pnl_pct is not None
 
     def test_real_inputs_feed_existing_pack_builder(self):
         chosen = _item("vanilla", 1, "Vanilla")
@@ -303,3 +307,40 @@ class TestComparatorInputBuilder:
 
         assert pack.chosen_id == "vanilla"
         assert "european_digital" in pack.comparisons
+
+
+class TestScenarioAggregates:
+    def test_summarize_scenario_rows_groups_current_grid_cells(self):
+        rows = [
+            {"scenario_id": "25%T|F", "pnl_pct": -0.01, "price_pct": 0.01},
+            {"scenario_id": "50%T|F", "pnl_pct": -0.02, "price_pct": 0.01},
+            {"scenario_id": "25%T|t%→K", "pnl_pct": 0.03, "price_pct": 0.04},
+            {"scenario_id": "50%T|t%→K", "pnl_pct": 0.05, "price_pct": 0.06},
+            {"scenario_id": "Expiry|K", "pnl_pct": 0.20, "price_pct": 0.25},
+            {"scenario_id": "25%T|−1σ", "pnl_pct": -0.04, "price_pct": 0.00},
+            {"scenario_id": "50%T|−1σ", "pnl_pct": -0.06, "price_pct": 0.00},
+            {"scenario_id": "Expiry|−1σ", "pnl_pct": -0.10, "price_pct": 0.00},
+            {"scenario_id": "25%T|K+½σ", "pnl_pct": 0.07, "price_pct": 0.08},
+            {"scenario_id": "50%T|K+½σ", "pnl_pct": 0.08, "price_pct": 0.09},
+            {"scenario_id": "Expiry|K+½σ", "pnl_pct": 0.09, "price_pct": 0.10},
+            {"scenario_id": "1w|Δvol", "pnl_pct": -0.005, "price_pct": 0.02},
+            {"scenario_id": "25%T|Δvol", "pnl_pct": 0.01, "price_pct": 0.03},
+            {"scenario_id": "50%T|Δvol", "pnl_pct": 0.02, "price_pct": 0.04},
+        ]
+
+        aggregates = summarize_scenario_rows(rows)
+
+        assert aggregates.slow_path.avg_pnl_pct == pytest.approx(0.0125)
+        assert aggregates.correct_path.avg_pnl_pct == pytest.approx((0.03 + 0.05 + 0.20) / 3)
+        assert aggregates.wrong_way.worst_pnl_pct == pytest.approx(-0.10)
+        assert aggregates.overshoot.best_pnl_pct == pytest.approx(0.09)
+        assert aggregates.vol_sensitivity.worst_pnl_pct == pytest.approx(-0.005)
+        assert aggregates.expiry_target_price_pct == pytest.approx(0.25)
+        assert aggregates.expiry_target_pnl_pct == pytest.approx(0.20)
+
+    def test_missing_aggregate_cells_return_none_values(self):
+        aggregates = summarize_scenario_rows([])
+
+        assert aggregates.slow_path.avg_pnl_pct is None
+        assert aggregates.correct_path.worst_pnl_pct is None
+        assert aggregates.expiry_target_price_pct is None

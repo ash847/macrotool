@@ -86,11 +86,31 @@ class StructureScorePair:
 
 
 @dataclass(frozen=True)
+class ScenarioAggregate:
+    scenario_ids: tuple[str, ...]
+    avg_pnl_pct: float | None
+    worst_pnl_pct: float | None
+    best_pnl_pct: float | None
+
+
+@dataclass(frozen=True)
+class ScenarioAggregates:
+    slow_path: ScenarioAggregate
+    correct_path: ScenarioAggregate
+    wrong_way: ScenarioAggregate
+    overshoot: ScenarioAggregate
+    vol_sensitivity: ScenarioAggregate
+    expiry_target_price_pct: float | None
+    expiry_target_pnl_pct: float | None
+
+
+@dataclass(frozen=True)
 class VariantEvaluation:
     variant: object
     rows: list[dict]
     base_score: ScoreResult
     pm_score: ScoreResult
+    aggregates: ScenarioAggregates
 
 
 @dataclass(frozen=True)
@@ -101,6 +121,7 @@ class ComparatorInputs:
     base_scores_by_structure: dict[str, ScoreResult]
     pm_scores_by_structure: dict[str, ScoreResult]
     score_pairs_by_structure: dict[str, StructureScorePair]
+    scenario_aggregates_by_structure: dict[str, ScenarioAggregates]
     variant_evaluations_by_structure: dict[str, list[VariantEvaluation]]
 
 
@@ -374,6 +395,7 @@ def build_comparator_inputs(
     base_scores_by_structure: dict[str, ScoreResult] = {}
     pm_scores_by_structure: dict[str, ScoreResult] = {}
     score_pairs_by_structure: dict[str, StructureScorePair] = {}
+    scenario_aggregates_by_structure: dict[str, ScenarioAggregates] = {}
     variant_evaluations_by_structure: dict[str, list[VariantEvaluation]] = {}
 
     for item in selector_result.shortlist:
@@ -403,11 +425,13 @@ def build_comparator_inputs(
             )
             base_score = score_structure(rows, base_weights)
             pm_score = score_structure(rows, weighter.weights)
+            aggregates = summarize_scenario_rows(rows)
             evaluations.append(VariantEvaluation(
                 variant=variant,
                 rows=rows,
                 base_score=base_score,
                 pm_score=pm_score,
+                aggregates=aggregates,
             ))
 
         if not evaluations:
@@ -421,6 +445,7 @@ def build_comparator_inputs(
             base=primary.base_score,
             pm=primary.pm_score,
         )
+        scenario_aggregates_by_structure[item.structure_id] = primary.aggregates
         variant_evaluations_by_structure[item.structure_id] = evaluations
 
     return ComparatorInputs(
@@ -430,7 +455,20 @@ def build_comparator_inputs(
         base_scores_by_structure=base_scores_by_structure,
         pm_scores_by_structure=pm_scores_by_structure,
         score_pairs_by_structure=score_pairs_by_structure,
+        scenario_aggregates_by_structure=scenario_aggregates_by_structure,
         variant_evaluations_by_structure=variant_evaluations_by_structure,
+    )
+
+
+def summarize_scenario_rows(rows: list[dict]) -> ScenarioAggregates:
+    return ScenarioAggregates(
+        slow_path=_aggregate_rows(rows, ("25%T|F", "50%T|F", "25%T|t%→K", "50%T|t%→K")),
+        correct_path=_aggregate_rows(rows, ("25%T|t%→K", "50%T|t%→K", "Expiry|K")),
+        wrong_way=_aggregate_rows(rows, ("25%T|−1σ", "50%T|−1σ", "Expiry|−1σ")),
+        overshoot=_aggregate_rows(rows, ("25%T|K+½σ", "50%T|K+½σ", "Expiry|K+½σ")),
+        vol_sensitivity=_aggregate_rows(rows, ("1w|Δvol", "25%T|Δvol", "50%T|Δvol")),
+        expiry_target_price_pct=_row_value(rows, "Expiry|K", "price_pct"),
+        expiry_target_pnl_pct=_row_value(rows, "Expiry|K", "pnl_pct"),
     )
 
 
@@ -550,3 +588,33 @@ def _base_weights_from_weighter(weighter: object) -> dict[str, float]:
     if total <= 0:
         return {cid: 1.0 / len(multipliers) for cid in multipliers}
     return {cid: value / total for cid, value in multipliers.items()}
+
+
+def _aggregate_rows(rows: list[dict], scenario_ids: tuple[str, ...]) -> ScenarioAggregate:
+    values = [
+        float(row["pnl_pct"])
+        for row in rows
+        if row.get("scenario_id") in scenario_ids and row.get("pnl_pct") is not None
+    ]
+    if not values:
+        return ScenarioAggregate(
+            scenario_ids=scenario_ids,
+            avg_pnl_pct=None,
+            worst_pnl_pct=None,
+            best_pnl_pct=None,
+        )
+    return ScenarioAggregate(
+        scenario_ids=scenario_ids,
+        avg_pnl_pct=sum(values) / len(values),
+        worst_pnl_pct=min(values),
+        best_pnl_pct=max(values),
+    )
+
+
+def _row_value(rows: list[dict], scenario_id: str, field: str) -> float | None:
+    for row in rows:
+        if row.get("scenario_id") != scenario_id:
+            continue
+        value = row.get(field)
+        return float(value) if value is not None else None
+    return None
