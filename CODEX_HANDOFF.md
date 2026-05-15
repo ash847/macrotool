@@ -49,3 +49,18 @@ Next steps
 - If desired, merge or cherry-pick this branch into the branch that will actually be used for the next comparator integration step.
 - If follow-up prompt wiring is next, use the variant-centric fields already added to the explanation pack rather than rebuilding ranking logic.
 - If PM-facing comparator output should become fully variant-centric, consider replacing the remaining structure-level `comparisons` block with variant-to-variant comparisons.
+
+Latest checkpoint
+
+- Follow-up prompt wiring is now implemented on `claude/charming-leavitt-47b984` but not yet merged elsewhere.
+- `conversation/flow.py` now builds a rendered recommendation explanation pack after recommend-mode engine runs, best-effort only, and stores it on `flow.explanation_pack_context` for later use.
+- `conversation/context_builder.py` now injects that explanation pack into the DONE/follow-up prompt only when present, and instructs the model to use it first for "why this / why not that / why this variant" questions while keeping the answer qualitative.
+- `tests/test_followup_prompt.py` verifies the follow-up prompt includes the explanation-pack instruction and block only when an explanation context is supplied.
+- Focused regression check passed:
+  - `'/Users/ash/Documents/Coding work/MacroTool/.venv/bin/python' -m pytest tests/test_followup_prompt.py tests/test_explanation_context.py tests/test_comparator.py`
+
+Current product impact
+
+- No change to the visible structured Trade View recommendation path is expected from this checkpoint alone.
+- The explanation pack preview should remain unchanged in intent; this step mainly makes the same pack available to any follow-up conversation path that uses `ConversationFlow`.
+- The current Streamlit Trade View intake remains deterministic and does not call `flow.advance(...)`, so this checkpoint should not add active Anthropic API usage on the normal structured submission path.

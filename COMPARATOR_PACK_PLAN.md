@@ -234,3 +234,17 @@ Expected workflow:
 4. Build recommendation explanation pack.
 5. Render the pack as PM-safe text.
 6. Inspect it in tests and, later, in the admin preview.
+
+## Latest Status
+
+- Variant-centric comparator ranking and PM-weighted currency P&L inputs are already in place on this branch.
+- The admin explanation-pack preview is already wired and was the first visible verification surface for the comparator artifact.
+- Follow-up prompt plumbing is now added as a best-effort integration:
+  - `conversation/flow.py` builds comparator inputs from the deterministic engine outputs after recommend-mode intake, derives stop/loss-budget inputs from target and `target_rr`, builds the recommendation explanation pack, renders it, and stores the rendered text for later follow-up use.
+  - `conversation/context_builder.py` appends the rendered explanation pack into the DONE/follow-up system prompt only when present, and adds a disclosure-safe instruction telling the model to use the pack first for comparative "why this / why not that" questions.
+  - `tests/test_followup_prompt.py` covers the prompt inclusion behavior.
+
+## Important Scope Note
+
+- In the current Streamlit UI, the main Trade View path is structured and deterministic: it submits directly into `_run_engines()` rather than going through the legacy `flow.advance(...)` intake conversation path.
+- That means this follow-up prompt integration is primarily infrastructure for any active or future conversation/follow-up surface that uses `ConversationFlow`; it should not change the visible structured recommendation output by itself.

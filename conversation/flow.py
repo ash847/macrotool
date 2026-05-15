@@ -53,6 +53,8 @@ from conversation.client import MacroToolClient
 import conversation.tracing as _tracing
 from conversation import context_builder
 
+_COMPARATOR_LINEAR_NOTIONAL = 100.0
+
 
 class Step(str, Enum):
     INTAKE = "INTAKE"
@@ -109,6 +111,7 @@ class ConversationFlow:
         self.flat_distribution: PriceDistribution | None = None
         self.smile_distribution: PriceDistribution | None = None
         self.maturity_histogram: MaturityHistogram | None = None
+        self.explanation_pack_context: str | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -149,6 +152,7 @@ class ConversationFlow:
         self.flat_distribution = None
         self.smile_distribution = None
         self.maturity_histogram = None
+        self.explanation_pack_context = None
 
     # ------------------------------------------------------------------
     # Step handlers
@@ -271,7 +275,12 @@ class ConversationFlow:
 
     def _run_followup(self) -> Generator[str, None, None]:
         system = context_builder.build_followup_prompt(
-            self.view, self.ccy, self.selector_result, self.sizing, self.critique
+            self.view,
+            self.ccy,
+            self.selector_result,
+            self.sizing,
+            self.critique,
+            explanation_context=self.explanation_pack_context,
         )
         yield from self._stream_and_record(system)
         self._apply_pref_changes()
@@ -372,6 +381,8 @@ class ConversationFlow:
                 self.selector_result,
                 self.sizing,
             )
+        else:
+            self._build_explanation_pack_context()
 
     def _recompute_sizing(self) -> None:
         """Re-run sizing after a config change (e.g., PREF_CHANGE)."""
@@ -379,6 +390,65 @@ class ConversationFlow:
             top = self.selector_result.shortlist[0] if self.selector_result.shortlist else None
             if top:
                 self.sizing = compute_sizing(self.view, self.ccy, top, self.cfg)
+
+    def _build_explanation_pack_context(self) -> None:
+        """Build the deterministic recommendation explanation pack for follow-up mode.
+
+        Best-effort only: if comparator inputs cannot be built, follow-up still works
+        with the existing trade context blocks.
+        """
+        self.explanation_pack_context = None
+        if not (self.view and self.ccy and self.market_state and self.selector_result):
+            return
+        if self.view.mode != "recommend":
+            return
+
+        target = target_from_reference(
+            self.market_state.fwd,
+            self.view.direction,
+            self.view.magnitude_pct,
+        )
+        if target is None or not self.target_rr or self.target_rr <= 0:
+            return
+
+        move_pct = abs(target - self.market_state.fwd) / self.market_state.fwd
+        stop_pct = move_pct / self.target_rr
+        stop_price = (
+            self.market_state.fwd * (1 - stop_pct)
+            if self.view.direction == "base_higher"
+            else self.market_state.fwd * (1 + stop_pct)
+        )
+        loss_budget = _COMPARATOR_LINEAR_NOTIONAL * stop_pct
+
+        try:
+            from conversation.explanation_context import render_explanation_pack
+            from knowledge_engine.comparator import PMPreferences, build_comparator_inputs, build_recommendation_pack
+
+            prefs = PMPreferences(
+                primary_objective=self.primary_objective,
+                trade_management=self.trade_management,
+                structure_constraint=self.structure_constraint,
+            )
+            comparator_inputs = build_comparator_inputs(
+                self.market_state,
+                self.selector_result,
+                target=target,
+                is_call=self.view.direction == "base_higher",
+                stop_price=stop_price,
+                loss_budget=loss_budget,
+                preferences=prefs,
+            )
+            pack = build_recommendation_pack(
+                self.market_state,
+                self.selector_result,
+                comparator_inputs.priced_variants_by_structure,
+                comparator_inputs.pm_scores_by_structure,
+                preferences=prefs,
+                variant_evaluations_by_structure=comparator_inputs.variant_evaluations_by_structure,
+            )
+            self.explanation_pack_context = render_explanation_pack(pack)
+        except Exception:
+            self.explanation_pack_context = None
 
 
 
