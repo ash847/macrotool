@@ -181,6 +181,35 @@ def _resolve_ratio_spread_strikes(
     return K1, target
 
 
+def _resolve_target_or_delta_long_strike(
+    variant: dict,
+    *,
+    F: float,
+    vol: float,
+    T: float,
+    vol_sqrtT: float,
+    is_call: bool,
+    target: float | None,
+) -> float | None:
+    """Resolve the primary strike for target-based or delta-grid variants."""
+    if "long_delta" in variant:
+        K1, _ = _spread_strikes_from_deltas(
+            F, vol, T, is_call, variant["long_delta"], variant["short_delta"]
+        )
+        return K1
+
+    if target is None:
+        return None
+
+    target_z = abs(math.log(target / F) / vol_sqrtT) if vol_sqrtT > 0 else 0.0
+    if target_z < variant.get("min_target_z", 0.0):
+        return None
+
+    if variant["long_type"] == "atmf":
+        return F
+    return F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
+
+
 def _today_package_value_pct(
     *,
     structure_id: str,
@@ -648,18 +677,15 @@ def _european_rko(
     if target is None:
         return []
 
-    target_z = abs(math.log(target / F) / vol_sqrtT) if vol_sqrtT > 0 else 0.0
     fn_price = european_rko_call if is_call else european_rko_put
     result = []
 
     for v in variants:
-        if target_z < v.get("min_target_z", 0.0):
+        K = _resolve_target_or_delta_long_strike(
+            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target
+        )
+        if K is None:
             continue
-
-        if v["long_type"] == "atmf":
-            K = F
-        else:
-            K = F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
 
         barrier = target
         prem = fn_price(spot, K, barrier, T, vol, r_d, r_f)
