@@ -552,3 +552,39 @@ class TestVariantMaxLossDefinitions:
                 - (pv.wing_ratio or 0.0) * put_mtm(scenario_spot, pv.strikes[2], ms.T, ms.vol, ms.r_d, ms.r_f)
             ) / ms.spot
             assert pv.max_loss_pct == pytest.approx(today_value_pct, rel=2e-2)
+
+
+class TestRatioSpreadVariantExpansion:
+    def test_one_by_two_includes_target_and_one_by_one_delta_variants_for_puts(self):
+        ms = compute_market_state(
+            spot=1.035, fwd=1.038, vol=0.09, T=0.333, r_d=0.05, r_f=0.03,
+            target=0.95, direction="base_lower",
+        )
+        pvs = price_variants(ms, "1x2_spread", target=0.95, is_call=False)
+        labels = {pv.variant_label for pv in pvs}
+
+        assert "ATMF / 2× target" in labels
+        assert "½σ toward target / 2× target" in labels
+        assert "ATMF / 25Δ" in labels
+        assert "25Δ / 10Δ" in labels
+        assert "25Δ / 15Δ" in labels
+        assert "40Δ / 20Δ" in labels
+        assert "30Δ / 10Δ" in labels
+        assert "20Δ / 10Δ" in labels
+
+    def test_one_by_one_point_five_includes_target_and_one_by_one_delta_variants_for_puts(self):
+        ms = compute_market_state(
+            spot=1.035, fwd=1.038, vol=0.09, T=0.333, r_d=0.05, r_f=0.03,
+            target=0.95, direction="base_lower",
+        )
+        pvs = price_variants(ms, "1x1.5_spread", target=0.95, is_call=False)
+        labels = {pv.variant_label for pv in pvs}
+
+        assert "ATMF / 1.5× target" in labels
+        assert "½σ toward target / 1.5× target" in labels
+        assert "ATMF / 25Δ" in labels
+        assert "25Δ / 10Δ" in labels
+        assert "25Δ / 15Δ" in labels
+        assert "40Δ / 20Δ" in labels
+        assert "30Δ / 10Δ" in labels
+        assert "20Δ / 10Δ" in labels

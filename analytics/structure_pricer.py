@@ -127,6 +127,60 @@ def _spot_for_forward_today(fwd_today: float, T: float, r_d: float, r_f: float) 
     return fwd_today * math.exp(-(r_d - r_f) * T)
 
 
+def _spread_strikes_from_deltas(
+    F: float,
+    vol: float,
+    T: float,
+    is_call: bool,
+    long_delta: float,
+    short_delta: float,
+) -> tuple[float, float]:
+    if is_call:
+        return (
+            otm_call_strike(F, vol, T, long_delta),
+            otm_call_strike(F, vol, T, short_delta),
+        )
+    return (
+        otm_put_strike(F, vol, T, long_delta),
+        otm_put_strike(F, vol, T, short_delta),
+    )
+
+
+def _resolve_ratio_spread_strikes(
+    variant: dict,
+    *,
+    F: float,
+    vol: float,
+    T: float,
+    vol_sqrtT: float,
+    is_call: bool,
+    target: float | None,
+) -> tuple[float, float] | None:
+    """Resolve strikes for a ratio-spread variant.
+
+    Supports target-anchored variants (`long_type`) and delta-pair variants
+    (`long_delta` / `short_delta`) that mirror the 1x1 spread family.
+    """
+    if "long_delta" in variant and "short_delta" in variant:
+        return _spread_strikes_from_deltas(
+            F, vol, T, is_call, variant["long_delta"], variant["short_delta"]
+        )
+
+    if target is None:
+        return None
+
+    target_z = abs(math.log(target / F) / vol_sqrtT) if vol_sqrtT > 0 else 0.0
+    if target_z < variant.get("min_target_z", 0.0):
+        return None
+
+    if variant["long_type"] == "atmf":
+        K1 = F
+    else:  # half_sigma toward target
+        K1 = F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
+
+    return K1, target
+
+
 def _today_package_value_pct(
     *,
     structure_id: str,
@@ -215,15 +269,13 @@ def _spread(
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
-        ld, sd = v["long_delta"], v["short_delta"]
+        K_long, K_short = _spread_strikes_from_deltas(
+            F, vol, T, is_call, v["long_delta"], v["short_delta"]
+        )
         if is_call:
-            K_long  = otm_call_strike(F, vol, T, ld)
-            K_short = otm_call_strike(F, vol, T, sd)
             prem_long  = black76_call(F, K_long,  T, vol, DF)
             prem_short = black76_call(F, K_short, T, vol, DF)
         else:
-            K_long  = otm_put_strike(F, vol, T, ld)
-            K_short = otm_put_strike(F, vol, T, sd)
             prem_long  = black76_put(F, K_long,  T, vol, DF)
             prem_short = black76_put(F, K_short, T, vol, DF)
 
@@ -262,39 +314,28 @@ def _spread(
 
 
 # ---------------------------------------------------------------------------
-# 1x1.5 Spread  (long 1 × long leg, short 1.5 × target strike)
+# 1x1.5 Spread  (long 1 × long leg, short 1.5 × short leg)
 # ---------------------------------------------------------------------------
 
 def _1x1p5(
     variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
 ) -> list[PricedVariant]:
-    """Same construction as the 1x2 but with a 1.5× short ratio.
-    Net premium is reduced vs a 1x1 spread but not fully zero.
-    Beyond the target the position is net short 0.5 options — tail risk is
-    present but half that of a 1x2."""
-    if target is None:
-        return []
-    target_z = abs(math.log(target / F) / vol_sqrtT) if vol_sqrtT > 0 else 0.0
+    """Price 1x1.5 ratio spreads from target-based or delta-pair variants."""
     result = []
     for v in variants:
-        if target_z < v.get("min_target_z", 0.0):
+        resolved = _resolve_ratio_spread_strikes(
+            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target
+        )
+        if resolved is None:
             continue
-
-        if v["long_type"] == "atmf":
-            K1 = F
-        else:  # half_sigma toward target
-            K1 = F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
-
-        K2 = target  # short strike (×1.5)
+        K1, K2 = resolved
 
         if is_call:
             prem1 = black76_call(F, K1, T, vol, DF)
             prem2 = black76_call(F, K2, T, vol, DF)
-            gross_at_target = max(target - K1, 0.0)
         else:
             prem1 = black76_put(F, K1, T, vol, DF)
             prem2 = black76_put(F, K2, T, vol, DF)
-            gross_at_target = max(K1 - target, 0.0)
 
         net_prem = prem1 - 1.5 * prem2
         prem_pct = net_prem / spot
@@ -304,14 +345,21 @@ def _1x1p5(
         if not is_zero_cost and net_prem > 0:
             breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
 
-        payoff_pct = gross_at_target / spot
-        rr = (payoff_pct / prem_pct) if (not is_zero_cost and prem_pct > 1e-8) else None
+        payoff_pct = None
+        if target is not None:
+            gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
+            payoff_pct = gross_at_target / spot
+        rr = (
+            payoff_pct / prem_pct
+            if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
+            else None
+        )
 
         max_loss_pct = max(
             _today_package_value_pct(
                 structure_id="1x1.5_spread",
                 strikes=[K1, K2],
-                fwd_today=target,
+                fwd_today=(target if target is not None else K2),
                 T=T,
                 vol=vol,
                 r_d=r_d,
@@ -337,35 +385,27 @@ def _1x1p5(
     return result
 
 
-# 1x2 Spread  (long 1 × long leg, short 2 × target strike)
+# 1x2 Spread  (long 1 × long leg, short 2 × short leg)
 # ---------------------------------------------------------------------------
 
 def _1x2(
     variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
 ) -> list[PricedVariant]:
-    if target is None:
-        return []
-    target_z = abs(math.log(target / F) / vol_sqrtT) if vol_sqrtT > 0 else 0.0
     result = []
     for v in variants:
-        if target_z < v.get("min_target_z", 0.0):
+        resolved = _resolve_ratio_spread_strikes(
+            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target
+        )
+        if resolved is None:
             continue
-
-        if v["long_type"] == "atmf":
-            K1 = F
-        else:  # half_sigma toward target
-            K1 = F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
-
-        K2 = target  # short strike (×2)
+        K1, K2 = resolved
 
         if is_call:
             prem1 = black76_call(F, K1, T, vol, DF)
             prem2 = black76_call(F, K2, T, vol, DF)
-            gross_at_target = max(target - K1, 0.0)  # short leg = 0 since K2 = target
         else:
             prem1 = black76_put(F, K1, T, vol, DF)
             prem2 = black76_put(F, K2, T, vol, DF)
-            gross_at_target = max(K1 - target, 0.0)
 
         net_prem = prem1 - 2.0 * prem2
         prem_pct = net_prem / spot
@@ -375,14 +415,21 @@ def _1x2(
         if not is_zero_cost and net_prem > 0:
             breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
 
-        payoff_pct = gross_at_target / spot
-        rr = (payoff_pct / prem_pct) if (not is_zero_cost and prem_pct > 1e-8) else None
+        payoff_pct = None
+        if target is not None:
+            gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
+            payoff_pct = gross_at_target / spot
+        rr = (
+            payoff_pct / prem_pct
+            if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
+            else None
+        )
 
         max_loss_pct = max(
             _today_package_value_pct(
                 structure_id="1x2_spread",
                 strikes=[K1, K2],
-                fwd_today=target,
+                fwd_today=(target if target is not None else K2),
                 T=T,
                 vol=vol,
                 r_d=r_d,
