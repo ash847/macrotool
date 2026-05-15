@@ -16,6 +16,39 @@ def render_explanation_pack(
     *,
     max_comparisons: int | None = None,
 ) -> str:
+    lines: list[str] = render_explanation_pack_overview(pack).splitlines()
+    variant_comparisons = pack.variant_comparisons
+    if max_comparisons is not None:
+        variant_comparisons = variant_comparisons[:max_comparisons]
+    variant_text = render_variant_comparisons(variant_comparisons)
+    if variant_text:
+        lines.extend(["", variant_text])
+
+    comparisons = list(pack.comparisons.values())
+    if max_comparisons is not None:
+        comparisons = comparisons[:max_comparisons]
+    structure_text = render_structure_comparisons(comparisons)
+    if structure_text:
+        lines.extend(["", structure_text])
+
+    if pack.unavailable_comparisons:
+        unavailable = [
+            f"- {item.challenger_display_name}: {item.plain}"
+            for item in pack.unavailable_comparisons
+        ]
+        lines.extend(_section("Unavailable comparisons", unavailable))
+
+    lines.extend([
+        "Disclosure:",
+        "- Explain qualitatively.",
+        "- Do not reveal raw weights, thresholds, JSON scores, or scoring formulas.",
+        "- Do not invent scores, strikes, barriers, premiums, or scenario P&Ls.",
+    ])
+
+    return "\n".join(lines).strip()
+
+
+def render_explanation_pack_overview(pack: RecommendationExplanationPack) -> str:
     lines: list[str] = [
         "RECOMMENDATION EXPLANATION PACK",
         f"Chosen: {pack.chosen_display_name}",
@@ -46,32 +79,20 @@ def render_explanation_pack(
     if pack.risk_reasons:
         lines.extend(_section("Risks", _reason_lines(pack.risk_reasons)))
 
-    variant_comparisons = pack.variant_comparisons
-    if max_comparisons is not None:
-        variant_comparisons = variant_comparisons[:max_comparisons]
-    for comparison in variant_comparisons:
-        lines.extend(_render_variant_comparison(comparison))
+    return "\n".join(lines).strip()
 
-    comparisons = list(pack.comparisons.values())
-    if max_comparisons is not None:
-        comparisons = comparisons[:max_comparisons]
+
+def render_variant_comparisons(comparisons) -> str:
+    lines: list[str] = []
+    for comparison in comparisons:
+        lines.extend(_render_variant_comparison(comparison))
+    return "\n".join(lines).strip()
+
+
+def render_structure_comparisons(comparisons: list[PairwiseComparison]) -> str:
+    lines: list[str] = []
     for comparison in comparisons:
         lines.extend(_render_comparison(comparison))
-
-    if pack.unavailable_comparisons:
-        unavailable = [
-            f"- {item.challenger_display_name}: {item.plain}"
-            for item in pack.unavailable_comparisons
-        ]
-        lines.extend(_section("Unavailable comparisons", unavailable))
-
-    lines.extend([
-        "Disclosure:",
-        "- Explain qualitatively.",
-        "- Do not reveal raw weights, thresholds, JSON scores, or scoring formulas.",
-        "- Do not invent scores, strikes, barriers, premiums, or scenario P&Ls.",
-    ])
-
     return "\n".join(lines).strip()
 
 

@@ -1,6 +1,11 @@
 """
 Conversation flow state machine.
 
+This module represents the target conversational architecture. The current
+Streamlit Trade View UI can also run a structured silent path that bypasses
+`advance()` and calls the deterministic engine directly while we validate the
+plumbing, but follow-up/conversation behavior still lives here.
+
 States:
   INTAKE         → PM provides view in natural language; LLM extracts [VIEW: {...}] tag
   VALIDATION     → LLM contextualises view against market (auto-triggered after intake)

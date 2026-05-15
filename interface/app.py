@@ -1,8 +1,10 @@
 """
 MacroTool — EM FX distribution view tool.
 
-Takes a natural language trade view, extracts pair/direction/magnitude/horizon,
-renders a price distribution cone, and shows how big the target move is in σ terms.
+The current Trade View UI uses structured inputs and runs the deterministic
+engine path directly. The conversational LLM flow remains in the codebase as
+the target architecture, but it is intentionally silent on this UI path while
+we test the pipes.
 
 Run with:
     .venv/bin/streamlit run interface/app.py
@@ -1068,7 +1070,11 @@ else:
         from analytics.scenario_pricer import price_scenarios as _price_sc
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
-        from conversation.explanation_context import render_explanation_pack as _render_expl_pack
+        from conversation.explanation_context import (
+            render_explanation_pack_overview as _render_expl_overview,
+            render_structure_comparisons as _render_structure_comparisons,
+            render_variant_comparisons as _render_variant_comparisons,
+        )
         from knowledge_engine.comparator import (
             VariantEvaluation as _VariantEvaluation,
             build_recommendation_pack as _build_expl_pack,
@@ -1233,7 +1239,21 @@ else:
                         variant_evaluations_by_structure=_expl_variant_evals,
                     )
                     with st.expander("Explanation pack preview", expanded=False):
-                        st.code(_render_expl_pack(_expl_pack), language="text")
+                        st.code(_render_expl_overview(_expl_pack), language="text")
+                        if _expl_pack.variant_comparisons:
+                            with st.expander("Variant comparisons", expanded=False):
+                                st.code(
+                                    _render_variant_comparisons(_expl_pack.variant_comparisons),
+                                    language="text",
+                                )
+                        if _expl_pack.comparisons:
+                            with st.expander("Structure comparisons", expanded=False):
+                                st.code(
+                                    _render_structure_comparisons(list(_expl_pack.comparisons.values())),
+                                    language="text",
+                                )
+                        if not _expl_pack.variant_comparisons and not _expl_pack.comparisons:
+                            st.caption("No comparator sections available for this pack.")
                 except Exception as _e:
                     with st.expander("Explanation pack preview", expanded=False):
                         st.caption(f"Unable to build explanation pack preview: {_e}")
@@ -1358,7 +1378,7 @@ else:
                 )
 
             st.markdown("**Trade preferences**")
-            st.caption("Optional for now — captured in the UI only, not yet applied to scoring.")
+            st.caption("These preferences are applied in the deterministic engine path. The conversational LLM path remains silent on this screen for now.")
 
             p1, p2, p3 = st.columns(3)
             with p1:

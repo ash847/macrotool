@@ -64,3 +64,9 @@ Current product impact
 - No change to the visible structured Trade View recommendation path is expected from this checkpoint alone.
 - The explanation pack preview should remain unchanged in intent; this step mainly makes the same pack available to any follow-up conversation path that uses `ConversationFlow`.
 - The current Streamlit Trade View intake remains deterministic and does not call `flow.advance(...)`, so this checkpoint should not add active Anthropic API usage on the normal structured submission path.
+
+Architecture note
+
+- The conversation/LLM path is still the intended target architecture and should not be treated as dead code.
+- The current Trade View UI is intentionally keeping that path silent while we test the deterministic engine pipeline and comparator plumbing.
+- Doc and copy clean-up should describe this as "structured silent mode" or equivalent, rather than implying the LLM path has been removed.
