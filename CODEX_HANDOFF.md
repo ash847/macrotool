@@ -70,3 +70,20 @@ Architecture note
 - The conversation/LLM path is still the intended target architecture and should not be treated as dead code.
 - The current Trade View UI is intentionally keeping that path silent while we test the deterministic engine pipeline and comparator plumbing.
 - Doc and copy clean-up should describe this as "structured silent mode" or equivalent, rather than implying the LLM path has been removed.
+
+Latest UI checkpoint
+
+- The latest pushed branch state is `7305160` on `claude/charming-leavitt-47b984`.
+- The admin `Explanation pack preview` is now split into separate sections under the preview expander:
+  - overview
+  - variant comparisons
+  - structure comparisons
+- `conversation/explanation_context.py` now exposes separate render helpers for the overview, variant-comparison section, and structure-comparison section, in addition to the full combined renderer.
+- `interface/app.py` now uses those separate render helpers so the preview is easier to inspect and reason about during tuning.
+- The same commit also aligned code comments, UI copy, and project docs around the intended architecture wording:
+  - the conversation/LLM path remains the target architecture
+  - the current Trade View page is running in a structured silent mode while deterministic pipes are being tested
+
+Recommended next step
+
+- If the next comparator iteration stays variant-first, enrich the variant-comparison section so it can eventually carry the same level of detail as the current structure-comparison section, then route or prioritize the relevant section based on the PM's follow-up question.
