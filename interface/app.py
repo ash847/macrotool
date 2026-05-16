@@ -16,6 +16,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
@@ -1059,13 +1060,13 @@ else:
         _ev_stop = _ev_ms.fwd * (1 - _ev_stop_pct) if _ev_is_call else _ev_ms.fwd * (1 + _ev_stop_pct)
         _ev_loss_budget = LINEAR_NOTIONAL * _ev_stop_pct
 
-        from analytics.structure_pricer import price_variants as _pv_fn
+        from analytics.structure_pricer import PricedVariant as _PricedVariant, price_variants as _pv_fn
         from analytics.scenario_generator import (
             GRID_COLS as _SC_GRID_COLS,
             generate_scenarios as _gen_sc,
             valid_grid_rows as _valid_grid_rows,
         )
-        from analytics.scenario_pricer import price_scenarios as _price_sc
+        from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
 
@@ -1133,6 +1134,43 @@ else:
                 "variants": _ev_variants,
                 "label":    _ev_item.display_name,
             })
+
+        _linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
+        _linear_pv = _PricedVariant(
+            variant_label="Delta 1 (max-loss capped)",
+            strikes=[],
+            barrier=None,
+            net_premium_pct=0.0,
+            breakeven=None,
+            payoff_at_target_pct=None,
+            rr_at_target=None,
+            max_loss_pct=_ev_stop_pct,
+            wing_ratio=None,
+            is_zero_cost=True,
+            structure_notional=LINEAR_NOTIONAL,
+            net_premium_ccy=0.0,
+            payoff_at_target_ccy=None,
+            max_loss_ccy=_ev_loss_budget,
+        )
+        _linear_rows = _price_linear_sc(
+            _ev_scenarios,
+            _ev_inputs,
+            _ev_is_call,
+            LINEAR_NOTIONAL,
+            _ev_loss_budget,
+        )
+        _linear_score = _score_struct(_linear_rows, _ev_weights)
+        _linear_score_base = _score_struct(_linear_rows, _ev_base_weights)
+        _ev_structs.append({
+            "item": _linear_item,
+            "variants": [{
+                "pv": _linear_pv,
+                "rows": _linear_rows,
+                "score": _linear_score,
+                "score_base": _linear_score_base,
+            }],
+            "label": _linear_item.display_name,
+        })
 
         if _ev_structs:
             # persist last results for debug / future scoring

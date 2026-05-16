@@ -20,6 +20,60 @@ from pricing.digital_rko import digital_rko_call_mtm, digital_rko_put_mtm
 from pricing.european_rko import european_rko_call_mtm, european_rko_put_mtm
 
 
+def price_linear_scenarios(
+    scenarios: list[dict],
+    trade_inputs: dict,
+    is_call: bool,
+    notional: float,
+    max_loss_ccy: float | None = None,
+) -> list[dict]:
+    """Price a delta-1 linear position through the scenario grid.
+
+    The position is long the base currency when `is_call=True` and short the base
+    currency when `is_call=False`. P&L is capped at the provided max loss, if any.
+    """
+    entry_spot: float = trade_inputs["spot"]
+    direction = 1.0 if is_call else -1.0
+    max_loss_pct = (max_loss_ccy / notional) if (max_loss_ccy is not None and notional > 0) else None
+
+    results = []
+    for sc in scenarios:
+        d = sc["derived"]
+        scenario_spot: float = d["scenario_spot"]
+        raw_pnl_pct = direction * ((scenario_spot - entry_spot) / entry_spot)
+        pnl_pct = max(raw_pnl_pct, -max_loss_pct) if max_loss_pct is not None else raw_pnl_pct
+        price_pct = pnl_pct
+        pnl_ccy = pnl_pct * notional
+        price_ccy = pnl_ccy
+
+        results.append({
+            "structure_id": "linear",
+            "variant_label": "Delta 1 (max-loss capped)",
+            "scenario_id": sc["id"],
+            "row": sc["row"],
+            "col": sc["col"],
+            "time_fraction": sc["time_fraction"],
+            "fwd_rule": sc["fwd_rule"],
+            "vol_rule": sc["vol_rule"],
+            "skew_rule": sc["skew_rule"],
+            "tags": sc["tags"],
+            "elapsed_time": d["elapsed_time"],
+            "remaining_time": d["remaining_time"],
+            "scenario_fwd": d["scenario_fwd"],
+            "scenario_spot": scenario_spot,
+            "vol_shift": "±4% vol" if sc.get("vol_shifts") else d["vol_shift"],
+            "scenario_vol": trade_inputs["implied_vol"] if sc.get("vol_shifts") else d["scenario_vol"],
+            "skew_multiplier": d["skew_multiplier"],
+            "structure_notional": notional,
+            "price_pct": price_pct,
+            "pnl_pct": pnl_pct,
+            "price_ccy": price_ccy,
+            "pnl_ccy": pnl_ccy,
+        })
+
+    return results
+
+
 def price_scenarios(
     variant: PricedVariant,
     structure_id: str,

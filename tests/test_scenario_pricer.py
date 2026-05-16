@@ -7,7 +7,7 @@ import pytest
 
 from analytics.market_state import compute_market_state
 from analytics.scenario_generator import generate_scenarios
-from analytics.scenario_pricer import price_scenarios
+from analytics.scenario_pricer import price_linear_scenarios, price_scenarios
 from analytics.structure_pricer import PricedVariant, price_variants
 from pricing.black_scholes import call_mtm, put_mtm
 
@@ -357,6 +357,37 @@ class TestDeltaVolScenarios:
         expected = min(down, up) / _SPOT
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
         assert rows[0]["vol_shift"] == "±4% vol"
+
+
+class TestLinearScenarioPricer:
+    def test_linear_long_base_tracks_spot_move(self):
+        scenarios = _single_scenario(1.10, remaining_time=0.0)
+        rows = price_linear_scenarios(
+            scenarios,
+            _TRADE_INPUTS,
+            is_call=True,
+            notional=100.0,
+            max_loss_ccy=10.0,
+        )
+        expected_pct = (1.10 - _SPOT) / _SPOT
+        assert rows[0]["price_pct"] == pytest.approx(expected_pct)
+        assert rows[0]["pnl_pct"] == pytest.approx(expected_pct)
+        assert rows[0]["price_ccy"] == pytest.approx(expected_pct * 100.0)
+        assert rows[0]["pnl_ccy"] == pytest.approx(expected_pct * 100.0)
+
+    def test_linear_short_base_caps_losses_at_max_loss(self):
+        scenarios = _single_scenario(1.20, remaining_time=0.0)
+        rows = price_linear_scenarios(
+            scenarios,
+            _TRADE_INPUTS,
+            is_call=False,
+            notional=100.0,
+            max_loss_ccy=5.0,
+        )
+        assert rows[0]["price_pct"] == pytest.approx(-0.05)
+        assert rows[0]["pnl_pct"] == pytest.approx(-0.05)
+        assert rows[0]["price_ccy"] == pytest.approx(-5.0)
+        assert rows[0]["pnl_ccy"] == pytest.approx(-5.0)
 
 
 # ---------------------------------------------------------------------------
