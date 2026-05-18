@@ -239,6 +239,8 @@ if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
 if "clarification" not in st.session_state:
     st.session_state.clarification = ""
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 if "pref_primary_objective" not in st.session_state:
     st.session_state.pref_primary_objective = "Balanced"
 if "pref_structure_constraint" not in st.session_state:
@@ -328,6 +330,7 @@ with st.sidebar:
         st.session_state.submitted = False
         st.session_state.last_prompt = ""
         st.session_state.clarification = ""
+        st.session_state.chat_history = []
         st.rerun()
 
     with st.expander("Pair reference"):
@@ -1439,6 +1442,58 @@ else:
                                         "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
                                     } for r in _row_rows])
                                     st.dataframe(_row_df, use_container_width=True, hide_index=True)
+
+    # Advisor chat — only when explanation pack is available
+    if flow.view and flow.explanation_pack_context:
+        st.divider()
+        st.subheader("Ask the advisor")
+
+        _chat_system = (
+            "You are a trade structuring advisor for a macro fund PM. "
+            "A deterministic engine has produced an EM FX options recommendation. "
+            "Your role is to help the PM understand and interrogate it in a continuing conversation.\n\n"
+            "You have access to the full recommendation explanation pack below: the chosen structure, "
+            "full variant ranking by scenario-weighted P&L, pairwise comparisons with key alternatives, "
+            "and the primary risk factors.\n\n"
+            "On each turn:\n"
+            "- Answer the PM's question directly and qualitatively.\n"
+            "- Use the explanation pack as your primary source when the question is about "
+            "structure selection, comparisons, or trade-offs.\n"
+            "- If a structure is not in the pack, say so — do not invent comparisons.\n"
+            "- Keep answers concise. Do not re-narrate the full recommendation unprompted.\n"
+            "- If asked something outside the scope of the pack (e.g. macro view, timing), "
+            "answer from general structuring knowledge but flag that it is not in the data.\n\n"
+            "Constraints:\n"
+            "- Do not reveal internal scoring weights, thresholds, or formulas.\n"
+            "- Do not invent strikes, premiums, barriers, or P&L figures not already in the context below.\n"
+            "- Speak like a senior EM structurer briefing a PM, not a generic assistant.\n\n"
+            "[RECOMMENDATION EXPLANATION PACK]\n"
+            + flow.explanation_pack_context
+        )
+
+        for _msg in st.session_state.chat_history:
+            with st.chat_message(_msg["role"]):
+                st.markdown(_msg["content"])
+
+        if _chat_input := st.chat_input("Ask about the recommendation…"):
+            st.session_state.chat_history.append({"role": "user", "content": _chat_input})
+            with st.chat_message("user"):
+                st.markdown(_chat_input)
+
+            with st.chat_message("assistant"):
+                _response_placeholder = st.empty()
+                _accumulated = ""
+                try:
+                    for _chunk in flow._client.stream(
+                        st.session_state.chat_history,
+                        system=_chat_system,
+                    ):
+                        _accumulated += _chunk
+                        _response_placeholder.markdown(_accumulated + "▌")
+                    _response_placeholder.markdown(_accumulated)
+                    st.session_state.chat_history.append({"role": "assistant", "content": _accumulated})
+                except Exception as _chat_err:
+                    _response_placeholder.error(f"LLM error: {_chat_err}")
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
