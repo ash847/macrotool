@@ -48,6 +48,51 @@ def render_explanation_pack(
     return "\n".join(lines).strip()
 
 
+def _wing_risk_lines(structure_id: str, rv: "RankedVariant", is_call: bool) -> list[str]:
+    strikes = rv.strikes
+    barrier = rv.barrier
+    up = "rises" if not is_call else "falls"
+    down = "falls" if not is_call else "rises"
+
+    if structure_id == "vanilla":
+        return []
+
+    if structure_id == "1x1_spread":
+        if len(strikes) >= 2:
+            return [f"- Short leg at {strikes[1]:.4f}: cap — profit stops here, no additional loss"]
+        return []
+
+    if structure_id in ("1x1.5_spread", "1x2_spread"):
+        if len(strikes) >= 2:
+            direction = "rises" if is_call else "falls"
+            return [f"- Short leg at {strikes[1]:.4f}: tail — P&L turns increasingly negative if spot {direction} through this level"]
+        return []
+
+    if structure_id == "seagull":
+        lines = []
+        if len(strikes) >= 2:
+            lines.append(f"- Short in-direction leg at {strikes[1]:.4f}: cap — profit stops here, no additional loss")
+        if len(strikes) >= 3:
+            direction = "falls" if is_call else "rises"
+            lines.append(f"- Short funding wing at {strikes[2]:.4f}: tail — P&L turns increasingly negative if spot {direction} through this level")
+        return lines
+
+    if structure_id in ("rko",):
+        if barrier is not None:
+            return [f"- Barrier at {barrier:.4f}: knockout — option is knocked out if spot trades through this level at any point; no loss beyond premium paid"]
+        return []
+
+    if structure_id in ("european_rko",):
+        if barrier is not None:
+            return [f"- Expiry knockout at {barrier:.4f}: knockout — option expires worthless if spot finishes beyond this level; no loss beyond premium paid"]
+        return []
+
+    if structure_id in ("european_digital", "european_digital_rko", "linear"):
+        return []
+
+    return []
+
+
 def render_explanation_pack_overview(pack: RecommendationExplanationPack) -> str:
     lines: list[str] = [
         "RECOMMENDATION EXPLANATION PACK",
@@ -65,6 +110,12 @@ def render_explanation_pack_overview(pack: RecommendationExplanationPack) -> str
             for r in pack.ranked_variants
         ]
         lines.extend(_section("Variant ranking", ranking_lines))
+
+    if pack.ranked_variants:
+        chosen_rv = pack.ranked_variants[0]
+        wing_lines = _wing_risk_lines(chosen_rv.structure_id, chosen_rv, pack.is_call)
+        if wing_lines:
+            lines.extend(_section("Wing risk (chosen structure)", wing_lines))
 
     if pack.summary_reasons:
         lines.extend(_section("Summary", _reason_lines(pack.summary_reasons)))

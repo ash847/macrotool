@@ -90,6 +90,7 @@ class RecommendationExplanationPack:
     chosen_display_name: str
     chosen_variant_label: str | None = None
     recommendation_basis: Literal["scenario_weighted_pnl", "affinity_rank"] = "scenario_weighted_pnl"
+    is_call: bool = True
     ranked_variants: list["RankedVariant"] = field(default_factory=list)
     summary_reasons: list[Reason] = field(default_factory=list)
     construction_reasons: list[ConstructionReason] = field(default_factory=list)
@@ -427,6 +428,7 @@ def build_recommendation_pack(
         ),
         chosen_variant_label=chosen_variant.variant_label if chosen_variant is not None else None,
         recommendation_basis="scenario_weighted_pnl" if (ranked_variants or ranked_structures) else "affinity_rank",
+        is_call=market_state.put_call == "Call",
         ranked_variants=ranked_variants,
         summary_reasons=_dedupe_reasons(summary_reasons),
         construction_reasons=[],
