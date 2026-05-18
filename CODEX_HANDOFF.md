@@ -1,8 +1,8 @@
-Current branch
+Current state
 
-- Worktree: `/Users/ash/Documents/Coding work/MacroTool/.claude/worktrees/charming-leavitt-47b984`
-- Branch: `claude/charming-leavitt-47b984`
-- Latest pushed commit: `1fc1466` — `Add advisor chat panel below structure evaluation`
+- Branch: `main`
+- Latest pushed commit: `d496373` — `Refactor app.py into separate interface modules`
+- App is live on Streamlit Cloud, Gemini/Vertex provider active
 
 Current goal
 
@@ -13,38 +13,46 @@ Important: the app currently makes NO intake LLM calls
 - `_submit_structured_view()` in `interface/app.py` calls `flow._run_engines()` (quant engine only) and returns structured output directly.
 - `flow.advance()` is never called anywhere in the app.
 - The LLM is only used in the advisor chat panel (below the structure evaluation output).
-- The "Follow-up prompt wiring" noted in earlier docs refers to code in `conversation/` that was built but is not wired to the intake path.
 
 What is done and live
+
+**Interface module split**
+`interface/app.py` (1,029 lines) is now a thin orchestration shell. Three modules extracted to avoid merge conflicts during parallel branch work:
+- `interface/llm_config.py` — LLM provider config functions (`get_llm_provider`, `get_provider_model`, `gemini_status`, `get_gemini_vertex_credentials`, etc.)
+- `interface/structure_eval.py` — shared helpers (`fmt_ccy`, `variant_label_with_strikes`, `LINEAR_NOTIONAL`, `target_price`) + `render_structure_variants()` + `render_structure_evaluation()`
+- `interface/advisor_chat.py` — `render_advisor_chat()`
 
 **Gemini/Vertex provider**
 - `conversation/client.py` — provider-aware facade with `AnthropicProviderClient` and `GeminiProviderClient`
 - `conversation/flow.py` — accepts `provider`, `model`, `credentials` config
-- `interface/app.py` — reads `LLM_PROVIDER`, model, and Vertex config from Streamlit secrets/env; shows provider-specific sidebar status
+- `interface/llm_config.py` — reads `LLM_PROVIDER`, model, and Vertex config from Streamlit secrets/env; exposes sidebar status helpers
 - `pyproject.toml` and `requirements.txt` — both include `google-genai>=1.40.0`
-- `uv.lock` — updated to include `google-genai` (was missing, caused silent install failure on Streamlit Cloud)
-- Service account credentials fix — `Credentials.from_service_account_info()` now passes `scopes=["https://www.googleapis.com/auth/cloud-platform"]` (missing scope caused OAuth error)
+- `uv.lock` — updated to include `google-genai`
+- Service account credentials — `Credentials.from_service_account_info()` passes `scopes=["https://www.googleapis.com/auth/cloud-platform"]`
 
 **Advisor chat panel**
-- Added to `interface/app.py` below the structure evaluation output
-- Only shown in recommend mode when `flow.explanation_pack_context` is available
+- In `interface/advisor_chat.py`, rendered below the structure evaluation output
+- Only shown when `flow.explanation_pack_context` is available
 - Multi-turn: full conversation history sent on every API call
-- System prompt embeds the full rendered explanation pack (~1,300 tokens; well within Gemini 2.5 Flash 1M context window)
+- System prompt embeds the full rendered explanation pack (~1,300 tokens)
 - Clears on "New view"
+- Restricted to pack-only answers for structure/comparison/payoff questions; general knowledge fallback requires explicit "This is outside my expertise. However..." prefix
+
+**Explanation pack / wing risk**
+- `conversation/explanation_context.py` — renders explanation pack; includes "Wing risk (chosen structure)" section with per-leg tail/cap/knockout annotations
+- `knowledge_engine/comparator.py` — `RecommendationExplanationPack` has `is_call: bool`; set from `market_state.put_call == "Call"`
+
+**Structure evaluation**
+- Flat ranked list of ALL variants across ALL structures, sorted by descending PM overlay weighted P&L (currency amount)
+- Expander titles start with structure type name
 
 **Sidebar test button**
-- "Test LLM connection" button appears in the sidebar when Gemini is configured and ready
-- Makes a minimal one-shot call and shows the raw response — useful for deployment smoke tests
-
-**Deployment status**
-- App loads cleanly on branch `claude/charming-leavitt-47b984`
-- Sidebar shows "Vertex service account ready"
-- Advisor chat is functional end-to-end
+- "Test LLM connection" shown in sidebar when Gemini is configured and ready
 
 Deployment gotchas (do not forget)
 
 - `uv.lock` must be kept in sync with `pyproject.toml`. A stale lockfile silently overrides `requirements.txt` — run `uv lock` and commit after any dependency change.
-- `LLM_PROVIDER` and all Gemini/Vertex secrets must be top-level TOML keys, not under `[auth.google]`.
+- `LLM_PROVIDER = "gemini"` must be set in Streamlit secrets — default falls back to `"anthropic"`.
 - Service account credentials require `scopes=["https://www.googleapis.com/auth/cloud-platform"]` — without this the OAuth token request fails with `invalid_scope`.
 - Python source changes require a `pyproject.toml` version bump to trigger Streamlit Cloud package reinstall.
 
@@ -76,24 +84,23 @@ client_id = "..."
 token_uri = "https://oauth2.googleapis.com/token"
 ```
 
-Focused verification run
+Key files
 
-```
-'/Users/ash/Documents/Coding work/MacroTool/.venv/bin/python' -m pytest tests/test_conversation_client.py tests/test_comparator.py tests/test_explanation_context.py tests/test_followup_prompt.py
-```
-
-Files most relevant to the current task
-
-- `interface/app.py` — chat panel is near the bottom of the Trade View page render block; search for "Advisor chat"
-- `conversation/explanation_context.py` — renders the explanation pack to text
-- `knowledge_engine/comparator.py` — builds the explanation pack from engine outputs
+- `interface/app.py` — thin shell; Trade View page orchestration
+- `interface/advisor_chat.py` — chat panel; search for `render_advisor_chat`
+- `interface/structure_eval.py` — structure evaluation rendering
+- `interface/llm_config.py` — LLM provider config
+- `conversation/explanation_context.py` — renders explanation pack to text
+- `knowledge_engine/comparator.py` — builds explanation pack from engine outputs
 - `conversation/flow.py` — `_build_explanation_pack_context()` wires engine → pack → rendered string
 - `conversation/client.py` — `GeminiProviderClient`
-- `GEMINI_PROVIDER_PLAN.md` — full provider implementation history (now complete)
-- `COMPARATOR_PACK_PLAN.md` — comparator design decisions and phase log
+
+Verification
+
+```
+.venv/bin/python -m pytest   # 338 tests
+```
 
 Recommended next step
 
-- Evaluate response quality: submit a trade view, ask "why this structure?", "why not vanilla?", "why this variant?" and review the depth and accuracy of the answers.
-- Identify gaps: is the explanation pack missing context the LLM needs? Is the system prompt too loose or too tight?
-- Improve accordingly: options include enriching the pack content, tightening the system prompt, or adding scenario-level data to the context.
+Evaluate response quality: submit a trade view, ask "why this structure?", "why not vanilla?", "why this variant?" and assess depth and accuracy. Identify gaps in the explanation pack and improve pack content or system prompt accordingly.
