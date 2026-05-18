@@ -179,7 +179,10 @@ def _get_gemini_vertex_credentials():
         return None
     try:
         from google.oauth2 import service_account
-        return service_account.Credentials.from_service_account_info(info)
+        return service_account.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
     except Exception:
         return None
 
