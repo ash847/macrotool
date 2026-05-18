@@ -358,6 +358,7 @@ def build_followup_prompt(
     selector_result: StructureSelectionResult,
     sizing: SizingOutput,
     critique: CritiqueOutput | None = None,
+    explanation_context: str | None = None,
 ) -> str:
     """DONE step: full context for follow-up Q&A."""
     base = _build_base(overridable_fields_description())
@@ -367,6 +368,13 @@ def build_followup_prompt(
         "from the PM using the pre-computed data in the blocks below. "
         "Do not re-narrate everything — answer the specific question concisely.\n"
     )
+    if explanation_context:
+        followup_instruction += (
+            "Use the recommendation explanation pack first when the question is about "
+            "why this structure was chosen, why another structure was not chosen, "
+            "or how the preferred variant compares. Keep the answer qualitative. "
+            "Do not reveal raw weights, thresholds, JSON scores, or scoring formulas.\n"
+        )
 
     shortlist_lines = [f"{i.rank}. {i.display_name}" for i in selector_result.shortlist]
     context_block = _block(
@@ -386,4 +394,11 @@ def build_followup_prompt(
             f"Verdict: {critique.verdict} | PM structure: {critique.pm_structure}",
         )
 
-    return base + followup_instruction + context_block + sizing_block + critique_block
+    explanation_block = ""
+    if explanation_context:
+        explanation_block = _block(
+            "RECOMMENDATION EXPLANATION PACK",
+            explanation_context,
+        )
+
+    return base + followup_instruction + context_block + sizing_block + critique_block + explanation_block

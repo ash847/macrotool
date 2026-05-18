@@ -1,6 +1,6 @@
 # MacroTool — Developer Reference
 
-EM FX trade structuring & sizing tool for macro fund PMs. PM inputs a view in plain English → tool recommends structures with sizing, entry/exit params, or critiques a PM-supplied structure.
+EM FX trade structuring & sizing tool for macro fund PMs. The target architecture is conversational: PM inputs a view in plain English and the tool recommends structures with sizing, entry/exit params, or critiques a PM-supplied structure. The current Streamlit Trade View screen is running a structured silent path while the deterministic pipes are being tested, so the visible UI does not currently depend on live LLM narration.
 
 ## Running the project
 
@@ -57,6 +57,8 @@ DONE   → DONE (follow-up Q&A, unlimited)
 3. Structure rec (recommend) or Critique (critique mode)
 
 All three responses are concatenated and recorded as a single assistant message. This is intentional — it prevents message history from ending with an assistant turn.
+
+This remains the intended conversation architecture. The current Streamlit Trade View page can also bypass `flow.advance()` and submit structured inputs directly into `_run_engines()` while we test the deterministic pipeline with the LLM path kept silent on that screen.
 
 **After INTAKE**, the engine has already run:
 - `compute_market_state()` → `MarketState`
@@ -191,7 +193,7 @@ The Google OAuth app (Cloud Console → APIs & Services → Credentials) must ha
 
 ## PM preference roadmap
 
-1. **UI only** ✅ — PM preference inputs on the intake form.
+1. **UI capture first** ✅ — PM preference inputs were first added on the intake form.
    - `Primary objective`: `Balanced`, `Keep cost low`, `Hold up if the path is slow/noisy`, `Keep risk clean`
    - `Structure constraint`: `No restriction`, `Avoid capped structures`, `Avoid complex structures`, `Avoid tail-risky structures`
    - `Trade management style`: `Standard hold`, `May monetise early`, `Need defendable mark-to-market`

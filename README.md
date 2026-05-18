@@ -2,7 +2,7 @@
 
 EM FX trade structuring and sizing tool for macro PMs.
 
-The app takes a PM view in plain English, computes the market state and structure selection deterministically, then uses the LLM only to narrate the pre-computed numbers.
+The target architecture is conversational: the engine computes the market state and structure selection deterministically, and the LLM narrates only the pre-computed numbers. The current Trade View screen is running a structured silent path while we test the deterministic pipeline, so the visible UI does not currently rely on live LLM output.
 
 ## Quick Start
 

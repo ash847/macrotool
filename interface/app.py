@@ -1,8 +1,10 @@
 """
 MacroTool — EM FX distribution view tool.
 
-Takes a natural language trade view, extracts pair/direction/magnitude/horizon,
-renders a price distribution cone, and shows how big the target move is in σ terms.
+The current Trade View UI uses structured inputs and runs the deterministic
+engine path directly. The conversational LLM flow remains in the codebase as
+the target architecture, but it is intentionally silent on this UI path while
+we test the pipes.
 
 Run with:
     .venv/bin/streamlit run interface/app.py
@@ -17,6 +19,7 @@ import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
@@ -25,6 +28,15 @@ if str(_ROOT) not in sys.path:
 import streamlit as st
 import pandas as pd
 
+from conversation.client import (
+    get_api_key_for_provider,
+    get_gemini_location,
+    get_gemini_mode,
+    get_gemini_project,
+    has_gemini_adc_credentials,
+    resolve_model,
+    resolve_provider,
+)
 from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
 from interface.security import current_user_email, is_admin_user, require_login
@@ -80,7 +92,14 @@ st.set_page_config(
 
 def _inject_secrets() -> None:
     _secret_keys = [
+        "LLM_PROVIDER",
         "ANTHROPIC_API_KEY",
+        "ANTHROPIC_MODEL",
+        "GEMINI_API_KEY",
+        "GEMINI_MODEL",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_BASE_URL",
@@ -110,16 +129,84 @@ _lsp.cache_clear()
 
 
 # ---------------------------------------------------------------------------
-# API key
+# LLM config
 # ---------------------------------------------------------------------------
 
-def _get_api_key() -> str | None:
+def _get_llm_provider() -> str:
     try:
-        if "ANTHROPIC_API_KEY" in st.secrets:
-            return st.secrets["ANTHROPIC_API_KEY"]
+        if "LLM_PROVIDER" in st.secrets:
+            return resolve_provider(st.secrets["LLM_PROVIDER"])
     except Exception:
         pass
-    return os.environ.get("ANTHROPIC_API_KEY")
+    return resolve_provider(os.environ.get("LLM_PROVIDER"))
+
+
+def _get_provider_api_key(provider: str) -> str | None:
+    secret_name = "ANTHROPIC_API_KEY" if provider == "anthropic" else "GEMINI_API_KEY"
+    try:
+        if secret_name in st.secrets:
+            return st.secrets[secret_name]
+    except Exception:
+        pass
+    return get_api_key_for_provider(provider)
+
+
+def _get_provider_model(provider: str) -> str:
+    secret_name = "ANTHROPIC_MODEL" if provider == "anthropic" else "GEMINI_MODEL"
+    try:
+        if secret_name in st.secrets:
+            return resolve_model(provider, st.secrets[secret_name])
+    except Exception:
+        pass
+    return resolve_model(provider, os.environ.get(secret_name))
+
+
+def _provider_label(provider: str) -> str:
+    return "Anthropic" if provider == "anthropic" else "Google Gemini"
+
+
+def _get_gcp_service_account_info() -> dict[str, Any] | None:
+    try:
+        if "gcp_service_account" in st.secrets:
+            return dict(st.secrets["gcp_service_account"])
+    except Exception:
+        pass
+    return None
+
+
+def _get_gemini_vertex_credentials():
+    info = _get_gcp_service_account_info()
+    if not info:
+        return None
+    try:
+        from google.oauth2 import service_account
+        return service_account.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+    except Exception:
+        return None
+
+
+def _gemini_status() -> tuple[bool, str]:
+    mode = get_gemini_mode()
+    if mode == "vertexai":
+        project = get_gemini_project()
+        location = get_gemini_location()
+        if not project or not location:
+            return False, "Vertex AI config missing project or location"
+        service_account_info = _get_gcp_service_account_info()
+        if service_account_info:
+            if _get_gemini_vertex_credentials() is not None:
+                return True, f"Vertex service account ready · {project} / {location}"
+            return False, f"Vertex service account secret invalid · {project} / {location}"
+        if has_gemini_adc_credentials():
+            return True, f"Vertex AI ADC ready · {project} / {location}"
+        return False, f"Vertex AI configured but ADC not detected · {project} / {location}"
+
+    if _get_provider_api_key("gemini"):
+        return True, "Gemini Developer API key ready"
+    return False, "Gemini Developer API key not configured"
 
 
 def _get_effective_snapshot():
@@ -129,12 +216,14 @@ def _get_effective_snapshot():
 
 
 def _make_flow() -> ConversationFlow:
-    new_flow = ConversationFlow(snapshot=_get_effective_snapshot())
-    key = _get_api_key()
-    if key:
-        import anthropic as _anth
-        new_flow._client._client = _anth.Anthropic(api_key=key)
-    return new_flow
+    provider = _get_llm_provider()
+    return ConversationFlow(
+        api_key=_get_provider_api_key(provider),
+        snapshot=_get_effective_snapshot(),
+        provider=provider,
+        model=_get_provider_model(provider),
+        credentials=_get_gemini_vertex_credentials() if provider == "gemini" else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +240,8 @@ if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
 if "clarification" not in st.session_state:
     st.session_state.clarification = ""
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 if "pref_primary_objective" not in st.session_state:
     st.session_state.pref_primary_objective = "Balanced"
 if "pref_structure_constraint" not in st.session_state:
@@ -191,10 +282,29 @@ with st.sidebar:
 
     st.divider()
 
-    if _get_api_key():
+    active_provider = _get_llm_provider()
+    active_model = _get_provider_model(active_provider)
+    st.caption(f"LLM: {_provider_label(active_provider)} · {active_model}")
+    if active_provider == "gemini":
+        gemini_ready, gemini_message = _gemini_status()
+        if gemini_ready:
+            st.success(gemini_message)
+            if st.button("Test LLM connection", use_container_width=True):
+                with st.spinner("Calling LLM…"):
+                    try:
+                        _test_msgs = [{"role": "user", "content": "Reply with exactly: OK"}]
+                        for _ in st.session_state.flow._client.stream(_test_msgs, system="You are a helpful assistant."):
+                            pass
+                        _test_resp = st.session_state.flow._client.last_response.strip()
+                        st.success(f"LLM responded: {_test_resp!r}")
+                    except Exception as _e:
+                        st.error(f"LLM call failed: {_e}")
+        else:
+            st.error(gemini_message)
+    elif _get_provider_api_key(active_provider):
         st.success("API key ready")
     else:
-        st.error("Server Anthropic API key not configured.")
+        st.error(f"Server {_provider_label(active_provider)} API key not configured.")
 
     sb_connected, sb_error = _sb_status()
     if sb_connected:
@@ -221,6 +331,7 @@ with st.sidebar:
         st.session_state.submitted = False
         st.session_state.last_prompt = ""
         st.session_state.clarification = ""
+        st.session_state.chat_history = []
         st.rerun()
 
     with st.expander("Pair reference"):
@@ -1069,6 +1180,16 @@ else:
         from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
+        from conversation.explanation_context import (
+            render_explanation_pack_overview as _render_expl_overview,
+            render_structure_comparisons as _render_structure_comparisons,
+            render_variant_comparisons as _render_variant_comparisons,
+        )
+        from knowledge_engine.comparator import (
+            VariantEvaluation as _VariantEvaluation,
+            build_recommendation_pack as _build_expl_pack,
+            summarize_scenario_rows as _summarize_scenario_rows,
+        )
 
         # Context weights — derived from MarketState + PM preferences.
         # Same weight vector applied to every structure → scores comparable.
@@ -1234,6 +1355,56 @@ else:
                 else:
                     st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
 
+            if IS_ADMIN:
+                try:
+                    _expl_variants = {
+                        _s["item"].structure_id: [_v["pv"] for _v in _s["variants"]]
+                        for _s in _ev_structs
+                    }
+                    _expl_scores = {
+                        _s["item"].structure_id: _s["variants"][0]["score"]
+                        for _s in _ev_structs
+                    }
+                    _expl_variant_evals = {
+                        _s["item"].structure_id: [
+                            _VariantEvaluation(
+                                variant=_v["pv"],
+                                rows=_v["rows"],
+                                base_score=_v["score_base"],
+                                pm_score=_v["score"],
+                                aggregates=_summarize_scenario_rows(_v["rows"]),
+                            )
+                            for _v in _s["variants"]
+                        ]
+                        for _s in _ev_structs
+                    }
+                    _expl_pack = _build_expl_pack(
+                        _ev_ms,
+                        flow.selector_result,
+                        _expl_variants,
+                        _expl_scores,
+                        variant_evaluations_by_structure=_expl_variant_evals,
+                    )
+                    with st.expander("Explanation pack preview", expanded=False):
+                        st.code(_render_expl_overview(_expl_pack), language="text")
+                        if _expl_pack.variant_comparisons:
+                            with st.expander("Variant comparisons", expanded=False):
+                                st.code(
+                                    _render_variant_comparisons(_expl_pack.variant_comparisons),
+                                    language="text",
+                                )
+                        if _expl_pack.comparisons:
+                            with st.expander("Structure comparisons", expanded=False):
+                                st.code(
+                                    _render_structure_comparisons(list(_expl_pack.comparisons.values())),
+                                    language="text",
+                                )
+                        if not _expl_pack.variant_comparisons and not _expl_pack.comparisons:
+                            st.caption("No comparator sections available for this pack.")
+                except Exception as _e:
+                    with st.expander("Explanation pack preview", expanded=False):
+                        st.caption(f"Unable to build explanation pack preview: {_e}")
+
             _all_ranked = sorted(
                 [
                     {"struct_label": _ev_s["label"], "item": _ev_s["item"], "ev_v": _ev_v}
@@ -1319,6 +1490,66 @@ else:
                             } for r in _row_rows])
                             st.dataframe(_row_df, use_container_width=True, hide_index=True)
 
+    # Advisor chat — only when explanation pack is available
+    if flow.view and flow.explanation_pack_context:
+        st.divider()
+        st.subheader("Ask the advisor")
+
+        _chat_system = (
+            "You are a trade structuring advisor for a macro fund PM. "
+            "A deterministic engine has produced an EM FX options recommendation. "
+            "Your role is to help the PM understand and interrogate it in a continuing conversation.\n\n"
+            "You have access to the full recommendation explanation pack below: the chosen structure, "
+            "full variant ranking by scenario-weighted P&L, pairwise comparisons with key alternatives, "
+            "and the primary risk factors.\n\n"
+            "On each turn:\n"
+            "- Answer the PM's question directly and qualitatively.\n"
+            "- For any question about structure selection, comparisons, trade-offs, or payoff "
+            "characteristics: use ONLY what is in the explanation pack. Do not supplement with "
+            "general knowledge about how these structures typically behave.\n"
+            "- If the pack does not contain enough to answer the question fully, say so explicitly "
+            "rather than filling the gap from general knowledge.\n"
+            "- If a structure comparison is not in the pack, say it is not available.\n"
+            "- Keep answers concise. Do not re-narrate the full recommendation unprompted.\n"
+            "- For questions genuinely outside the pack's scope (e.g. macro backdrop, broader "
+            "market context, timing), preface your answer with exactly: "
+            "'This is outside my expertise. However, my general knowledge would suggest...' "
+            "and then continue.\n\n"
+            "Constraints:\n"
+            "- Do not reveal internal scoring weights, thresholds, or formulas.\n"
+            "- Do not invent or embellish any claim about structure behaviour, payoff, or risk "
+            "that is not explicitly stated in the pack below.\n"
+            "- Do not invent strikes, premiums, barriers, or P&L figures.\n"
+            "- Speak like a senior EM structurer briefing a PM, not a generic assistant.\n\n"
+            "[RECOMMENDATION EXPLANATION PACK]\n"
+            + flow.explanation_pack_context
+        )
+
+        for _msg in st.session_state.chat_history:
+            with st.chat_message(_msg["role"]):
+                st.markdown(_msg["content"])
+
+        if _chat_input := st.chat_input("Ask about the recommendation…"):
+            st.session_state.chat_history.append({"role": "user", "content": _chat_input})
+            with st.chat_message("user"):
+                st.markdown(_chat_input)
+
+            with st.chat_message("assistant"):
+                _response_placeholder = st.empty()
+                _accumulated = ""
+                try:
+                    for _chunk in flow._client.stream(
+                        st.session_state.chat_history,
+                        system=_chat_system,
+                        max_tokens=4096,
+                    ):
+                        _accumulated += _chunk
+                        _response_placeholder.markdown(_accumulated + "▌")
+                    _response_placeholder.markdown(_accumulated)
+                    st.session_state.chat_history.append({"role": "assistant", "content": _accumulated})
+                except Exception as _chat_err:
+                    _response_placeholder.error(f"LLM error: {_chat_err}")
+
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
         msg = st.session_state.clarification
@@ -1362,7 +1593,7 @@ else:
                 )
 
             st.markdown("**Trade preferences**")
-            st.caption("Optional for now — captured in the UI only, not yet applied to scoring.")
+            st.caption("These preferences are applied in the deterministic engine path. The conversational LLM path remains silent on this screen for now.")
 
             p1, p2, p3 = st.columns(3)
             with p1:
