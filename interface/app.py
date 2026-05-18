@@ -1240,7 +1240,7 @@ else:
                     for _ev_s in _ev_structs
                     for _ev_v in _ev_s["variants"]
                 ],
-                key=lambda x: x["ev_v"]["score"].score_pct,
+                key=lambda x: x["ev_v"]["score"].score_ccy if x["ev_v"]["score"].score_ccy is not None else 0.0,
                 reverse=True,
             )
             for _ranked_entry in _all_ranked:
