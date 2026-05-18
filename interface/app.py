@@ -182,8 +182,27 @@ with st.sidebar:
             use_container_width=True,
             type="primary" if active else "secondary",
         ):
+            if label == "Trade View":
+                st.session_state.flow = _make_flow()
+                st.session_state.submitted = False
+                st.session_state.last_prompt = ""
+                st.session_state.clarification = ""
+                st.session_state.chat_history = []
             st.session_state.page = label
             st.rerun()
+
+    st.divider()
+
+    st.markdown("Risk / Reward target")
+    with st.container(border=True):
+        st.session_state.target_rr = st.slider(
+            "Risk 1 to make",
+            min_value=1.5,
+            max_value=10.0,
+            value=st.session_state.target_rr,
+            step=0.5,
+            format="%.1f×",
+        )
 
     st.divider()
 
@@ -216,37 +235,6 @@ with st.sidebar:
         st.success("Supabase connected")
     else:
         st.warning(f"Supabase: {sb_error}")
-
-    st.divider()
-
-    st.caption("Risk / Reward target")
-    st.session_state.target_rr = st.slider(
-        "Risk 1 to make",
-        min_value=1.5,
-        max_value=10.0,
-        value=st.session_state.target_rr,
-        step=0.5,
-        format="%.1f×",
-    )
-
-    st.divider()
-
-    if st.button("↩ New view", use_container_width=True):
-        st.session_state.flow = _make_flow()
-        st.session_state.submitted = False
-        st.session_state.last_prompt = ""
-        st.session_state.clarification = ""
-        st.session_state.chat_history = []
-        st.rerun()
-
-    with st.expander("Pair reference"):
-        st.caption("**USDBRL** — topside (call) skew, elevated vol, high carry")
-        st.caption("**USDTRY** — strong topside skew, very high carry")
-        st.caption("**EURPLN** — symmetric skew, normal vol, moderate carry")
-        st.caption("**EURUSD** — near-symmetric skew, low vol, negative carry for long EUR")
-        st.caption("**USDCNH** — mild topside skew, low vol, negative carry for long USD")
-        st.caption("**USDMXN** — strong topside skew, high vol, high positive carry for short USD")
-        st.caption("**USDJPY** — downside skew, medium vol, negative carry for long USD")
 
 
 # ---------------------------------------------------------------------------
