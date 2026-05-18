@@ -71,9 +71,20 @@ def _strikes_with_deltas(pv, deltas: list[str | None] | None = None) -> list[str
     return labels
 
 
+def _vanilla_option_type(pv) -> str:
+    label = pv.variant_label.lower()
+    if "put" in label:
+        return "put"
+    if "call" in label:
+        return "call"
+    if len(pv.strikes) == 1:
+        return "call"
+    return "option"
+
+
 def variant_display_label(structure_id: str, pv) -> str:
     if structure_id == "vanilla":
-        return "Vanilla option"
+        return f"Vanilla {_vanilla_option_type(pv)}"
 
     if structure_id == "1x1_spread" and len(pv.strikes) >= 2:
         spread_type = "Call spread" if _is_call_spread(pv) else "Put spread"
@@ -82,7 +93,7 @@ def variant_display_label(structure_id: str, pv) -> str:
     if structure_id in {"1x1.5_spread", "1x2_spread"} and len(pv.strikes) >= 2:
         ratio = "1x1.5" if structure_id == "1x1.5_spread" else "1x2"
         direction = "call" if _is_call_spread(pv) else "put"
-        return f"{ratio} {direction} Ratio spread"
+        return f"{ratio} Ratio {direction} spread"
 
     if structure_id == "seagull" and len(pv.strikes) >= 3:
         wing_ratio = pv.wing_ratio if pv.wing_ratio is not None else 1.0
@@ -108,7 +119,8 @@ def variant_label_with_strikes(structure_id: str, pv) -> str:
     label = variant_display_label(structure_id, pv)
 
     if structure_id == "vanilla" and strikes:
-        return strikes[0]
+        delta = _format_delta_token(pv.variant_label)
+        return f"{label}  ·  Strike: {_strikes_with_deltas(pv, [delta])[0]}"
 
     if structure_id == "1x1_spread" and len(strikes) >= 2:
         strike_labels = _strikes_with_deltas(pv, _spread_delta_labels(pv, fallback_first="ATMF"))
@@ -135,7 +147,7 @@ def variant_label_with_strikes(structure_id: str, pv) -> str:
     if structure_id == "european_digital_rko" and strikes:
         american_barrier = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
         return (
-            f"{label}  ·  Digital barrier: {strikes[0]}  ·  "
+            f"{label}  ·  European digital barrier: {strikes[0]}  ·  "
             f"KO barrier: {american_barrier}"
         )
 

@@ -27,15 +27,15 @@ def test_seagull_display_label_includes_put_spread_wing_ratio():
     assert variant_display_label("seagull", pv) == "1x1 Put spread + 1.18x call wing"
 
 
-def test_vanilla_label_is_only_the_strike_in_title():
+def test_vanilla_label_includes_type_strike_and_delta():
     pv = SimpleNamespace(
         variant_label="ATMF (50D)",
         strikes=[5.0],
         wing_ratio=None,
     )
 
-    assert variant_display_label("vanilla", pv) == "Vanilla option"
-    assert variant_label_with_strikes("vanilla", pv) == "5.0000"
+    assert variant_display_label("vanilla", pv) == "Vanilla call"
+    assert variant_label_with_strikes("vanilla", pv) == "Vanilla call  ·  Strike: 5.0000 (50D)"
 
 
 def test_one_by_one_spread_label_uses_product_name_and_strikes():
@@ -59,10 +59,10 @@ def test_ratio_spread_label_uses_product_name_and_strikes():
         wing_ratio=None,
     )
 
-    assert variant_display_label("1x1.5_spread", pv) == "1x1.5 call Ratio spread"
+    assert variant_display_label("1x1.5_spread", pv) == "1x1.5 Ratio call spread"
     assert (
         variant_label_with_strikes("1x1.5_spread", pv)
-        == "1x1.5 call Ratio spread  ·  Strikes: 5.0000 (ATMF) / 5.2500"
+        == "1x1.5 Ratio call spread  ·  Strikes: 5.0000 (ATMF) / 5.2500"
     )
 
 
@@ -73,10 +73,10 @@ def test_ratio_spread_label_uses_put_direction():
         wing_ratio=None,
     )
 
-    assert variant_display_label("1x2_spread", pv) == "1x2 put Ratio spread"
+    assert variant_display_label("1x2_spread", pv) == "1x2 Ratio put spread"
     assert (
         variant_label_with_strikes("1x2_spread", pv)
-        == "1x2 put Ratio spread  ·  Strikes: 5.0000 (25D) / 4.7500 (10D)"
+        == "1x2 Ratio put spread  ·  Strikes: 5.0000 (25D) / 4.7500 (10D)"
     )
 
 
@@ -92,6 +92,21 @@ def test_european_digital_label_uses_barrier_level():
     assert (
         variant_label_with_strikes("european_digital", pv)
         == "European digital  ·  Barrier: 5.2500"
+    )
+
+
+def test_european_digital_rko_label_uses_european_digital_barrier():
+    pv = SimpleNamespace(
+        variant_label="~10% prem + KO",
+        strikes=[5.25],
+        barrier=5.50,
+        wing_ratio=None,
+    )
+
+    assert variant_display_label("european_digital_rko", pv) == "European digital RKO"
+    assert (
+        variant_label_with_strikes("european_digital_rko", pv)
+        == "European digital RKO  ·  European digital barrier: 5.2500  ·  KO barrier: 5.5000"
     )
 
 
