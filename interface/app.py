@@ -1494,6 +1494,7 @@ else:
                     for _chunk in flow._client.stream(
                         st.session_state.chat_history,
                         system=_chat_system,
+                        max_tokens=4096,
                     ):
                         _accumulated += _chunk
                         _response_placeholder.markdown(_accumulated + "▌")
