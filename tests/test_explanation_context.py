@@ -71,7 +71,7 @@ def test_render_explanation_pack_includes_sections_and_disclosure():
     assert "RECOMMENDATION EXPLANATION PACK" in rendered
     assert "Chosen:" in rendered
     assert "Recommendation basis: scenario_weighted_pnl" in rendered
-    assert "Variant ranking:" in rendered
+    assert "Variant ranking" in rendered
     assert "Summary:" in rendered
     assert "Variant comparison:" in rendered
     assert "Unavailable comparisons:" in rendered

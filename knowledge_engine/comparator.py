@@ -98,6 +98,8 @@ class RecommendationExplanationPack:
     comparisons: dict[str, PairwiseComparison] = field(default_factory=dict)
     variant_comparisons: list[VariantComparison] = field(default_factory=list)
     unavailable_comparisons: list[UnavailableComparison] = field(default_factory=list)
+    active_context_ids: list[str] = field(default_factory=list)
+    active_context_comments: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -420,6 +422,18 @@ def build_recommendation_pack(
         scenario_scores_by_structure,
     )
 
+    from knowledge_engine.scenario_weighter import compute_family_weights as _cwf
+    _weighter = _cwf(
+        market_state,
+        primary_objective=prefs.primary_objective,
+        trade_management=prefs.trade_management,
+    )
+    _active_ids: list[str] = []
+    _active_comments: list[str] = []
+    for _ctx in getattr(_weighter, "fired", []):
+        _active_ids.append(_ctx.id)
+        _active_comments.append(_ctx.comment)
+
     return RecommendationExplanationPack(
         chosen_id=chosen.structure_id,
         chosen_display_name=(
@@ -436,6 +450,8 @@ def build_recommendation_pack(
         comparisons=comparisons,
         variant_comparisons=variant_comparisons,
         unavailable_comparisons=unavailable_comparisons,
+        active_context_ids=_active_ids,
+        active_context_comments=_active_comments,
     )
 
 

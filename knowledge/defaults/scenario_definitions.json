@@ -18,6 +18,15 @@
     "−1σ",
     "Δvol"
   ],
+  "scenario_column_descriptions": {
+    "F": "Flat — spot ends near the forward with no directional move. Tests time decay and vol sensitivity in isolation.",
+    "t%→K": "Early touch then retrace — spot trades through the target at this time point but mean-reverts before expiry. Critical for path-dependent features: barriers, American-style triggers, and structures whose value is locked in on a touch.",
+    "K": "Target hit — spot ends at the target level. The PM's directional view plays out as expected.",
+    "K+½σ": "Overshoot — spot moves significantly beyond the target. Tests whether the structure captures or is exposed to extended moves beyond the initial objective.",
+    "−½σ": "Modest adverse move — spot drifts half a sigma against the trade. A mild correction or slow bleed; tests whether the structure bleeds slowly or holds up on a partial reversal.",
+    "−1σ": "Full reversal — spot moves a full sigma against the trade. A significant adverse outcome; tests maximum loss and whether the structure has asymmetric downside.",
+    "Δvol": "Vol shift — flat directional path but implied vol moves. Isolates vega exposure independently of direction; most relevant for structures with significant optionality or vega asymmetry."
+  },
   "baseline": 1.0,
   "min_multiplier": 0.1,
   "base_weightings": [

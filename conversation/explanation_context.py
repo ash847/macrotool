@@ -8,7 +8,33 @@ before any LLM sees it.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from knowledge_engine.comparator import PairwiseComparison, RecommendationExplanationPack, Reason
+
+_SCENARIO_DEFS_PATH = Path(__file__).parent.parent / "knowledge" / "defaults" / "scenario_definitions.json"
+
+
+def _load_scenario_column_descriptions() -> dict[str, str]:
+    try:
+        data = json.loads(_SCENARIO_DEFS_PATH.read_text())
+        return data.get("scenario_column_descriptions", {})
+    except Exception:
+        return {}
+
+
+def _select_display_variants(ranked_variants: list) -> list:
+    """Top 5 variants globally, plus best variant per structure type not already represented."""
+    top5 = ranked_variants[:5]
+    seen_structures = {rv.structure_id for rv in top5}
+    extras = []
+    seen_extras = set()
+    for rv in ranked_variants[5:]:
+        if rv.structure_id not in seen_structures and rv.structure_id not in seen_extras:
+            extras.append(rv)
+            seen_extras.add(rv.structure_id)
+    return top5 + extras
 
 
 def render_explanation_pack(
@@ -51,8 +77,6 @@ def render_explanation_pack(
 def _wing_risk_lines(structure_id: str, rv: "RankedVariant", is_call: bool) -> list[str]:
     strikes = rv.strikes
     barrier = rv.barrier
-    up = "rises" if not is_call else "falls"
-    down = "falls" if not is_call else "rises"
 
     if structure_id == "vanilla":
         return []
@@ -105,15 +129,25 @@ def render_explanation_pack_overview(pack: RecommendationExplanationPack) -> str
         "",
     ]
 
+    # Active scenario weighting context
+    if pack.active_context_ids:
+        ctx_lines = []
+        for ctx_id, ctx_comment in zip(pack.active_context_ids, pack.active_context_comments):
+            layer = "base" if ctx_id == pack.active_context_ids[0] else "overlay"
+            ctx_lines.append(f"- [{layer}] {ctx_id.replace('_', ' ')}: {ctx_comment}")
+        lines.extend(_section("Active scenario weighting", ctx_lines))
+
     if pack.ranked_variants:
-        ranking_lines = [
-            (
+        display_variants = _select_display_variants(pack.ranked_variants)
+        ranking_lines = []
+        for r in display_variants:
+            marker = " [best of type]" if r.scenario_rank > 5 else ""
+            ranking_lines.append(
                 f"- {r.scenario_rank}. {_variant_name(r)} "
                 f"(affinity rank {r.affinity_rank}, PM weighted P&L {_fmt_ccy(r.pm_score_ccy)})"
+                f"{marker}"
             )
-            for r in pack.ranked_variants
-        ]
-        lines.extend(_section("Variant ranking", ranking_lines))
+        lines.extend(_section("Variant ranking (top 5 + best per structure type)", ranking_lines))
 
     if pack.ranked_variants:
         chosen_rv = pack.ranked_variants[0]
@@ -133,6 +167,12 @@ def render_explanation_pack_overview(pack: RecommendationExplanationPack) -> str
 
     if pack.risk_reasons:
         lines.extend(_section("Risks", _reason_lines(pack.risk_reasons)))
+
+    # Scenario column definitions — helps LLM interpret the grid columns
+    col_descs = _load_scenario_column_descriptions()
+    if col_descs:
+        col_lines = [f"- {col}: {desc}" for col, desc in col_descs.items()]
+        lines.extend(_section("Scenario column definitions", col_lines))
 
     return "\n".join(lines).strip()
 
