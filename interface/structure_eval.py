@@ -38,21 +38,55 @@ def fmt_ccy_label(amount: float | None, ccy: str) -> str:
     return fmt_ccy(amount, ccy)
 
 
+def _is_call_spread(pv) -> bool:
+    return len(pv.strikes) >= 2 and pv.strikes[1] > pv.strikes[0]
+
+
+def _format_delta_token(token: str) -> str | None:
+    cleaned = token.strip().replace("Δ", "D")
+    match = re.search(r"(\d+(?:\.\d+)?)\s*D", cleaned, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}D"
+    if cleaned.upper() == "ATMF":
+        return "ATMF"
+    return None
+
+
+def _spread_delta_labels(pv, fallback_first: str | None = None) -> list[str | None]:
+    if "/" not in pv.variant_label:
+        return [fallback_first, None]
+    left, right = pv.variant_label.split("/", 1)
+    return [
+        _format_delta_token(left) or fallback_first,
+        _format_delta_token(right),
+    ]
+
+
+def _strikes_with_deltas(pv, deltas: list[str | None] | None = None) -> list[str]:
+    labels: list[str] = []
+    for idx, strike in enumerate(pv.strikes):
+        strike_text = f"{strike:.4f}"
+        delta = deltas[idx] if deltas and idx < len(deltas) else None
+        labels.append(f"{strike_text} ({delta})" if delta else strike_text)
+    return labels
+
+
 def variant_display_label(structure_id: str, pv) -> str:
     if structure_id == "vanilla":
         return "Vanilla option"
 
     if structure_id == "1x1_spread" and len(pv.strikes) >= 2:
-        spread_type = "Call spread" if pv.strikes[1] > pv.strikes[0] else "Put spread"
+        spread_type = "Call spread" if _is_call_spread(pv) else "Put spread"
         return f"1x1 {spread_type}"
 
-    if structure_id in {"1x1.5_spread", "1x2_spread"}:
+    if structure_id in {"1x1.5_spread", "1x2_spread"} and len(pv.strikes) >= 2:
         ratio = "1x1.5" if structure_id == "1x1.5_spread" else "1x2"
-        return f"{ratio} Ratio spread"
+        direction = "call" if _is_call_spread(pv) else "put"
+        return f"{ratio} {direction} Ratio spread"
 
     if structure_id == "seagull" and len(pv.strikes) >= 3:
         wing_ratio = pv.wing_ratio if pv.wing_ratio is not None else 1.0
-        is_call_spread = pv.strikes[1] > pv.strikes[0]
+        is_call_spread = _is_call_spread(pv)
         spread_type = "Call spread" if is_call_spread else "Put spread"
         wing_type = "put" if is_call_spread else "call"
         return f"1x1 {spread_type} + {wing_ratio:.2f}x {wing_type} wing"
@@ -77,13 +111,19 @@ def variant_label_with_strikes(structure_id: str, pv) -> str:
         return strikes[0]
 
     if structure_id == "1x1_spread" and len(strikes) >= 2:
-        return f"{label}  ·  Strikes: {' / '.join(strikes)}"
+        strike_labels = _strikes_with_deltas(pv, _spread_delta_labels(pv, fallback_first="ATMF"))
+        return f"{label}  ·  Strikes: {' / '.join(strike_labels)}"
 
     if structure_id == "seagull" and len(strikes) >= 3:
-        return f"{label}  ·  Strikes: {' / '.join(strikes)}"
+        deltas = _spread_delta_labels(pv, fallback_first="ATMF")
+        wing_match = re.search(r"\+\s*(.+)$", pv.variant_label)
+        wing_delta = _format_delta_token(wing_match.group(1)) if wing_match else None
+        strike_labels = _strikes_with_deltas(pv, deltas + [wing_delta])
+        return f"{label}  ·  Strikes: {' / '.join(strike_labels)}"
 
     if structure_id in {"1x1.5_spread", "1x2_spread"} and len(strikes) >= 2:
-        return f"{label}  ·  Strikes: {' / '.join(strikes)}"
+        strike_labels = _strikes_with_deltas(pv, _spread_delta_labels(pv, fallback_first="ATMF"))
+        return f"{label}  ·  Strikes: {' / '.join(strike_labels)}"
 
     if structure_id == "european_rko" and strikes:
         ko = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
@@ -463,8 +503,7 @@ def render_structure_evaluation(
             fmt_ccy(_pv0.structure_notional, _ev_base)
             if _pv0.structure_notional is not None else None
         )
-        _variant_title = _ranked_entry["struct_label"]
-        _variant_title += "  ·  " + variant_label_with_strikes(_ranked_entry["item"].structure_id, _pv0)
+        _variant_title = variant_label_with_strikes(_ranked_entry["item"].structure_id, _pv0)
         if _notional_str:
             _variant_title += f"  ·  Notional: {_notional_str}"
         elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
