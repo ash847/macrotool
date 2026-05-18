@@ -1234,81 +1234,90 @@ else:
                 else:
                     st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
 
-            for _ev_s in _ev_structs:
-                with st.expander(_ev_s["label"], expanded=False):
-                    for _ix, _ev_v in enumerate(_ev_s["variants"]):
-                        _pv0 = _ev_v["pv"]
-                        _score = _ev_v["score"]
-                        _score_base = _ev_v["score_base"]
-                        _notional_str = (
-                            _fmt_ccy(_pv0.structure_notional, _ev_base)
-                            if _pv0.structure_notional is not None else None
-                        )
-                        _variant_title = _variant_label_with_strikes(_ev_s["item"].structure_id, _pv0)
-                        if _notional_str:
-                            _variant_title += f"  ·  Notional: {_notional_str}"
-                        elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
-                            _variant_title += "  ·  Notional: unscaled"
-                        _base_pct = f"{_score_base.score_pct:.2%}"
-                        _base_ccy = (
-                            f"  ({_fmt_ccy_label(_score_base.score_ccy, _ev_base)})"
-                            if _score_base.score_ccy is not None
-                            else ("  (unscaled)" if _pv0.structure_notional is None else "")
-                        )
-                        _ctx_pct = f"{_score.score_pct:.2%}"
-                        _ctx_ccy = (
-                            f"  ({_fmt_ccy_label(_score.score_ccy, _ev_base)})"
-                            if _score.score_ccy is not None
-                            else ("  (unscaled)" if _pv0.structure_notional is None else "")
-                        )
-                        _variant_title += (
-                            f"  ·  Scenario weighted P&L: {_base_pct}{_base_ccy}"
-                            f"  ·  PM overlay weighted P&L: {_ctx_pct}{_ctx_ccy}"
-                        )
+            _all_ranked = sorted(
+                [
+                    {"struct_label": _ev_s["label"], "item": _ev_s["item"], "ev_v": _ev_v}
+                    for _ev_s in _ev_structs
+                    for _ev_v in _ev_s["variants"]
+                ],
+                key=lambda x: x["ev_v"]["score"].score_pct,
+                reverse=True,
+            )
+            for _ranked_entry in _all_ranked:
+                _ev_v = _ranked_entry["ev_v"]
+                _pv0 = _ev_v["pv"]
+                _score = _ev_v["score"]
+                _score_base = _ev_v["score_base"]
+                _notional_str = (
+                    _fmt_ccy(_pv0.structure_notional, _ev_base)
+                    if _pv0.structure_notional is not None else None
+                )
+                _variant_title = _ranked_entry["struct_label"]
+                _variant_title += "  ·  " + _variant_label_with_strikes(_ranked_entry["item"].structure_id, _pv0)
+                if _notional_str:
+                    _variant_title += f"  ·  Notional: {_notional_str}"
+                elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
+                    _variant_title += "  ·  Notional: unscaled"
+                _base_pct = f"{_score_base.score_pct:.2%}"
+                _base_ccy = (
+                    f"  ({_fmt_ccy_label(_score_base.score_ccy, _ev_base)})"
+                    if _score_base.score_ccy is not None
+                    else ("  (unscaled)" if _pv0.structure_notional is None else "")
+                )
+                _ctx_pct = f"{_score.score_pct:.2%}"
+                _ctx_ccy = (
+                    f"  ({_fmt_ccy_label(_score.score_ccy, _ev_base)})"
+                    if _score.score_ccy is not None
+                    else ("  (unscaled)" if _pv0.structure_notional is None else "")
+                )
+                _variant_title += (
+                    f"  ·  Scenario weighted P&L: {_base_pct}{_base_ccy}"
+                    f"  ·  PM overlay weighted P&L: {_ctx_pct}{_ctx_ccy}"
+                )
 
-                        with st.expander(_variant_title, expanded=(_ix == 0)):
-                            _bd_by_cell = {b.scenario_id: b for b in _score.cells}
-                            _summary_rows = []
-                            for _row in _valid_grid_rows(_ev_ms.T):
-                                for _col in _SC_GRID_COLS:
-                                    _cid = f"{_row}|{_col}"
-                                    _bd = _bd_by_cell.get(_cid)
-                                    if _bd is None:
-                                        continue
-                                    _summary_rows.append({
-                                        "Row": _row,
-                                        "Scenario": _col,
-                                        "P&L": f"{_bd.pnl_pct:+.2%}  ({_fmt_ccy(_bd.pnl_ccy, _ev_base)})",
-                                        "Multiplier": f"{_bd.multiplier:.1f}",
-                                        "Weight": f"{_bd.normalized_weight:.1%}",
-                                        "Weighted contrib": (
-                                            f"{_bd.contrib_pct:+.2%}"
-                                            + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})" if _bd.contrib_ccy is not None else "")
-                                        ),
-                                    })
-                            if _summary_rows:
-                                st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
+                with st.expander(_variant_title, expanded=False):
+                    _bd_by_cell = {b.scenario_id: b for b in _score.cells}
+                    _summary_rows = []
+                    for _row in _valid_grid_rows(_ev_ms.T):
+                        for _col in _SC_GRID_COLS:
+                            _cid = f"{_row}|{_col}"
+                            _bd = _bd_by_cell.get(_cid)
+                            if _bd is None:
+                                continue
+                            _summary_rows.append({
+                                "Row": _row,
+                                "Scenario": _col,
+                                "P&L": f"{_bd.pnl_pct:+.2%}  ({_fmt_ccy(_bd.pnl_ccy, _ev_base)})",
+                                "Multiplier": f"{_bd.multiplier:.1f}",
+                                "Weight": f"{_bd.normalized_weight:.1%}",
+                                "Weighted contrib": (
+                                    f"{_bd.contrib_pct:+.2%}"
+                                    + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})" if _bd.contrib_ccy is not None else "")
+                                ),
+                            })
+                    if _summary_rows:
+                        st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
 
-                            with st.expander("Scenarios", expanded=False):
-                                _ev_by_row: dict[str, list] = {}
-                                for r in _ev_v["rows"]:
-                                    _ev_by_row.setdefault(r["row"], []).append(r)
-                                for _row in _valid_grid_rows(_ev_ms.T):
-                                    if _row not in _ev_by_row:
-                                        continue
-                                    st.markdown(f"**{_row}**")
-                                    _row_rows = sorted(_ev_by_row[_row], key=lambda x: _SC_GRID_COLS.index(x["col"]))
-                                    _row_df = pd.DataFrame([{
-                                        "Scenario":  r["col"],
-                                        "T%":        f"{r['time_fraction']:.0%}",
-                                        "Fwd":       f"{r['scenario_fwd']:.4f}",
-                                        "Spot":      f"{r['scenario_spot']:.4f}",
-                                        "Vol shift": r["vol_shift"] if isinstance(r["vol_shift"], str) else (f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—"),
-                                        "Vol":       f"{r['scenario_vol']:.1%}",
-                                        "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
-                                        "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
-                                    } for r in _row_rows])
-                                    st.dataframe(_row_df, use_container_width=True, hide_index=True)
+                    with st.expander("Scenarios", expanded=False):
+                        _ev_by_row: dict[str, list] = {}
+                        for r in _ev_v["rows"]:
+                            _ev_by_row.setdefault(r["row"], []).append(r)
+                        for _row in _valid_grid_rows(_ev_ms.T):
+                            if _row not in _ev_by_row:
+                                continue
+                            st.markdown(f"**{_row}**")
+                            _row_rows = sorted(_ev_by_row[_row], key=lambda x: _SC_GRID_COLS.index(x["col"]))
+                            _row_df = pd.DataFrame([{
+                                "Scenario":  r["col"],
+                                "T%":        f"{r['time_fraction']:.0%}",
+                                "Fwd":       f"{r['scenario_fwd']:.4f}",
+                                "Spot":      f"{r['scenario_spot']:.4f}",
+                                "Vol shift": r["vol_shift"] if isinstance(r["vol_shift"], str) else (f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—"),
+                                "Vol":       f"{r['scenario_vol']:.1%}",
+                                "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
+                                "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
+                            } for r in _row_rows])
+                            st.dataframe(_row_df, use_container_width=True, hide_index=True)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
