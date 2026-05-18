@@ -283,6 +283,16 @@ with st.sidebar:
         gemini_ready, gemini_message = _gemini_status()
         if gemini_ready:
             st.success(gemini_message)
+            if st.button("Test LLM connection", use_container_width=True):
+                with st.spinner("Calling LLM…"):
+                    try:
+                        _test_msgs = [{"role": "user", "content": "Reply with exactly: OK"}]
+                        for _ in st.session_state.flow._client.stream(_test_msgs):
+                            pass
+                        _test_resp = st.session_state.flow._client.last_response.strip()
+                        st.success(f"LLM responded: {_test_resp!r}")
+                    except Exception as _e:
+                        st.error(f"LLM call failed: {_e}")
         else:
             st.error(gemini_message)
     elif _get_provider_api_key(active_provider):
