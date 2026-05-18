@@ -1,5 +1,35 @@
 # Gemini Provider Plan
 
+## Status: Complete (as of 2026-05-18)
+
+All phases implemented and live on branch `claude/charming-leavitt-47b984`. Streamlit app runs on Gemini 2.5 Flash via Vertex AI with service account credentials. Key issues resolved during deployment:
+
+- `uv.lock` was stale — `google-genai` was in `pyproject.toml` and `requirements.txt` but not in the lockfile, causing silent install failure. Fixed by running `uv lock` and committing.
+- Service account `Credentials.from_service_account_info()` required explicit `scopes=["https://www.googleapis.com/auth/cloud-platform"]` — without it the OAuth token request fails with `invalid_scope`.
+- Secrets must be top-level TOML keys, not nested under `[auth.google]`.
+
+The plan below is retained as implementation history.
+
+---
+
+## Latest Deployment Debugging Update
+
+Update as of May 18, 2026:
+
+- Provider selection and Vertex config are now implemented in code and pushed on branch `claude/charming-leavitt-47b984`.
+- Streamlit deployment debugging exposed two practical issues that were not obvious from the implementation plan alone:
+  - Streamlit secrets placement matters:
+    - `LLM_PROVIDER`, `GEMINI_MODEL`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, and `GOOGLE_CLOUD_LOCATION` must be top-level TOML keys.
+    - If they are placed under `[auth.google]`, the app falls back to Anthropic because it cannot find top-level `LLM_PROVIDER`.
+  - Streamlit Cloud is currently honoring repo-root `requirements.txt` for package installation:
+    - `google-genai` was already added to `pyproject.toml`
+    - the deployed app still crashed with `ModuleNotFoundError: No module named 'google.genai'`
+    - root cause was missing `google-genai` in repo-root `requirements.txt`
+    - fixed in pushed commit `f75d8a9`
+- Current deployment status after those fixes:
+  - provider selection should now switch correctly to Gemini when secrets are top-level
+  - the next likely blocker, if any, is service-account secret parsing rather than provider wiring
+
 ## Goal
 
 Add Google Gemini as a second LLM provider alongside Anthropic, without changing the deterministic engine contract:
