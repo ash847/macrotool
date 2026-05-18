@@ -18,6 +18,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 _ROOT = Path(__file__).parent.parent
@@ -1170,13 +1171,13 @@ else:
         _ev_stop = _ev_ms.fwd * (1 - _ev_stop_pct) if _ev_is_call else _ev_ms.fwd * (1 + _ev_stop_pct)
         _ev_loss_budget = LINEAR_NOTIONAL * _ev_stop_pct
 
-        from analytics.structure_pricer import price_variants as _pv_fn
+        from analytics.structure_pricer import PricedVariant as _PricedVariant, price_variants as _pv_fn
         from analytics.scenario_generator import (
             GRID_COLS as _SC_GRID_COLS,
             generate_scenarios as _gen_sc,
             valid_grid_rows as _valid_grid_rows,
         )
-        from analytics.scenario_pricer import price_scenarios as _price_sc
+        from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
         from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
         from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
         from conversation.explanation_context import (
@@ -1254,6 +1255,43 @@ else:
                 "variants": _ev_variants,
                 "label":    _ev_item.display_name,
             })
+
+        _linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
+        _linear_pv = _PricedVariant(
+            variant_label="Delta 1 (max-loss capped)",
+            strikes=[],
+            barrier=None,
+            net_premium_pct=0.0,
+            breakeven=None,
+            payoff_at_target_pct=None,
+            rr_at_target=None,
+            max_loss_pct=_ev_stop_pct,
+            wing_ratio=None,
+            is_zero_cost=True,
+            structure_notional=LINEAR_NOTIONAL,
+            net_premium_ccy=0.0,
+            payoff_at_target_ccy=None,
+            max_loss_ccy=_ev_loss_budget,
+        )
+        _linear_rows = _price_linear_sc(
+            _ev_scenarios,
+            _ev_inputs,
+            _ev_is_call,
+            LINEAR_NOTIONAL,
+            _ev_loss_budget,
+        )
+        _linear_score = _score_struct(_linear_rows, _ev_weights)
+        _linear_score_base = _score_struct(_linear_rows, _ev_base_weights)
+        _ev_structs.append({
+            "item": _linear_item,
+            "variants": [{
+                "pv": _linear_pv,
+                "rows": _linear_rows,
+                "score": _linear_score,
+                "score_base": _linear_score_base,
+            }],
+            "label": _linear_item.display_name,
+        })
 
         if _ev_structs:
             # persist last results for debug / future scoring
@@ -1367,81 +1405,90 @@ else:
                     with st.expander("Explanation pack preview", expanded=False):
                         st.caption(f"Unable to build explanation pack preview: {_e}")
 
-            for _ev_s in _ev_structs:
-                with st.expander(_ev_s["label"], expanded=False):
-                    for _ix, _ev_v in enumerate(_ev_s["variants"]):
-                        _pv0 = _ev_v["pv"]
-                        _score = _ev_v["score"]
-                        _score_base = _ev_v["score_base"]
-                        _notional_str = (
-                            _fmt_ccy(_pv0.structure_notional, _ev_base)
-                            if _pv0.structure_notional is not None else None
-                        )
-                        _variant_title = _variant_label_with_strikes(_ev_s["item"].structure_id, _pv0)
-                        if _notional_str:
-                            _variant_title += f"  ·  Notional: {_notional_str}"
-                        elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
-                            _variant_title += "  ·  Notional: unscaled"
-                        _base_pct = f"{_score_base.score_pct:.2%}"
-                        _base_ccy = (
-                            f"  ({_fmt_ccy_label(_score_base.score_ccy, _ev_base)})"
-                            if _score_base.score_ccy is not None
-                            else ("  (unscaled)" if _pv0.structure_notional is None else "")
-                        )
-                        _ctx_pct = f"{_score.score_pct:.2%}"
-                        _ctx_ccy = (
-                            f"  ({_fmt_ccy_label(_score.score_ccy, _ev_base)})"
-                            if _score.score_ccy is not None
-                            else ("  (unscaled)" if _pv0.structure_notional is None else "")
-                        )
-                        _variant_title += (
-                            f"  ·  Scenario weighted P&L: {_base_pct}{_base_ccy}"
-                            f"  ·  PM overlay weighted P&L: {_ctx_pct}{_ctx_ccy}"
-                        )
+            _all_ranked = sorted(
+                [
+                    {"struct_label": _ev_s["label"], "item": _ev_s["item"], "ev_v": _ev_v}
+                    for _ev_s in _ev_structs
+                    for _ev_v in _ev_s["variants"]
+                ],
+                key=lambda x: x["ev_v"]["score"].score_ccy if x["ev_v"]["score"].score_ccy is not None else 0.0,
+                reverse=True,
+            )
+            for _ranked_entry in _all_ranked:
+                _ev_v = _ranked_entry["ev_v"]
+                _pv0 = _ev_v["pv"]
+                _score = _ev_v["score"]
+                _score_base = _ev_v["score_base"]
+                _notional_str = (
+                    _fmt_ccy(_pv0.structure_notional, _ev_base)
+                    if _pv0.structure_notional is not None else None
+                )
+                _variant_title = _ranked_entry["struct_label"]
+                _variant_title += "  ·  " + _variant_label_with_strikes(_ranked_entry["item"].structure_id, _pv0)
+                if _notional_str:
+                    _variant_title += f"  ·  Notional: {_notional_str}"
+                elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
+                    _variant_title += "  ·  Notional: unscaled"
+                _base_pct = f"{_score_base.score_pct:.2%}"
+                _base_ccy = (
+                    f"  ({_fmt_ccy_label(_score_base.score_ccy, _ev_base)})"
+                    if _score_base.score_ccy is not None
+                    else ("  (unscaled)" if _pv0.structure_notional is None else "")
+                )
+                _ctx_pct = f"{_score.score_pct:.2%}"
+                _ctx_ccy = (
+                    f"  ({_fmt_ccy_label(_score.score_ccy, _ev_base)})"
+                    if _score.score_ccy is not None
+                    else ("  (unscaled)" if _pv0.structure_notional is None else "")
+                )
+                _variant_title += (
+                    f"  ·  Scenario weighted P&L: {_base_pct}{_base_ccy}"
+                    f"  ·  PM overlay weighted P&L: {_ctx_pct}{_ctx_ccy}"
+                )
 
-                        with st.expander(_variant_title, expanded=(_ix == 0)):
-                            _bd_by_cell = {b.scenario_id: b for b in _score.cells}
-                            _summary_rows = []
-                            for _row in _valid_grid_rows(_ev_ms.T):
-                                for _col in _SC_GRID_COLS:
-                                    _cid = f"{_row}|{_col}"
-                                    _bd = _bd_by_cell.get(_cid)
-                                    if _bd is None:
-                                        continue
-                                    _summary_rows.append({
-                                        "Row": _row,
-                                        "Scenario": _col,
-                                        "P&L": f"{_bd.pnl_pct:+.2%}  ({_fmt_ccy(_bd.pnl_ccy, _ev_base)})",
-                                        "Multiplier": f"{_bd.multiplier:.1f}",
-                                        "Weight": f"{_bd.normalized_weight:.1%}",
-                                        "Weighted contrib": (
-                                            f"{_bd.contrib_pct:+.2%}"
-                                            + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})" if _bd.contrib_ccy is not None else "")
-                                        ),
-                                    })
-                            if _summary_rows:
-                                st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
+                with st.expander(_variant_title, expanded=False):
+                    _bd_by_cell = {b.scenario_id: b for b in _score.cells}
+                    _summary_rows = []
+                    for _row in _valid_grid_rows(_ev_ms.T):
+                        for _col in _SC_GRID_COLS:
+                            _cid = f"{_row}|{_col}"
+                            _bd = _bd_by_cell.get(_cid)
+                            if _bd is None:
+                                continue
+                            _summary_rows.append({
+                                "Row": _row,
+                                "Scenario": _col,
+                                "P&L": f"{_bd.pnl_pct:+.2%}  ({_fmt_ccy(_bd.pnl_ccy, _ev_base)})",
+                                "Multiplier": f"{_bd.multiplier:.1f}",
+                                "Weight": f"{_bd.normalized_weight:.1%}",
+                                "Weighted contrib": (
+                                    f"{_bd.contrib_pct:+.2%}"
+                                    + (f"  ({_fmt_ccy(_bd.contrib_ccy, _ev_base)})" if _bd.contrib_ccy is not None else "")
+                                ),
+                            })
+                    if _summary_rows:
+                        st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
 
-                            with st.expander("Scenarios", expanded=False):
-                                _ev_by_row: dict[str, list] = {}
-                                for r in _ev_v["rows"]:
-                                    _ev_by_row.setdefault(r["row"], []).append(r)
-                                for _row in _valid_grid_rows(_ev_ms.T):
-                                    if _row not in _ev_by_row:
-                                        continue
-                                    st.markdown(f"**{_row}**")
-                                    _row_rows = sorted(_ev_by_row[_row], key=lambda x: _SC_GRID_COLS.index(x["col"]))
-                                    _row_df = pd.DataFrame([{
-                                        "Scenario":  r["col"],
-                                        "T%":        f"{r['time_fraction']:.0%}",
-                                        "Fwd":       f"{r['scenario_fwd']:.4f}",
-                                        "Spot":      f"{r['scenario_spot']:.4f}",
-                                        "Vol shift": r["vol_shift"] if isinstance(r["vol_shift"], str) else (f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—"),
-                                        "Vol":       f"{r['scenario_vol']:.1%}",
-                                        "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
-                                        "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
-                                    } for r in _row_rows])
-                                    st.dataframe(_row_df, use_container_width=True, hide_index=True)
+                    with st.expander("Scenarios", expanded=False):
+                        _ev_by_row: dict[str, list] = {}
+                        for r in _ev_v["rows"]:
+                            _ev_by_row.setdefault(r["row"], []).append(r)
+                        for _row in _valid_grid_rows(_ev_ms.T):
+                            if _row not in _ev_by_row:
+                                continue
+                            st.markdown(f"**{_row}**")
+                            _row_rows = sorted(_ev_by_row[_row], key=lambda x: _SC_GRID_COLS.index(x["col"]))
+                            _row_df = pd.DataFrame([{
+                                "Scenario":  r["col"],
+                                "T%":        f"{r['time_fraction']:.0%}",
+                                "Fwd":       f"{r['scenario_fwd']:.4f}",
+                                "Spot":      f"{r['scenario_spot']:.4f}",
+                                "Vol shift": r["vol_shift"] if isinstance(r["vol_shift"], str) else (f"{r['vol_shift']:+.0%}" if r["vol_shift"] != 0 else "—"),
+                                "Vol":       f"{r['scenario_vol']:.1%}",
+                                "Price":     f"{r['price_pct']:.2%}  ({_fmt_ccy(r['price_ccy'], _ev_base)})",
+                                "P&L":       f"{r['pnl_pct']:+.2%}  ({_fmt_ccy(r['pnl_ccy'], _ev_base)})",
+                            } for r in _row_rows])
+                            st.dataframe(_row_df, use_container_width=True, hide_index=True)
 
     # Advisor chat — only when explanation pack is available
     if flow.view and flow.explanation_pack_context:
@@ -1516,9 +1563,9 @@ else:
         # Structured input (only on Trade View page)
         with st.form("trade_view_form", clear_on_submit=False):
             _pair_options = list(flow._snapshot.currencies.keys())
-            _default_pair = _pair_options[0]
-            _pair_ix = 0
-            _dir_label_default = "Higher"
+            _default_pair = "USDBRL" if "USDBRL" in _pair_options else _pair_options[0]
+            _pair_ix = _pair_options.index(_default_pair)
+            _dir_label_default = "Lower"
             _horizon_days_default = _HORIZON_OPTIONS[2][1]
             _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
             _horizon_values = [days for _, days in _HORIZON_OPTIONS]
@@ -1536,8 +1583,7 @@ else:
             with c3:
                 form_horizon_label = st.selectbox("Horizon", _horizon_labels, index=_h_ix)
             with c4:
-                _pair_spot = flow._snapshot.get(_default_pair).spot
-                _fallback_target = _pair_spot * 1.05
+                _fallback_target = 5.60
                 form_target = st.number_input(
                     "Target",
                     min_value=0.0001,

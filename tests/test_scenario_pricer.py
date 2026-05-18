@@ -7,7 +7,7 @@ import pytest
 
 from analytics.market_state import compute_market_state
 from analytics.scenario_generator import generate_scenarios
-from analytics.scenario_pricer import price_scenarios
+from analytics.scenario_pricer import price_linear_scenarios, price_scenarios
 from analytics.structure_pricer import PricedVariant, price_variants
 from pricing.black_scholes import call_mtm, put_mtm
 
@@ -359,6 +359,37 @@ class TestDeltaVolScenarios:
         assert rows[0]["vol_shift"] == "±4% vol"
 
 
+class TestLinearScenarioPricer:
+    def test_linear_long_base_tracks_spot_move(self):
+        scenarios = _single_scenario(1.10, remaining_time=0.0)
+        rows = price_linear_scenarios(
+            scenarios,
+            _TRADE_INPUTS,
+            is_call=True,
+            notional=100.0,
+            max_loss_ccy=10.0,
+        )
+        expected_pct = (1.10 - _SPOT) / _SPOT
+        assert rows[0]["price_pct"] == pytest.approx(expected_pct)
+        assert rows[0]["pnl_pct"] == pytest.approx(expected_pct)
+        assert rows[0]["price_ccy"] == pytest.approx(expected_pct * 100.0)
+        assert rows[0]["pnl_ccy"] == pytest.approx(expected_pct * 100.0)
+
+    def test_linear_short_base_caps_losses_at_max_loss(self):
+        scenarios = _single_scenario(1.20, remaining_time=0.0)
+        rows = price_linear_scenarios(
+            scenarios,
+            _TRADE_INPUTS,
+            is_call=False,
+            notional=100.0,
+            max_loss_ccy=5.0,
+        )
+        assert rows[0]["price_pct"] == pytest.approx(-0.05)
+        assert rows[0]["pnl_pct"] == pytest.approx(-0.05)
+        assert rows[0]["price_ccy"] == pytest.approx(-5.0)
+        assert rows[0]["pnl_ccy"] == pytest.approx(-5.0)
+
+
 # ---------------------------------------------------------------------------
 # Integration: generate_scenarios then price
 # ---------------------------------------------------------------------------
@@ -552,3 +583,39 @@ class TestVariantMaxLossDefinitions:
                 - (pv.wing_ratio or 0.0) * put_mtm(scenario_spot, pv.strikes[2], ms.T, ms.vol, ms.r_d, ms.r_f)
             ) / ms.spot
             assert pv.max_loss_pct == pytest.approx(today_value_pct, rel=2e-2)
+
+
+class TestRatioSpreadVariantExpansion:
+    def test_one_by_two_includes_target_and_one_by_one_delta_variants_for_puts(self):
+        ms = compute_market_state(
+            spot=1.035, fwd=1.038, vol=0.09, T=0.333, r_d=0.05, r_f=0.03,
+            target=0.95, direction="base_lower",
+        )
+        pvs = price_variants(ms, "1x2_spread", target=0.95, is_call=False)
+        labels = {pv.variant_label for pv in pvs}
+
+        assert "ATMF / 2× target" in labels
+        assert "½σ toward target / 2× target" in labels
+        assert "ATMF / 25Δ" in labels
+        assert "25Δ / 10Δ" in labels
+        assert "25Δ / 15Δ" in labels
+        assert "40Δ / 20Δ" in labels
+        assert "30Δ / 10Δ" in labels
+        assert "20Δ / 10Δ" in labels
+
+    def test_one_by_one_point_five_includes_target_and_one_by_one_delta_variants_for_puts(self):
+        ms = compute_market_state(
+            spot=1.035, fwd=1.038, vol=0.09, T=0.333, r_d=0.05, r_f=0.03,
+            target=0.95, direction="base_lower",
+        )
+        pvs = price_variants(ms, "1x1.5_spread", target=0.95, is_call=False)
+        labels = {pv.variant_label for pv in pvs}
+
+        assert "ATMF / 1.5× target" in labels
+        assert "½σ toward target / 1.5× target" in labels
+        assert "ATMF / 25Δ" in labels
+        assert "25Δ / 10Δ" in labels
+        assert "25Δ / 15Δ" in labels
+        assert "40Δ / 20Δ" in labels
+        assert "30Δ / 10Δ" in labels
+        assert "20Δ / 10Δ" in labels

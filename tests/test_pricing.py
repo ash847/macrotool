@@ -398,6 +398,28 @@ class TestEuropeanRKO:
             assert pv.barrier == pytest.approx(5.30)
             assert pv.strikes[1] == pytest.approx(5.30)
 
+    def test_price_variants_erko_includes_one_by_one_delta_variants_for_puts(self):
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        ms = compute_market_state(
+            spot=1.035, fwd=1.038, vol=0.09, T=0.333, r_d=0.05, r_f=0.03,
+            target=0.95, direction="base_lower",
+        )
+        variants = price_variants(ms, "european_rko", target=0.95, is_call=False)
+        labels = {pv.variant_label for pv in variants}
+
+        assert "ATMF / 2× target" in labels
+        assert "½σ toward target / 2× target" in labels
+        assert "ATMF / 25Δ" in labels
+        assert "25Δ / 10Δ" in labels
+        assert "25Δ / 15Δ" in labels
+        assert "40Δ / 20Δ" in labels
+        assert "30Δ / 10Δ" in labels
+        assert "20Δ / 10Δ" in labels
+        for pv in variants:
+            assert pv.barrier == pytest.approx(0.95)
+            assert pv.strikes[1] == pytest.approx(0.95)
+
 
 # ---------------------------------------------------------------------------
 # Scenario matrix
