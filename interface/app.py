@@ -287,7 +287,7 @@ with st.sidebar:
                 with st.spinner("Calling LLM…"):
                     try:
                         _test_msgs = [{"role": "user", "content": "Reply with exactly: OK"}]
-                        for _ in st.session_state.flow._client.stream(_test_msgs):
+                        for _ in st.session_state.flow._client.stream(_test_msgs, system="You are a helpful assistant."):
                             pass
                         _test_resp = st.session_state.flow._client.last_response.strip()
                         st.success(f"LLM responded: {_test_resp!r}")
