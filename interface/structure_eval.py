@@ -38,9 +38,19 @@ def fmt_ccy_label(amount: float | None, ccy: str) -> str:
     return fmt_ccy(amount, ccy)
 
 
+def variant_display_label(structure_id: str, pv) -> str:
+    if structure_id == "seagull" and len(pv.strikes) >= 3:
+        wing_ratio = pv.wing_ratio if pv.wing_ratio is not None else 1.0
+        is_call_spread = pv.strikes[1] > pv.strikes[0]
+        spread_type = "call" if is_call_spread else "put"
+        wing_type = "put" if is_call_spread else "call"
+        return f"1x1 {spread_type} spread + {wing_ratio:.2f}x {wing_type} wing"
+    return pv.variant_label
+
+
 def variant_label_with_strikes(structure_id: str, pv) -> str:
     strikes = [f"{k:.4f}" for k in pv.strikes]
-    label = pv.variant_label
+    label = variant_display_label(structure_id, pv)
 
     if structure_id == "vanilla" and strikes:
         return f"{label} {strikes[0]}"
@@ -51,15 +61,7 @@ def variant_label_with_strikes(structure_id: str, pv) -> str:
             return f"{parts[0].strip()} {strikes[0]} / {parts[1].strip()} {strikes[1]}"
 
     if structure_id == "seagull" and len(strikes) >= 3:
-        if " + " in label:
-            spread_part, wing_part = label.split(" + ", 1)
-            spread_bits = spread_part.split("/")
-            if len(spread_bits) == 2:
-                return (
-                    f"{spread_bits[0].strip()} {strikes[0]} / "
-                    f"{spread_bits[1].strip()} {strikes[1]} + "
-                    f"{wing_part.strip()} {strikes[2]}"
-                )
+        return f"{label}  ·  Strikes: {' / '.join(strikes)}"
 
     if structure_id in {"1x1.5_spread", "1x2_spread"} and len(strikes) >= 2:
         if " / " in label:
@@ -155,7 +157,7 @@ def render_structure_variants(
                     if _payoff is not None else "—"
                 )
                 r = {
-                    "Variant":    pv.variant_label,
+                    "Variant":    variant_display_label(_item.structure_id, pv),
                     "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
                     "Notional":   fmt_ccy(pv.structure_notional, _base_ccy),
                     "Premium":    _prem_cell,
