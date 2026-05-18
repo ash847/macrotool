@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import re
 from enum import Enum
-from typing import Generator
+from typing import Any, Generator
 
 from config.loader import load_config
 from config.override_detector import extract_overrides
@@ -93,8 +93,16 @@ class ConversationFlow:
         self,
         api_key: str | None = None,
         snapshot: MarketSnapshot | None = None,
+        provider: str = "anthropic",
+        model: str | None = None,
+        credentials: Any | None = None,
     ):
-        self._client = MacroToolClient(api_key=api_key)
+        self._client = MacroToolClient(
+            api_key=api_key,
+            provider=provider,
+            model=model,
+            credentials=credentials,
+        )
         self._snapshot: MarketSnapshot = snapshot or load_snapshot()
         self._session_span = _tracing.new_session_span("macrotool-session")
 
@@ -312,8 +320,8 @@ class ConversationFlow:
         """Stream a response, logging it as a Langfuse generation."""
         gen = _tracing.new_generation(
             name=step_name,
-            model=self._client.model,
-            input={"system": system, "messages": messages},
+            model=f"{self._client.provider}:{self._client.model}",
+            input={"system": system, "messages": messages, "provider": self._client.provider},
             session_span=self._session_span,
         )
         full_text = ""

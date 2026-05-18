@@ -87,3 +87,54 @@ Latest UI checkpoint
 Recommended next step
 
 - If the next comparator iteration stays variant-first, enrich the variant-comparison section so it can eventually carry the same level of detail as the current structure-comparison section, then route or prioritize the relevant section based on the PM's follow-up question.
+
+Latest LLM provider checkpoint
+
+- A provider-aware client facade now exists in `conversation/client.py`, with:
+  - `AnthropicProviderClient`
+  - `GeminiProviderClient`
+- `ConversationFlow` now accepts provider/model config and no longer depends on app-side SDK mutation.
+- `interface/app.py` now reads provider/model config from secrets/env and shows provider-specific status in the sidebar.
+- `pyproject.toml` now includes `google-genai` and has been version-bumped to trigger Streamlit Cloud reinstall behavior.
+- Focused provider tests were added in `tests/test_conversation_client.py`.
+
+Latest auth-plan update
+
+- The initial Gemini integration assumed Gemini Developer API keys via `GEMINI_API_KEY`.
+- We discovered the target org disallows API keys, so the Gemini plan has changed:
+  - primary Gemini path is now Vertex AI with ADC
+  - optional fallback path remains Gemini Developer API key mode
+- `conversation/client.py` now supports both Gemini modes:
+  - Developer API mode: `genai.Client(api_key=...)`
+  - Vertex AI mode: `genai.Client(vertexai=True, project=..., location=...)`
+- For Streamlit Community Cloud, `interface/app.py` can now also read a `[gcp_service_account]` secret block, construct `google.oauth2.service_account.Credentials`, and pass those explicit credentials into the Vertex Gemini client.
+- Vertex mode is controlled by:
+  - `GOOGLE_GENAI_USE_VERTEXAI`
+  - `GOOGLE_CLOUD_PROJECT`
+  - `GOOGLE_CLOUD_LOCATION`
+- `interface/app.py` now surfaces Gemini status more accurately:
+  - Vertex config missing
+  - Vertex configured but ADC not detected
+  - Vertex AI ADC ready
+  - Vertex service account secret invalid
+  - Vertex service account ready
+
+Exact commands run for Gemini work
+
+- `rg -n "Anthropic|anthropic|Claude|client" conversation interface/app.py tests`
+- `sed -n '1,240p' conversation/client.py`
+- `sed -n '1,260p' interface/app.py`
+- `python3 -m pip install google-genai`
+- `'/Users/ash/Documents/Coding work/MacroTool/.venv/bin/python' -m pip install google-genai`
+- `'/Users/ash/Documents/Coding work/MacroTool/.venv/bin/python' -m py_compile conversation/client.py conversation/flow.py interface/app.py`
+- `'/Users/ash/Documents/Coding work/MacroTool/.venv/bin/python' -m pytest tests/test_conversation_client.py`
+- `'/Users/ash/Documents/Coding work/MacroTool/.venv/bin/python' -m pytest tests/test_conversation_client.py tests/test_comparator.py tests/test_explanation_context.py tests/test_followup_prompt.py`
+
+Current known caveats
+
+- No live Gemini response has been executed yet in the deployed app because the Streamlit secrets still need the Vertex project/location plus a real `gcp_service_account` secret block.
+- The sidebar can now detect both likely ambient ADC and explicit service account credentials, but a true end-to-end Vertex call still needs real GCP credentials with Vertex access.
+
+Updated recommended next step
+
+- Configure Streamlit secrets for Gemini Vertex AI using a `gcp_service_account` block, restart the app, and run one live follow-up smoke test on `LLM_PROVIDER=gemini`.

@@ -18,6 +18,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
@@ -26,6 +27,15 @@ if str(_ROOT) not in sys.path:
 import streamlit as st
 import pandas as pd
 
+from conversation.client import (
+    get_api_key_for_provider,
+    get_gemini_location,
+    get_gemini_mode,
+    get_gemini_project,
+    has_gemini_adc_credentials,
+    resolve_model,
+    resolve_provider,
+)
 from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
 from interface.security import current_user_email, is_admin_user, require_login
@@ -81,7 +91,14 @@ st.set_page_config(
 
 def _inject_secrets() -> None:
     _secret_keys = [
+        "LLM_PROVIDER",
         "ANTHROPIC_API_KEY",
+        "ANTHROPIC_MODEL",
+        "GEMINI_API_KEY",
+        "GEMINI_MODEL",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_BASE_URL",
@@ -111,16 +128,81 @@ _lsp.cache_clear()
 
 
 # ---------------------------------------------------------------------------
-# API key
+# LLM config
 # ---------------------------------------------------------------------------
 
-def _get_api_key() -> str | None:
+def _get_llm_provider() -> str:
     try:
-        if "ANTHROPIC_API_KEY" in st.secrets:
-            return st.secrets["ANTHROPIC_API_KEY"]
+        if "LLM_PROVIDER" in st.secrets:
+            return resolve_provider(st.secrets["LLM_PROVIDER"])
     except Exception:
         pass
-    return os.environ.get("ANTHROPIC_API_KEY")
+    return resolve_provider(os.environ.get("LLM_PROVIDER"))
+
+
+def _get_provider_api_key(provider: str) -> str | None:
+    secret_name = "ANTHROPIC_API_KEY" if provider == "anthropic" else "GEMINI_API_KEY"
+    try:
+        if secret_name in st.secrets:
+            return st.secrets[secret_name]
+    except Exception:
+        pass
+    return get_api_key_for_provider(provider)
+
+
+def _get_provider_model(provider: str) -> str:
+    secret_name = "ANTHROPIC_MODEL" if provider == "anthropic" else "GEMINI_MODEL"
+    try:
+        if secret_name in st.secrets:
+            return resolve_model(provider, st.secrets[secret_name])
+    except Exception:
+        pass
+    return resolve_model(provider, os.environ.get(secret_name))
+
+
+def _provider_label(provider: str) -> str:
+    return "Anthropic" if provider == "anthropic" else "Google Gemini"
+
+
+def _get_gcp_service_account_info() -> dict[str, Any] | None:
+    try:
+        if "gcp_service_account" in st.secrets:
+            return dict(st.secrets["gcp_service_account"])
+    except Exception:
+        pass
+    return None
+
+
+def _get_gemini_vertex_credentials():
+    info = _get_gcp_service_account_info()
+    if not info:
+        return None
+    try:
+        from google.oauth2 import service_account
+        return service_account.Credentials.from_service_account_info(info)
+    except Exception:
+        return None
+
+
+def _gemini_status() -> tuple[bool, str]:
+    mode = get_gemini_mode()
+    if mode == "vertexai":
+        project = get_gemini_project()
+        location = get_gemini_location()
+        if not project or not location:
+            return False, "Vertex AI config missing project or location"
+        service_account_info = _get_gcp_service_account_info()
+        if service_account_info:
+            if _get_gemini_vertex_credentials() is not None:
+                return True, f"Vertex service account ready · {project} / {location}"
+            return False, f"Vertex service account secret invalid · {project} / {location}"
+        if has_gemini_adc_credentials():
+            return True, f"Vertex AI ADC ready · {project} / {location}"
+        return False, f"Vertex AI configured but ADC not detected · {project} / {location}"
+
+    if _get_provider_api_key("gemini"):
+        return True, "Gemini Developer API key ready"
+    return False, "Gemini Developer API key not configured"
 
 
 def _get_effective_snapshot():
@@ -130,12 +212,14 @@ def _get_effective_snapshot():
 
 
 def _make_flow() -> ConversationFlow:
-    new_flow = ConversationFlow(snapshot=_get_effective_snapshot())
-    key = _get_api_key()
-    if key:
-        import anthropic as _anth
-        new_flow._client._client = _anth.Anthropic(api_key=key)
-    return new_flow
+    provider = _get_llm_provider()
+    return ConversationFlow(
+        api_key=_get_provider_api_key(provider),
+        snapshot=_get_effective_snapshot(),
+        provider=provider,
+        model=_get_provider_model(provider),
+        credentials=_get_gemini_vertex_credentials() if provider == "gemini" else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -192,10 +276,19 @@ with st.sidebar:
 
     st.divider()
 
-    if _get_api_key():
+    active_provider = _get_llm_provider()
+    active_model = _get_provider_model(active_provider)
+    st.caption(f"LLM: {_provider_label(active_provider)} · {active_model}")
+    if active_provider == "gemini":
+        gemini_ready, gemini_message = _gemini_status()
+        if gemini_ready:
+            st.success(gemini_message)
+        else:
+            st.error(gemini_message)
+    elif _get_provider_api_key(active_provider):
         st.success("API key ready")
     else:
-        st.error("Server Anthropic API key not configured.")
+        st.error(f"Server {_provider_label(active_provider)} API key not configured.")
 
     sb_connected, sb_error = _sb_status()
     if sb_connected:
