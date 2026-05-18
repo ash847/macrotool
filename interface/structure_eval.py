@@ -401,6 +401,11 @@ def render_structure_evaluation(
                 _expl_scores,
                 variant_evaluations_by_structure=_expl_variant_evals,
             )
+            from conversation.explanation_context import render_explanation_pack as _render_full_pack
+            from interface.advisor_chat import build_chat_system_prompt as _build_chat_system
+            _full_pack_text = _render_full_pack(_expl_pack)
+            with st.expander("Full LLM prompt", expanded=False):
+                st.code(_build_chat_system(_full_pack_text), language="text")
             with st.expander("Explanation pack preview", expanded=False):
                 st.code(_render_expl_overview(_expl_pack), language="text")
                 if _expl_pack.variant_comparisons:

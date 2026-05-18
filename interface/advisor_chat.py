@@ -7,14 +7,8 @@ import streamlit as st
 from conversation.flow import ConversationFlow
 
 
-def render_advisor_chat(flow: ConversationFlow) -> None:
-    if not (flow.view and flow.explanation_pack_context):
-        return
-
-    st.divider()
-    st.subheader("Ask the advisor")
-
-    _chat_system = (
+def build_chat_system_prompt(pack_context: str) -> str:
+    return (
         "You are a trade structuring advisor for a macro fund PM. "
         "A deterministic engine has produced an EM FX options recommendation. "
         "Your role is to help the PM understand and interrogate it in a continuing conversation.\n\n"
@@ -41,8 +35,18 @@ def render_advisor_chat(flow: ConversationFlow) -> None:
         "- Do not invent strikes, premiums, barriers, or P&L figures.\n"
         "- Speak like a senior EM structurer briefing a PM, not a generic assistant.\n\n"
         "[RECOMMENDATION EXPLANATION PACK]\n"
-        + flow.explanation_pack_context
+        + pack_context
     )
+
+
+def render_advisor_chat(flow: ConversationFlow) -> None:
+    if not (flow.view and flow.explanation_pack_context):
+        return
+
+    st.divider()
+    st.subheader("Ask the advisor")
+
+    _chat_system = build_chat_system_prompt(flow.explanation_pack_context)
 
     for _msg in st.session_state.chat_history:
         with st.chat_message(_msg["role"]):
