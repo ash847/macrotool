@@ -1,25 +1,24 @@
 {
   "_note": "Edit this file to update the testing brief. Changes deploy automatically on next push.",
 
-  "updated": "2026-04-21",
+  "updated": "2026-05-18",
 
-  "focus": "Does the structure scorer rank structures in the right order for your view? We want to understand whether the scoring dimensions (target distance, carry regime, carry alignment) are producing sensible recommendations, and where expert intuition disagrees with the ranked output.",
+  "focus": "Does the structure scorer rank structures in the right order for your view? Ranks need to be correct, and the magnitude of scores need to be correct as well",
 
   "try_these": [
     "Currently has USDBRL EURPLN USDTRY GBPUSD EURUSD USDMXN USDCNH USDJPY. See Market data on left tab for details",
-    "Long USDBRL targeting 5.90, 3 months, high conviction",
-    "Short EURPLN targeting 4.35, 6 months, high conviction"
+    "Long USDBRL targeting 5.90, 3 months",
+    "Short EURPLN targeting 4.35, 6 months"
   ],
 
   "ignore_for_now": [
-    "Premium and strike numbers — the vol surface is synthetic and not calibrated to real levels",
-    "The exact sizing / notional output — conviction is not used anywhere",
+    "Market data is not live, its toy",
     "The LLM narrative text — being replaced by structured data outputs"
   ],
 
   "questions": [
-    "Does the top-ranked structure feel right for the view you entered?",
-    "Does the ordering of the full shortlist make intuitive sense?",
-    "Is the market state summary (carry regime, target z-score, vol) consistent with the market data?"
+    "Is the ranking and scoring correct?",
+    "Does the weighting grid give us the richness we need?",
+    "What overlays would we define for PMs and how would we tune the grids for them"
   ]
 }
