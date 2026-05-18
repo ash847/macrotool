@@ -39,12 +39,33 @@ def fmt_ccy_label(amount: float | None, ccy: str) -> str:
 
 
 def variant_display_label(structure_id: str, pv) -> str:
+    if structure_id == "vanilla":
+        return "Vanilla option"
+
+    if structure_id == "1x1_spread" and len(pv.strikes) >= 2:
+        spread_type = "Call spread" if pv.strikes[1] > pv.strikes[0] else "Put spread"
+        return f"1x1 {spread_type}"
+
+    if structure_id in {"1x1.5_spread", "1x2_spread"}:
+        ratio = "1x1.5" if structure_id == "1x1.5_spread" else "1x2"
+        return f"{ratio} Ratio spread"
+
     if structure_id == "seagull" and len(pv.strikes) >= 3:
         wing_ratio = pv.wing_ratio if pv.wing_ratio is not None else 1.0
         is_call_spread = pv.strikes[1] > pv.strikes[0]
-        spread_type = "call" if is_call_spread else "put"
+        spread_type = "Call spread" if is_call_spread else "Put spread"
         wing_type = "put" if is_call_spread else "call"
-        return f"1x1 {spread_type} spread + {wing_ratio:.2f}x {wing_type} wing"
+        return f"1x1 {spread_type} + {wing_ratio:.2f}x {wing_type} wing"
+
+    if structure_id == "european_digital":
+        return "European digital"
+
+    if structure_id == "european_digital_rko":
+        return "European digital RKO"
+
+    if structure_id == "european_rko":
+        return "European RKO"
+
     return pv.variant_label
 
 
@@ -53,33 +74,29 @@ def variant_label_with_strikes(structure_id: str, pv) -> str:
     label = variant_display_label(structure_id, pv)
 
     if structure_id == "vanilla" and strikes:
-        return f"{label} {strikes[0]}"
+        return strikes[0]
 
     if structure_id == "1x1_spread" and len(strikes) >= 2:
-        parts = label.split("/")
-        if len(parts) == 2:
-            return f"{parts[0].strip()} {strikes[0]} / {parts[1].strip()} {strikes[1]}"
+        return f"{label}  ·  Strikes: {' / '.join(strikes)}"
 
     if structure_id == "seagull" and len(strikes) >= 3:
         return f"{label}  ·  Strikes: {' / '.join(strikes)}"
 
     if structure_id in {"1x1.5_spread", "1x2_spread"} and len(strikes) >= 2:
-        if " / " in label:
-            left, right = label.split(" / ", 1)
-            return f"{left.strip()} {strikes[0]} / {right.strip()} {strikes[1]}"
+        return f"{label}  ·  Strikes: {' / '.join(strikes)}"
 
     if structure_id == "european_rko" and strikes:
         ko = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
-        return f"{label} {strikes[0]}  ·  KO at {ko}"
+        return f"{label}  ·  Strike: {strikes[0]}  ·  Barrier: {ko}"
 
     if structure_id == "european_digital" and strikes:
-        return f"{label} {strikes[0]}"
+        return f"{label}  ·  Barrier: {strikes[0]}"
 
     if structure_id == "european_digital_rko" and strikes:
         american_barrier = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
         return (
-            f"{label}  ·  European barrier {strikes[0]}  ·  "
-            f"American barrier {american_barrier}"
+            f"{label}  ·  Digital barrier: {strikes[0]}  ·  "
+            f"KO barrier: {american_barrier}"
         )
 
     if strikes:
