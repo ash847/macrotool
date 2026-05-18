@@ -65,7 +65,11 @@ def _wing_risk_lines(structure_id: str, rv: "RankedVariant", is_call: bool) -> l
     if structure_id in ("1x1.5_spread", "1x2_spread"):
         if len(strikes) >= 2:
             direction = "rises" if is_call else "falls"
-            return [f"- Short leg at {strikes[1]:.4f}: tail — P&L turns increasingly negative if spot {direction} through this level"]
+            return [
+                f"- Short leg at {strikes[1]:.4f}: tail — profit peaks at this strike, "
+                f"then reverses as spot {direction} beyond it; P&L crosses zero and turns "
+                f"increasingly negative on large moves"
+            ]
         return []
 
     if structure_id == "seagull":
