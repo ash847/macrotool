@@ -77,3 +77,72 @@ After the initial 9-step build, several UX issues surfaced during PM testing:
 ## Revisit candidates
 
 - Grid extent (truncate-with-warning vs parametric tail) — see PLAN.md decisions section. Reinforced after step 4 (above). Three-way edge decomposition now makes the truncation cost explicit in the UI, which may reduce the need to change the policy itself.
+
+## Kelly fraction (next phase) — agreed design
+
+Discussed and locked in this session; build deferred.
+
+### Sized on Full edge
+
+Kelly operates on `full_edge` — that's the load-bearing trading-economics number. The view edge / anchoring cost decomposition is for *interpretation*; the actual `f*` comes from `E_PM[log(1 + f · r(S_T))]` against PM's literal elicited distribution. Truncation effects are real to the trade outcome, so Kelly sees them.
+
+### Inputs already in place
+
+- PM's distribution of `S_T` (the `pm` PDF).
+- Market price (cost basis per contract).
+- Payoff function (vanilla; extends to spreads/seagulls trivially via linear combinations).
+- Discount factor.
+
+Return per unit capital: `r = (DF · payoff(S_T) − cost) / cost`. For long options `r ∈ [−1, +∞)`, so Kelly is naturally bounded `f < 1`.
+
+### Inputs out of scope for v3
+
+- Number of bets per year — doesn't affect `f*` (Kelly is myopic for independent bets), only affects "expected annual growth" display. Deferred.
+- Correlation across concurrent positions — single-trade-at-a-time only.
+- Risk-free rate / opportunity cost — small for short-tenor FX, can be added later.
+
+### Solvers — build both
+
+- **`kelly_continuous(dist, payoff, cost, df) -> float`** — Thorp closed-form `f* ≈ E[r] / Var[r]`. Fast, intuitive, but a Taylor expansion that breaks down for options where `r` ranges from `−1` to `+5`. Display alongside the numerical result; the gap is the diagnostic ("when these disagree, trust the numerical").
+- **`kelly_discrete(dist, payoff, cost, df, f_max) -> float`** — 1-D numerical maximisation of `E[log(1 + f · r)]` over `f ∈ [0, f_max]`. Use `scipy.optimize` or just `brentq` on the derivative. This is the canonical answer.
+
+Why not just `p − q/b`: options aren't binary. The "win" side has its own continuous distribution; collapsing to `(p, b)` throws away win-side variance and systematically over-sizes.
+
+### KellyReport dataclass
+
+Surface:
+- `f_continuous`, `f_discrete` (raw, full Kelly)
+- `f_displayed` — after multiplier + cap
+- Expected return `E[r]`, variance `Var[r]`
+- Probability metrics: `P(r < 0)`, `P(r < −0.5)`, `P(r = −1)` (total loss of premium)
+- Expected log-utility at the displayed `f`
+
+### UI sizing knobs
+
+| Knob | Default | Range | Notes |
+|---|---|---|---|
+| Kelly multiplier | 0.5 (half-Kelly) | 0.10–1.00 | Slider, recomputes outputs live |
+| Position cap | 0.20 | 0.05–1.00 | Hard ceiling on the displayed fraction |
+
+**Ordering:** `f_displayed = min(f* × multiplier, cap)` — multiply first, then cap. Cap is "max position size", not "max Kelly input".
+
+### UI panel layout (sketch)
+
+Sits under the existing edge readout. Strawman:
+
+```
+Kelly fraction (raw, full):        0.84
+Kelly fraction (half × cap):       0.20    ← f_displayed
+   half-Kelly slider  [────●────]  0.50
+   position cap       [─●────────] 0.20
+
+Expected return:                   +14.2%
+Variance:                          0.41
+P(total loss of premium):          39%
+```
+
+### File layout
+
+- `kelly.py` — solvers + report dataclass
+- `tests/test_kelly.py` — parametric tests over toy distributions and against the option-on-baseline case
+- `app.py` — Kelly panel added under `render_edge_panel`
