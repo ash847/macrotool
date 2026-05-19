@@ -103,16 +103,37 @@ def reset_anchors_to_baseline() -> None:
         st.session_state[f"anchor_{i}"] = float(p)
 
 
+def _largest_remainder_round(values: np.ndarray, target_sum: int) -> np.ndarray:
+    """Round float allocations to ints that sum to exactly target_sum.
+
+    Largest-remainder (Hamilton) method — floor everything, then award the
+    remaining units to the entries with the largest fractional remainders.
+    """
+    floored = np.floor(values).astype(int)
+    remainders = values - floored
+    deficit = int(target_sum - floored.sum())
+    if deficit > 0:
+        order = np.argsort(-remainders)
+        for i in range(deficit):
+            floored[order[i]] += 1
+    elif deficit < 0:
+        order = np.argsort(remainders)  # smallest remainders first
+        for i in range(-deficit):
+            floored[order[i]] -= 1
+    return floored
+
+
 def reset_buckets_to_uniform() -> None:
-    """Option 2: seed bucket probabilities to uniform."""
+    """Option 2: seed bucket probabilities to uniform integer-percent."""
     n = st.session_state.n_anchors
-    each = 1.0 / n
+    base_value = 100 // n
+    remainder = 100 - base_value * n
     for i in range(n):
-        st.session_state[f"bucket_{i}"] = each
+        st.session_state[f"bucket_{i}"] = base_value + (1 if i < remainder else 0)
 
 
 def reset_buckets_to_baseline() -> None:
-    """Option 2: seed bucket probabilities to match the baseline mass in each bucket."""
+    """Option 2: seed bucket probabilities (as integer %) to the baseline mass per bucket."""
     base = _current_baseline()
     offsets = default_sigma_boundaries(st.session_state.n_anchors)
     boundaries = sigma_boundaries_to_prices(
@@ -127,9 +148,10 @@ def reset_buckets_to_baseline() -> None:
         masses.append(float(base.probs[mask].sum()))
     masses = np.array(masses)
     if masses.sum() > 0:
-        masses = masses / masses.sum()
-    for i, m in enumerate(masses):
-        st.session_state[f"bucket_{i}"] = float(m)
+        masses = masses / masses.sum() * 100.0  # → percent
+    rounded = _largest_remainder_round(masses, 100)
+    for i, m in enumerate(rounded):
+        st.session_state[f"bucket_{i}"] = int(m)
 
 
 def sync_on_n_change() -> None:
@@ -245,14 +267,15 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
 
     st.subheader("Your view — probability in each bucket")
     st.caption(
-        "Buckets are sigma-anchored on the market smile. Enter the probability "
-        "(in %) you assign to each bucket. The buckets together must sum to 100%."
+        "Buckets are sigma-anchored on the market smile. Enter the integer "
+        "percentage you assign to each bucket. The buckets together must sum "
+        "to 100%."
     )
 
     if "bucket_0" not in st.session_state:
         reset_buckets_to_baseline()
 
-    probs = []
+    probs_pct = []
     cols = st.columns(n_buckets)
     for i, col in enumerate(cols):
         with col:
@@ -265,27 +288,29 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
             )
             key = f"bucket_{i}"
             if key not in st.session_state:
-                st.session_state[key] = 1.0 / n_buckets
+                st.session_state[key] = int(round(100 / n_buckets))
             v = st.number_input(
                 "%",
-                min_value=0.0, max_value=1.0, step=0.005,
-                format="%.4f", key=key, label_visibility="collapsed",
+                min_value=0, max_value=100, step=1,
+                format="%d", key=key, label_visibility="collapsed",
             )
-            probs.append(v)
+            probs_pct.append(v)
 
-    probs = np.array(probs, dtype=float)
+    probs_pct = np.array(probs_pct, dtype=int)
+    # Engine and pricing layer expect fractional probabilities in [0, 1].
+    probs = probs_pct.astype(float) / 100.0
 
-    total = float(probs.sum())
-    diff = total - 1.0
-    if abs(diff) < 1e-6:
-        st.success(f"Bucket probabilities sum to 1.0000 ✓")
+    total_pct = int(probs_pct.sum())
+    if total_pct == 100:
+        st.success("Bucket probabilities sum to 100% ✓")
     else:
         msg_col, btn_col = st.columns([3, 1])
+        diff = total_pct - 100
         msg_col.warning(
-            f"Bucket probabilities sum to {total:.4f}, not 1.0 (off by {diff:+.4f})."
+            f"Bucket probabilities sum to {total_pct}%, not 100% (off by {diff:+d}%)."
         )
         btn_col.button(
-            "Renormalise to 1",
+            "Renormalise to 100%",
             on_click=_renormalise_buckets,
             args=(n_buckets,),
         )
@@ -294,16 +319,20 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _renormalise_buckets(n_buckets: int) -> None:
-    """Proportionally rescale bucket_i session-state values to sum to 1.
+    """Proportionally rescale bucket_i percent values to sum to exactly 100.
 
     Runs as a button `on_click` callback so Streamlit applies the writes
-    BEFORE the next rerun instantiates the bucket widgets.
+    BEFORE the next rerun instantiates the bucket widgets. Uses largest-
+    remainder rounding so the integer percents sum to exactly 100.
     """
-    total = sum(float(st.session_state[f"bucket_{i}"]) for i in range(n_buckets))
+    raw = np.array([float(st.session_state[f"bucket_{i}"]) for i in range(n_buckets)])
+    total = raw.sum()
     if total <= 0:
         return
+    scaled = raw / total * 100.0
+    rounded = _largest_remainder_round(scaled, 100)
     for i in range(n_buckets):
-        st.session_state[f"bucket_{i}"] = float(st.session_state[f"bucket_{i}"]) / total
+        st.session_state[f"bucket_{i}"] = int(rounded[i])
 
 
 def render_structure_inputs() -> tuple[float, bool]:
@@ -404,7 +433,7 @@ def main() -> None:
             return
         if abs(total - 1.0) > 1e-6:
             st.info(
-                "Adjust the bucket values above (or click *Renormalise to 1*) before pricing."
+                "Adjust the bucket values above (or click *Renormalise to 100%*) before pricing."
             )
             return
         pm = elicit_from_pdf_buckets(boundaries, probs)
