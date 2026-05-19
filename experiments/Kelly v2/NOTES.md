@@ -36,6 +36,21 @@ Implemented both in `tests/test_edge.py`.
 
 **Revisit candidate, reinforced:** if PMs find this annoying or misleading, switch to parametric-tail extension (option b from the PLAN). The cost is asking PMs to commit to a tail decay assumption they didn't make.
 
+### Step 5 — Streamlit UI self-test
+
+UI renders cleanly. Verified at initial render:
+- All N anchor inputs render (N selector default 7; supports 5/7/9/11).
+- Sidebar Forward/Vol/Tenor wired, anchor preset selector wired, reset button wired.
+- Strike + Call/Put radio render.
+- Edge readout displays PM price, market price, abs edge, and % of mid.
+- "Edge vs market-implied" caption present.
+- For F=5.0, σ=0.10, T=0.25, ATM call: PM=0.0888, mkt=0.0997, edge=-0.0110, -11% of mid. Matches expected truncation-policy bias from Step 4 analysis.
+- Initial Streamlit warning about `value=` + `key=` clash on widgets fixed by removing `value=` arguments and seeding session state instead.
+
+**Synthetic-event interaction testing didn't work.** Streamlit's number inputs use a debounced commit-on-blur pattern that doesn't pick up dispatched `input`/`change`/`keydown(Enter)` events from `javascript_tool`. Tried the React `Object.getOwnPropertyDescriptor` setter trick and Enter dispatch — neither triggered Streamlit's rerun.
+
+Consequence: live UX interaction (sliders moving, edge updating, warnings firing) is for human verification, not automated self-test. Engine correctness is covered by unit tests (58/58 across elicitation, pricing, baseline, edge); the UI is only doing input wiring and display, and those render correctly at startup.
+
 ## Revisit candidates
 
 - Grid extent (truncate-with-warning vs parametric tail) — see PLAN.md decisions section. Reinforced after step 4 (above).
