@@ -28,15 +28,20 @@ from elicitation import (
     sigma_boundaries_to_prices,
 )
 from pricing import forward_of
+from viz import (
+    render_option1_chart,
+    render_option2_chart,
+    render_option2_stacked_chart,
+)
 
 
 FIXTURE_DIR = PKG_ROOT / "fixtures"
-BASELINE_SOURCE_SYNTHETIC = "Synthetic lognormal"
-BASELINE_SOURCE_FIXTURE = "Load from fixture"
+BASELINE_SOURCE_SYNTHETIC = "Synthetic lognormal (set F, σ, T)"
+BASELINE_SOURCE_FIXTURE = "Load saved baseline (.json)"
 
 
-MODE_OPTION1 = "Option 1 — prices at fixed quantiles (CDF)"
-MODE_OPTION2 = "Option 2 — probabilities in fixed σ buckets (PDF)"
+MODE_OPTION1 = "Use fixed probability bins"
+MODE_OPTION2 = "Use fixed spot ranges"
 
 ANCHOR_PRESETS: dict[int, tuple[float, ...]] = {
     5:  (0.05, 0.25, 0.50, 0.75, 0.95),
@@ -350,18 +355,49 @@ def main() -> None:
             st.error("Anchor prices must be strictly increasing. Adjust the values above.")
             return
         pm = elicit_from_cdf_anchors(prices, list(quantiles))
+        st.altair_chart(
+            render_option1_chart(prices, np.asarray(quantiles), base),
+            use_container_width=True,
+        )
     else:
+        n_buckets = n
+        sigma_offsets = default_sigma_boundaries(n_buckets)
+        boundaries_preview = sigma_boundaries_to_prices(
+            sigma_offsets,
+            forward=st.session_state.forward,
+            sigma=st.session_state.sigma,
+            tenor_years=st.session_state.tenor_years,
+        )
+        # Show the market-allocation snapshot above the inputs so PMs see the
+        # baseline shape before they decide how to deviate from it.
+        from viz import _market_mass_per_range  # local import to avoid widening public API
+        market_probs_buckets = _market_mass_per_range(base, boundaries_preview)
+        if market_probs_buckets.sum() > 0:
+            market_probs_buckets = market_probs_buckets / market_probs_buckets.sum()
+
         boundaries, probs = render_option2_inputs(n)
         total = float(probs.sum())
         if abs(total - 1.0) > 1e-6:
             st.info(
                 "Adjust the bucket values above (or click *Renormalise to 1*) before pricing."
             )
+            st.altair_chart(
+                render_option2_stacked_chart(probs / max(total, 1e-12), market_probs_buckets),
+                use_container_width=True,
+            )
             return
         if np.any(probs < 0):
             st.error("Bucket probabilities cannot be negative.")
             return
         pm = elicit_from_pdf_buckets(boundaries, probs)
+        st.altair_chart(
+            render_option2_stacked_chart(probs, market_probs_buckets),
+            use_container_width=True,
+        )
+        st.altair_chart(
+            render_option2_chart(boundaries, probs, base, sigma_offsets=sigma_offsets),
+            use_container_width=True,
+        )
 
     strike, is_call = render_structure_inputs()
     rep = compute_edge(pm, base, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
