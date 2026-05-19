@@ -235,11 +235,7 @@ def render_sidebar() -> None:
 
 
 def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
-    st.subheader("Your view — price at each quantile")
-    st.caption(
-        "Enter the price level at which you expect the cumulative probability "
-        "to reach each quantile. Values must strictly increase from left to right."
-    )
+    st.markdown("##### Your view — price at each quantile (must strictly increase)")
 
     if "anchor_0" not in st.session_state:
         reset_anchors_to_baseline()
@@ -270,12 +266,7 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
         tenor_years=st.session_state.tenor_years,
     )
 
-    st.subheader("Your view — probability in each bucket")
-    st.caption(
-        "Buckets are sigma-anchored on the market smile. Enter the integer "
-        "percentage you assign to each bucket. The buckets together must sum "
-        "to 100%."
-    )
+    st.markdown("##### Your view — probability (%) per σ-anchored bucket (sum to 100)")
 
     if "bucket_0" not in st.session_state:
         reset_buckets_to_baseline()
@@ -341,74 +332,94 @@ def _renormalise_buckets(n_buckets: int) -> None:
 
 
 def render_structure_inputs() -> tuple[float, bool]:
-    st.subheader("Option to price")
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        strike = st.number_input("Strike", min_value=0.0001, step=0.01, format="%.4f", key="strike")
-    with col2:
+    st.markdown("##### Option to price")
+    col_k, col_t = st.columns([3, 2])
+    with col_k:
+        strike = st.number_input(
+            "Strike", min_value=0.0001, step=0.01, format="%.4f", key="strike",
+            label_visibility="collapsed",
+        )
+    with col_t:
         if "option_type" not in st.session_state:
             st.session_state.option_type = "Call" if st.session_state.is_call else "Put"
-        kind = st.radio("Type", options=["Call", "Put"], horizontal=False, key="option_type")
+        kind = st.radio(
+            "Type", options=["Call", "Put"], horizontal=True, key="option_type",
+            label_visibility="collapsed",
+        )
         is_call = kind == "Call"
         st.session_state.is_call = is_call
     return strike, is_call
 
 
 def render_edge_panel(rep, strike: float) -> None:
-    st.subheader("Edge vs market-implied")
-
     if rep.out_of_range:
         st.warning(
             f"Strike {strike:.4f} is outside your elicited support — your "
-            f"distribution puts no mass beyond the outer anchors, so the edge "
-            f"below reflects that explicitly. Widen the outer anchors if you "
-            f"actually have a view at this strike."
+            f"distribution puts no mass beyond the outer anchors. Widen the "
+            f"outer anchors if you actually have a view at this strike."
         )
-
-    col1, col2 = st.columns(2)
-    col1.metric("PM price", f"{rep.pm_price:.4f}")
-    col2.metric("Market price", f"{rep.mkt_price:.4f}")
 
     def _fmt_pct(pct):
         return f"{pct:+.1f}% of mid" if pct is not None else "—"
 
-    col_full, col_anchor, col_view = st.columns(3)
-    col_full.metric(
-        "Full edge",
+    col_pm, col_mkt, col_edge = st.columns([1, 1, 2])
+    col_pm.metric("PM price", f"{rep.pm_price:.4f}")
+    col_mkt.metric("Market price", f"{rep.mkt_price:.4f}")
+    col_edge.metric(
+        "Full edge — your expected P&L vs market",
         f"{rep.full_edge:+.4f}",
         _fmt_pct(rep.full_edge_pct_of_mid),
     )
-    col_full.caption(
-        "Your expected P&L on this trade vs the market price. Size Kelly on this."
-    )
 
-    col_anchor.metric("Anchoring cost", f"{rep.anchoring_cost:+.4f}")
-    col_anchor.caption(
-        "Pricing impact of the ~4% probability mass that your anchors don't "
-        "include — the tails outside your outer anchor points."
-    )
+    with st.expander("What's behind the full edge?", expanded=False):
+        sub1, sub2 = st.columns(2)
+        sub1.metric(
+            "View edge",
+            f"{rep.view_edge:+.4f}",
+            _fmt_pct(rep.view_edge_pct_of_mid),
+        )
+        sub1.caption(
+            "What your view adds inside the price range you've described — "
+            "pure view-divergence with the truncation effect cancelled out."
+        )
+        sub2.metric("Anchoring cost", f"{rep.anchoring_cost:+.4f}")
+        sub2.caption(
+            "Pricing impact of the ~4% probability mass that your anchors "
+            "don't include — the tails outside your outer anchor points."
+        )
+        st.caption(
+            "Identity: **Full edge = View edge + Anchoring cost**. Edge is "
+            "**vs market-implied** (risk-neutral) pricing, not pure "
+            "forecasting edge."
+        )
 
-    col_view.metric(
-        "View edge",
-        f"{rep.view_edge:+.4f}",
-        _fmt_pct(rep.view_edge_pct_of_mid),
-    )
-    col_view.caption(
-        "What your view adds inside the price range you've described — pure "
-        "view-divergence with the truncation effect cancelled out."
-    )
 
-    st.caption(
-        "Decomposition: **Full edge = View edge + Anchoring cost**. "
-        "Edge is **vs market-implied** (risk-neutral) pricing, not pure "
-        "forecasting edge."
-    )
+_COMPACT_CSS = """
+<style>
+section.main > div.block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 100% !important; }
+h1 { font-size: 1.45rem !important; margin-bottom: 0.15rem !important; }
+h2 { font-size: 1.05rem !important; margin: 0.25rem 0 0.15rem 0 !important; }
+h3 { font-size: 0.95rem !important; margin: 0.20rem 0 0.10rem 0 !important; }
+h5 { font-size: 0.90rem !important; margin: 0.20rem 0 0.10rem 0 !important; font-weight: 600; }
+[data-testid="stMetricLabel"] { font-size: 0.80rem !important; }
+[data-testid="stMetricValue"] { font-size: 1.15rem !important; }
+[data-testid="stMetricDelta"] { font-size: 0.80rem !important; }
+[data-testid="stCaptionContainer"] { font-size: 0.78rem !important; line-height: 1.1 !important; }
+.stNumberInput label, .stRadio label, .stSelectbox label { font-size: 0.78rem !important; }
+.stNumberInput input { padding: 0.20rem 0.35rem !important; }
+.element-container { margin-bottom: 0.15rem !important; }
+hr { margin: 0.35rem 0 !important; }
+.stAlert { padding: 0.35rem 0.6rem !important; }
+.stAlert p { margin: 0 !important; font-size: 0.80rem !important; }
+section[data-testid="stSidebar"] .block-container { padding-top: 0.8rem !important; }
+</style>
+"""
 
 
 def main() -> None:
     st.set_page_config(page_title="Kelly v2 — Subjective Edge", layout="wide")
-    st.title("Kelly v2 — Subjective Distribution → Edge")
-    st.caption("Edge vs market-implied pricing for a vanilla option. Kelly sizing deferred.")
+    st.markdown(_COMPACT_CSS, unsafe_allow_html=True)
+    st.markdown("##### Kelly v2 — Subjective Distribution → Edge")
 
     init_state()
     render_sidebar()

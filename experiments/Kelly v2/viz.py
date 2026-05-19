@@ -101,7 +101,7 @@ def render_option1_chart(prices: np.ndarray, quantiles: np.ndarray, baseline: Di
     )
     labels = base_points.mark_text(dy=-12, fontSize=10, color="#222222").encode(text="quantile:N")
 
-    return (segments + points + labels).properties(height=160)
+    return (segments + points + labels).properties(height=120)
 
 
 def render_option2_chart(
@@ -141,7 +141,7 @@ def render_option2_chart(
             color=alt.Color("source:N", scale=_COLOUR_SCALE, title=None),
             tooltip=["bucket", "source", alt.Tooltip("prob:Q", format=".2%", title="Mass")],
         )
-        .properties(height=240)
+        .properties(height=170)
     )
 
 
@@ -176,5 +176,5 @@ def render_option2_stacked_chart(
             order=alt.Order("bucket_idx:O"),
             tooltip=["source", "bucket_label", alt.Tooltip("prob:Q", format=".2%", title="Mass")],
         )
-        .properties(height=110)
+        .properties(height=70)
     )
