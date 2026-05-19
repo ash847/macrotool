@@ -362,42 +362,39 @@ def main() -> None:
     else:
         n_buckets = n
         sigma_offsets = default_sigma_boundaries(n_buckets)
-        boundaries_preview = sigma_boundaries_to_prices(
-            sigma_offsets,
-            forward=st.session_state.forward,
-            sigma=st.session_state.sigma,
-            tenor_years=st.session_state.tenor_years,
-        )
-        # Show the market-allocation snapshot above the inputs so PMs see the
-        # baseline shape before they decide how to deviate from it.
+
+        boundaries, probs = render_option2_inputs(n)
+
+        # Charts always render — even when sum != 1 — so PMs can see what
+        # they're entering as they type. Pricing is gated on sum-to-1.
         from viz import _market_mass_per_range  # local import to avoid widening public API
-        market_probs_buckets = _market_mass_per_range(base, boundaries_preview)
+        market_probs_buckets = _market_mass_per_range(base, boundaries)
         if market_probs_buckets.sum() > 0:
             market_probs_buckets = market_probs_buckets / market_probs_buckets.sum()
 
-        boundaries, probs = render_option2_inputs(n)
         total = float(probs.sum())
-        if abs(total - 1.0) > 1e-6:
-            st.info(
-                "Adjust the bucket values above (or click *Renormalise to 1*) before pricing."
-            )
-            st.altair_chart(
-                render_option2_stacked_chart(probs / max(total, 1e-12), market_probs_buckets),
-                use_container_width=True,
-            )
-            return
-        if np.any(probs < 0):
-            st.error("Bucket probabilities cannot be negative.")
-            return
-        pm = elicit_from_pdf_buckets(boundaries, probs)
+        # For the stacked allocation chart we display normalised user probs
+        # so the row width stays at 100% even mid-edit; this is purely visual.
+        display_probs = probs / total if total > 1e-12 else probs
+
         st.altair_chart(
-            render_option2_stacked_chart(probs, market_probs_buckets),
+            render_option2_stacked_chart(display_probs, market_probs_buckets),
             use_container_width=True,
         )
         st.altair_chart(
             render_option2_chart(boundaries, probs, base, sigma_offsets=sigma_offsets),
             use_container_width=True,
         )
+
+        if np.any(probs < 0):
+            st.error("Bucket probabilities cannot be negative.")
+            return
+        if abs(total - 1.0) > 1e-6:
+            st.info(
+                "Adjust the bucket values above (or click *Renormalise to 1*) before pricing."
+            )
+            return
+        pm = elicit_from_pdf_buckets(boundaries, probs)
 
     strike, is_call = render_structure_inputs()
     rep = compute_edge(pm, base, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
