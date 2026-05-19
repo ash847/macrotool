@@ -2,6 +2,8 @@
 Kelly v2 prototype — subjective distribution → edge vs market-implied.
 
 Option 1 (CDF mode): PM enters the price level at each of N fixed quantiles.
+Option 2 (PDF mode): PM enters the probability mass in each of N sigma-anchored
+buckets, with bucket boundaries on the lognormal market smile.
 """
 
 from __future__ import annotations
@@ -18,8 +20,17 @@ if str(PKG_ROOT) not in sys.path:
 
 from baseline import synthetic_lognormal_baseline
 from edge import anchors_from_baseline, compute_edge
-from elicitation import elicit_from_cdf_anchors
+from elicitation import (
+    Distribution,
+    default_sigma_boundaries,
+    elicit_from_cdf_anchors,
+    elicit_from_pdf_buckets,
+    sigma_boundaries_to_prices,
+)
 
+
+MODE_OPTION1 = "Option 1 — prices at fixed quantiles (CDF)"
+MODE_OPTION2 = "Option 2 — probabilities in fixed σ buckets (PDF)"
 
 ANCHOR_PRESETS: dict[int, tuple[float, ...]] = {
     5:  (0.05, 0.25, 0.50, 0.75, 0.95),
@@ -28,78 +39,121 @@ ANCHOR_PRESETS: dict[int, tuple[float, ...]] = {
     11: (0.02, 0.05, 0.10, 0.20, 0.35, 0.50, 0.65, 0.80, 0.90, 0.95, 0.98),
 }
 
-
-# Discount factor — currently fixed at 1.0 for the prototype. It cancels out of
-# the edge calculation when applied consistently on both sides, so this only
-# affects the absolute scale of pm_price / mkt_price, not the edge itself.
 DISCOUNT_FACTOR: float = 1.0
 
 
+# --- session state ---
+
+
 def init_state() -> None:
-    if "n_anchors" not in st.session_state:
-        st.session_state.n_anchors = 7
-    if "forward" not in st.session_state:
-        st.session_state.forward = 5.00
-    if "sigma" not in st.session_state:
-        st.session_state.sigma = 0.10
-    if "tenor_years" not in st.session_state:
-        st.session_state.tenor_years = 0.25
-    if "strike" not in st.session_state:
-        st.session_state.strike = 5.00
-    if "is_call" not in st.session_state:
-        st.session_state.is_call = True
+    defaults = {
+        "mode": MODE_OPTION1,
+        "n_anchors": 7,
+        "forward": 5.00,
+        "sigma": 0.10,
+        "tenor_years": 0.25,
+        "strike": 5.00,
+        "is_call": True,
+    }
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
 
 
-def reset_anchors_to_baseline() -> None:
-    """Seed anchor prices from the current market baseline (default starting view)."""
-    base = synthetic_lognormal_baseline(
+def _current_baseline() -> Distribution:
+    return synthetic_lognormal_baseline(
         forward=st.session_state.forward,
         sigma=st.session_state.sigma,
         tenor_years=st.session_state.tenor_years,
         n_bins=400,
         n_stdev=6.0,
     )
+
+
+def reset_anchors_to_baseline() -> None:
+    """Option 1: seed anchor prices from the baseline CDF at the active quantiles."""
     quantiles = ANCHOR_PRESETS[st.session_state.n_anchors]
-    seed = anchors_from_baseline(base, list(quantiles))
+    seed = anchors_from_baseline(_current_baseline(), list(quantiles))
     for i, p in enumerate(seed):
         st.session_state[f"anchor_{i}"] = float(p)
 
 
-def sync_anchors_on_n_change() -> None:
-    """When N changes, re-seed anchor inputs (they'd otherwise carry stale values)."""
-    reset_anchors_to_baseline()
+def reset_buckets_to_uniform() -> None:
+    """Option 2: seed bucket probabilities to uniform."""
+    n = st.session_state.n_anchors
+    each = 1.0 / n
+    for i in range(n):
+        st.session_state[f"bucket_{i}"] = each
+
+
+def reset_buckets_to_baseline() -> None:
+    """Option 2: seed bucket probabilities to match the baseline mass in each bucket."""
+    base = _current_baseline()
+    offsets = default_sigma_boundaries(st.session_state.n_anchors)
+    boundaries = sigma_boundaries_to_prices(
+        offsets,
+        forward=st.session_state.forward,
+        sigma=st.session_state.sigma,
+        tenor_years=st.session_state.tenor_years,
+    )
+    masses = []
+    for i in range(len(boundaries) - 1):
+        mask = (base.bins >= boundaries[i]) & (base.bins < boundaries[i + 1])
+        masses.append(float(base.probs[mask].sum()))
+    masses = np.array(masses)
+    if masses.sum() > 0:
+        masses = masses / masses.sum()
+    for i, m in enumerate(masses):
+        st.session_state[f"bucket_{i}"] = float(m)
+
+
+def sync_on_n_change() -> None:
+    """When N changes, re-seed whichever inputs the active mode depends on."""
+    if st.session_state.mode == MODE_OPTION1:
+        reset_anchors_to_baseline()
+    else:
+        reset_buckets_to_baseline()
+
+
+# --- rendering ---
 
 
 def render_sidebar() -> None:
     with st.sidebar:
-        st.header("Market baseline")
-        st.number_input("Forward", min_value=0.01, step=0.01, format="%.4f", key="forward")
-        st.number_input(
-            "Vol (annualised)",
-            min_value=0.001,
-            max_value=2.0,
-            step=0.005,
-            format="%.4f",
-            key="sigma",
-        )
-        st.number_input(
-            "Tenor (years)",
-            min_value=1.0 / 365,
-            max_value=10.0,
-            step=0.05,
-            format="%.4f",
-            key="tenor_years",
+        st.header("Elicitation mode")
+        st.radio(
+            "Mode",
+            options=[MODE_OPTION1, MODE_OPTION2],
+            key="mode",
+            label_visibility="collapsed",
         )
 
         st.divider()
-        st.header("Anchors")
+        st.header("Market baseline")
+        st.number_input("Forward", min_value=0.01, step=0.01, format="%.4f", key="forward")
+        st.number_input(
+            "Vol (annualised)", min_value=0.001, max_value=2.0,
+            step=0.005, format="%.4f", key="sigma",
+        )
+        st.number_input(
+            "Tenor (years)", min_value=1.0 / 365, max_value=10.0,
+            step=0.05, format="%.4f", key="tenor_years",
+        )
+
+        st.divider()
+        st.header("Anchors / buckets")
         st.selectbox(
-            "Number of anchors",
+            "Number",
             options=sorted(ANCHOR_PRESETS.keys()),
             key="n_anchors",
-            on_change=sync_anchors_on_n_change,
+            on_change=sync_on_n_change,
         )
-        st.button("Reset anchors to market baseline", on_click=reset_anchors_to_baseline)
+        if st.session_state.mode == MODE_OPTION1:
+            st.button("Reset anchors to market baseline", on_click=reset_anchors_to_baseline)
+        else:
+            col1, col2 = st.columns(2)
+            col1.button("Reset to baseline", on_click=reset_buckets_to_baseline)
+            col2.button("Reset to uniform", on_click=reset_buckets_to_uniform)
 
         st.caption(
             "Discount factor for pricing is fixed at 1.0 in this prototype "
@@ -107,36 +161,90 @@ def render_sidebar() -> None:
         )
 
 
-def render_anchor_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
+def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
     st.subheader("Your view — price at each quantile")
     st.caption(
         "Enter the price level at which you expect the cumulative probability "
-        "to reach each quantile. Values must strictly increase from top to bottom."
+        "to reach each quantile. Values must strictly increase from left to right."
     )
 
-    # Lazy seed on first render.
-    if f"anchor_0" not in st.session_state:
+    if "anchor_0" not in st.session_state:
         reset_anchors_to_baseline()
 
     prices = []
     cols = st.columns(len(quantiles))
     for i, (q, col) in enumerate(zip(quantiles, cols)):
         with col:
-            # If a session value doesn't yet exist for this anchor, seed it
-            # before instantiating the widget (otherwise Streamlit complains).
             key = f"anchor_{i}"
             if key not in st.session_state:
                 st.session_state[key] = float(st.session_state.forward)
             v = st.number_input(
                 f"P ≤ {int(round(q * 100))}%",
-                min_value=0.0001,
-                step=0.01,
-                format="%.4f",
-                key=key,
+                min_value=0.0001, step=0.01, format="%.4f", key=key,
             )
             prices.append(v)
 
     return np.array(prices, dtype=float)
+
+
+def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
+    """Render Option 2 bucket inputs. Returns (boundaries_in_prices, bucket_probs)."""
+    offsets = default_sigma_boundaries(n_buckets)
+    boundaries = sigma_boundaries_to_prices(
+        offsets,
+        forward=st.session_state.forward,
+        sigma=st.session_state.sigma,
+        tenor_years=st.session_state.tenor_years,
+    )
+
+    st.subheader("Your view — probability in each bucket")
+    st.caption(
+        "Buckets are sigma-anchored on the market smile. Enter the probability "
+        "(in %) you assign to each bucket. The buckets together must sum to 100%."
+    )
+
+    if "bucket_0" not in st.session_state:
+        reset_buckets_to_baseline()
+
+    probs = []
+    cols = st.columns(n_buckets)
+    for i, col in enumerate(cols):
+        with col:
+            lo = boundaries[i]
+            hi = boundaries[i + 1]
+            sig_lo = offsets[i]
+            sig_hi = offsets[i + 1]
+            st.caption(
+                f"{lo:.4f}–{hi:.4f}\n\n{sig_lo:+.2g}σ → {sig_hi:+.2g}σ"
+            )
+            key = f"bucket_{i}"
+            if key not in st.session_state:
+                st.session_state[key] = 1.0 / n_buckets
+            v = st.number_input(
+                "%",
+                min_value=0.0, max_value=1.0, step=0.005,
+                format="%.4f", key=key, label_visibility="collapsed",
+            )
+            probs.append(v)
+
+    probs = np.array(probs, dtype=float)
+
+    total = float(probs.sum())
+    diff = total - 1.0
+    if abs(diff) < 1e-6:
+        st.success(f"Bucket probabilities sum to 1.0000 ✓")
+    else:
+        msg_col, btn_col = st.columns([3, 1])
+        msg_col.warning(
+            f"Bucket probabilities sum to {total:.4f}, not 1.0 (off by {diff:+.4f})."
+        )
+        if btn_col.button("Renormalise to 1"):
+            if total > 0:
+                for i in range(n_buckets):
+                    st.session_state[f"bucket_{i}"] = float(probs[i] / total)
+                st.rerun()
+
+    return boundaries, probs
 
 
 def render_structure_inputs() -> tuple[float, bool]:
@@ -153,7 +261,7 @@ def render_structure_inputs() -> tuple[float, bool]:
     return strike, is_call
 
 
-def render_edge_panel(rep, strike: float, is_call: bool) -> None:
+def render_edge_panel(rep, strike: float) -> None:
     st.subheader("Edge vs market-implied")
 
     if rep.out_of_range:
@@ -186,32 +294,37 @@ def render_edge_panel(rep, strike: float, is_call: bool) -> None:
 def main() -> None:
     st.set_page_config(page_title="Kelly v2 — Subjective Edge", layout="wide")
     st.title("Kelly v2 — Subjective Distribution → Edge")
-    st.caption("Option 1 (CDF mode) prototype. Edge vs market-implied pricing only; Kelly sizing deferred.")
+    st.caption("Edge vs market-implied pricing for a vanilla option. Kelly sizing deferred.")
 
     init_state()
     render_sidebar()
 
-    quantiles = ANCHOR_PRESETS[st.session_state.n_anchors]
-    prices = render_anchor_inputs(quantiles)
+    n = st.session_state.n_anchors
+    base = _current_baseline()
 
-    # Validate monotonicity before constructing the distribution.
-    if not np.all(np.diff(prices) > 0):
-        st.error("Anchor prices must be strictly increasing. Adjust the values above.")
-        return
-
-    base = synthetic_lognormal_baseline(
-        forward=st.session_state.forward,
-        sigma=st.session_state.sigma,
-        tenor_years=st.session_state.tenor_years,
-        n_bins=400,
-        n_stdev=6.0,
-    )
-    pm = elicit_from_cdf_anchors(prices, list(quantiles))
+    if st.session_state.mode == MODE_OPTION1:
+        quantiles = ANCHOR_PRESETS[n]
+        prices = render_option1_inputs(quantiles)
+        if not np.all(np.diff(prices) > 0):
+            st.error("Anchor prices must be strictly increasing. Adjust the values above.")
+            return
+        pm = elicit_from_cdf_anchors(prices, list(quantiles))
+    else:
+        boundaries, probs = render_option2_inputs(n)
+        total = float(probs.sum())
+        if abs(total - 1.0) > 1e-6:
+            st.info(
+                "Adjust the bucket values above (or click *Renormalise to 1*) before pricing."
+            )
+            return
+        if np.any(probs < 0):
+            st.error("Bucket probabilities cannot be negative.")
+            return
+        pm = elicit_from_pdf_buckets(boundaries, probs)
 
     strike, is_call = render_structure_inputs()
-
     rep = compute_edge(pm, base, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
-    render_edge_panel(rep, strike, is_call)
+    render_edge_panel(rep, strike)
 
 
 if __name__ == "__main__":
