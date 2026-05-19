@@ -29,40 +29,53 @@ def _market_mass_per_range(baseline: Distribution, edges: np.ndarray) -> np.ndar
     return masses
 
 
+def _quantile_of_distribution(dist: Distribution, q: float) -> float:
+    """Inverse CDF on a discrete distribution by linear interpolation."""
+    cum = np.cumsum(dist.probs)
+    return float(np.interp(q, cum, dist.bins))
+
+
 def render_option1_chart(prices: np.ndarray, quantiles: np.ndarray, baseline: Distribution) -> alt.Chart:
     """
-    Histogram of mass per bin between consecutive user-input prices.
+    Strip plot: each fixed quantile is a marker on a single price axis.
 
-    Bin probabilities for the user are fixed quantile differences (e.g. for
-    default 7 anchors: 8/15/25/25/15/8 %). Bin probabilities for the market
-    are the baseline mass in each price range. As PM moves anchor prices, the
-    bin widths shrink/grow and the market mass per bin changes; user mass per
-    bin stays constant by construction.
+    Two rows — market-implied price for that quantile (top) and your view's
+    input (bottom). Moving an anchor moves only the x-coordinate; the y-row
+    and quantile label stay fixed. This matches what PM is actually doing in
+    Option 1: positioning fixed quantile levels along the price axis.
     """
-    n_bins = len(prices) - 1
-    user_mass = np.diff(quantiles)
-    market_mass = _market_mass_per_range(baseline, prices)
-    labels = [f"{prices[i]:.3f} – {prices[i+1]:.3f}" for i in range(n_bins)]
+    market_prices = np.array([_quantile_of_distribution(baseline, q) for q in quantiles])
+    quantile_labels = [f"{int(round(q * 100))}%" for q in quantiles]
 
     df = pd.DataFrame({
-        "bin": labels * 2,
-        "source": ["Market-implied"] * n_bins + ["Your view"] * n_bins,
-        "mass": np.concatenate([market_mass, user_mass]),
-        "bin_order": list(range(n_bins)) * 2,
+        "price": np.concatenate([market_prices, prices]),
+        "quantile": quantile_labels * 2,
+        "source": ["Market-implied"] * len(quantiles) + ["Your view"] * len(prices),
     })
 
-    return (
-        alt.Chart(df)
-        .mark_bar()
-        .encode(
-            x=alt.X("bin:N", title="Price range", sort=labels, axis=alt.Axis(labelAngle=-25)),
-            xOffset=alt.XOffset("source:N", scale=alt.Scale(paddingOuter=0.1)),
-            y=alt.Y("mass:Q", title="Probability mass", axis=alt.Axis(format=".0%")),
-            color=alt.Color("source:N", scale=_COLOUR_SCALE, title=None),
-            tooltip=["bin", "source", alt.Tooltip("mass:Q", format=".2%", title="Mass")],
-        )
-        .properties(height=240)
+    # Shared x-axis range covers both market and user marker positions.
+    x_lo = float(min(market_prices.min(), prices.min()))
+    x_hi = float(max(market_prices.max(), prices.max()))
+    pad = 0.04 * (x_hi - x_lo) if x_hi > x_lo else 0.04
+    x_domain = [x_lo - pad, x_hi + pad]
+
+    base = alt.Chart(df).encode(
+        x=alt.X("price:Q", title="Price", scale=alt.Scale(domain=x_domain, nice=False)),
+        y=alt.Y("source:N", title=None, sort=["Market-implied", "Your view"]),
+        color=alt.Color("source:N", scale=_COLOUR_SCALE, legend=None),
     )
+
+    points = base.mark_point(size=180, filled=True, opacity=0.9).encode(
+        tooltip=[
+            "source",
+            "quantile",
+            alt.Tooltip("price:Q", format=".4f"),
+        ],
+    )
+
+    labels = base.mark_text(dy=-12, fontSize=10).encode(text="quantile:N")
+
+    return (points + labels).properties(height=140)
 
 
 def render_option2_chart(
