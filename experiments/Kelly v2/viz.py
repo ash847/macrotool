@@ -41,41 +41,67 @@ def render_option1_chart(prices: np.ndarray, quantiles: np.ndarray, baseline: Di
 
     Two rows — market-implied price for that quantile (top) and your view's
     input (bottom). Moving an anchor moves only the x-coordinate; the y-row
-    and quantile label stay fixed. This matches what PM is actually doing in
-    Option 1: positioning fixed quantile levels along the price axis.
+    and quantile label stay fixed.
+
+    Coloured horizontal segments between adjacent markers demarcate the
+    inter-quantile probability bands (e.g. 2%→10%, 10%→25%, …) using the same
+    blueorange palette as Option 2's stacked allocation bar.
     """
     market_prices = np.array([_quantile_of_distribution(baseline, q) for q in quantiles])
     quantile_labels = [f"{int(round(q * 100))}%" for q in quantiles]
 
-    df = pd.DataFrame({
+    points_df = pd.DataFrame({
         "price": np.concatenate([market_prices, prices]),
         "quantile": quantile_labels * 2,
         "source": ["Market-implied"] * len(quantiles) + ["Your view"] * len(prices),
     })
 
-    # Shared x-axis range covers both market and user marker positions.
+    # Inter-quantile bands: one segment per (i, i+1) per source row.
+    segments_records = []
+    for src_name, p_array in (("Market-implied", market_prices), ("Your view", prices)):
+        for i in range(len(p_array) - 1):
+            segments_records.append({
+                "source": src_name,
+                "x_start": float(p_array[i]),
+                "x_end": float(p_array[i + 1]),
+                "band_idx": i,
+                "band_label": f"{quantile_labels[i]}–{quantile_labels[i + 1]}",
+            })
+    segments_df = pd.DataFrame(segments_records)
+
     x_lo = float(min(market_prices.min(), prices.min()))
     x_hi = float(max(market_prices.max(), prices.max()))
     pad = 0.04 * (x_hi - x_lo) if x_hi > x_lo else 0.04
     x_domain = [x_lo - pad, x_hi + pad]
 
-    base = alt.Chart(df).encode(
-        x=alt.X("price:Q", title="Price", scale=alt.Scale(domain=x_domain, nice=False)),
-        y=alt.Y("source:N", title=None, sort=["Market-implied", "Your view"]),
-        color=alt.Color("source:N", scale=_COLOUR_SCALE, legend=None),
+    segments = (
+        alt.Chart(segments_df)
+        .mark_rule(strokeWidth=10, opacity=0.55, strokeCap="butt")
+        .encode(
+            x=alt.X("x_start:Q", title="Price", scale=alt.Scale(domain=x_domain, nice=False)),
+            x2="x_end:Q",
+            y=alt.Y("source:N", title=None, sort=["Market-implied", "Your view"]),
+            color=alt.Color(
+                "band_idx:O",
+                scale=alt.Scale(scheme="blueorange"),
+                legend=None,
+            ),
+            tooltip=["source", "band_label", alt.Tooltip("x_start:Q", format=".4f", title="from"), alt.Tooltip("x_end:Q", format=".4f", title="to")],
+        )
     )
 
-    points = base.mark_point(size=180, filled=True, opacity=0.9).encode(
-        tooltip=[
-            "source",
-            "quantile",
-            alt.Tooltip("price:Q", format=".4f"),
-        ],
+    base_points = alt.Chart(points_df).encode(
+        x=alt.X("price:Q", scale=alt.Scale(domain=x_domain, nice=False)),
+        y=alt.Y("source:N", sort=["Market-implied", "Your view"]),
     )
+    points = base_points.mark_point(
+        size=140, filled=True, opacity=1.0, color="#222222", stroke="#222222",
+    ).encode(
+        tooltip=["source", "quantile", alt.Tooltip("price:Q", format=".4f")],
+    )
+    labels = base_points.mark_text(dy=-12, fontSize=10, color="#222222").encode(text="quantile:N")
 
-    labels = base.mark_text(dy=-12, fontSize=10).encode(text="quantile:N")
-
-    return (points + labels).properties(height=140)
+    return (segments + points + labels).properties(height=160)
 
 
 def render_option2_chart(
