@@ -2,29 +2,35 @@
 
 Standalone Streamlit prototype. Lives in `experiments/Kelly v2/`. No coupling to the main MacroTool app yet — integrate later once UI and math feel right.
 
+**Status:** v2 build complete (steps 1–9 + several UX iterations). Engine + UI shipped; all 95 tests pass.
+
 ## Goal of this prototype
 
-Let a PM input a subjective view of where an FX rate will be at expiry as 7 anchor points, smooth it into a valid PDF, price a target option structure against both the PM's distribution and the market's smile-implied distribution, and report **edge vs market-implied price** for that structure.
+Let a PM input a subjective view of where an FX rate will be at expiry as N anchor points, smooth it into a valid PDF, price a target option structure against both the PM's distribution and the market's smile-implied distribution, and report **edge vs market-implied price** for that structure — decomposed into pure view-divergence and elicitation-scheme cost.
 
 Kelly sizing itself is deferred. This prototype stops at edge articulation.
 
 ## Scope (in)
 
-- Streamlit UI for 7-point distribution elicitation in **both** modes:
-  - **Option 1 (CDF)** — fixed quantiles, PM enters prices. Built first.
-  - **Option 2 (PDF)** — fixed price ranges, PM enters probabilities summing to 100%. Built second, after Option 1 is trusted.
+- Streamlit UI for N-anchor distribution elicitation in **both** modes:
+  - **Option 1 (CDF, "fixed probability bins")** — fixed quantiles, PM enters prices. Built first.
+  - **Option 2 (PDF, "fixed spot ranges")** — fixed σ-anchored buckets, PM enters integer percent probabilities summing to 100. Built second.
 - PCHIP spline construction on the anchors with validity enforcement.
+- Variable bucket count (5/7/9/11), no `7` literals in the engine.
 - Up-sampling to 200 micro-bins on a shared grid for PM and baseline.
-- Market baseline distribution loaded from a saved snapshot (synthetic lognormal first, then real smile-implied).
+- Market baseline: synthetic lognormal (closed-form) or loaded from a v1 JSON snapshot fixture.
 - Pricing for vanilla call/put on both distributions, with discount factor folded into the pricing math (not surfaced in UI).
-- Edge readout: absolute (quote ccy per unit notional) **and** % of mid premium.
-- Zero-edge sanity test (vanilla priced under baseline ≈ Black-Scholes).
+- **Three-way edge decomposition** — Full edge / View edge / Anchoring cost (added late in v2 after the truncation-bias question surfaced; see decisions section).
+- Side-by-side visualisations of PM vs market in both modes — strip plot with coloured inter-quantile bands (Option 1), grouped bars + stacked allocation bar (Option 2).
+- Sanity tests: Black-Scholes match on synthetic baseline; engine identity with wide anchors; default-anchor truncation directionality; cross-mode pricing consistency; decomposition identity.
 
 ## Scope (out, for now)
 
 - Kelly fraction calculation (continuous or discrete). Defer until we trust the upstream pipeline.
-- Multi-leg structures (spreads, seagulls). Vanilla only until pricing is trusted.
-- Integration with MacroTool's `compute_smile_distribution()`. Use a saved snapshot or synthetic baseline.
+- Multi-leg structures (spreads, seagulls, RKOs). Vanilla only until pricing is trusted (engine handles all linear combinations of vanillas trivially).
+- Path-dependent structures (continuously-monitored barriers, lookbacks, Asians). Out of scope by construction — terminal PDF alone doesn't carry enough information; would need smile-parametrisation + dynamic model.
+- Implied vol smile derivation (`PDF → σ_imp(K)`). Deferred to integration; PDF-level edge is sufficient for the prototype's purposes.
+- Integration with MacroTool's `compute_smile_distribution()`. v1 JSON snapshot loader is in place — real smile data slots into the same schema.
 - Persistence, auth, multi-pair support, scenario weights.
 
 ## Architecture
@@ -102,12 +108,19 @@ In both cases, output schema is identical: `(bins, probs)` aligned to the *same*
 
 ### Edge (`edge.py`)
 
-```python
-edge_value = expected_payoff(bins, pm_probs, payoff) - expected_payoff(bins, mkt_probs, payoff)
-edge_bps   = edge_value / spot * 10_000
+Initial draft was a single "edge = price(pm) − price(market)". The build surfaced a real interpretation problem: under the truncate-to-anchors policy, PM matching market still shows a non-zero edge (the "anchoring cost" — ~11% of an ATM call for default 7 anchors at q=[2, 98]). v2 ships with a three-way decomposition:
+
+```
+Full edge      = price(pm) − price(market_full)        # what your trade earns vs market
+View edge      = price(pm) − price(shadow_market)      # pure view-divergence
+Anchoring cost = price(shadow_market) − price(market)  # cost of the 4% truncation policy
+
+Full edge = View edge + Anchoring cost
 ```
 
-UI displays both absolute (in quote currency per unit notional) and bp-of-spot.
+Where `shadow_market` is the market re-elicited through PM's own anchor / bucket scheme (built via `shadow_market_from_cdf_anchors` for Option 1, `shadow_market_from_pdf_buckets` for Option 2). The shadow cancels truncation and PCHIP smoothing, isolating view-divergence.
+
+UI displays all three metrics with one-line captions; Kelly sizing (when added) operates on **Full edge** because that's what trade economics actually realise.
 
 ## Sanity checks (build these as tests)
 
@@ -133,12 +146,17 @@ UI displays both absolute (in quote currency per unit notional) and bp-of-spot.
 
 ## Decisions locked in
 
-- **Discount factor:** included in pricing math, not surfaced in UI.
-- **Grid extent:** truncate to the outer anchors; tail mass outside is dropped. UI shows a hard warning when a structure strike falls outside this range. No parametric tail in v2. **Revisit candidate** — flagged in `NOTES.md` for later reconsideration once we see real PM usage. If PMs routinely care about strikes outside their anchors, switch to a parametric tail (Option b) or expand the anchor count.
-- **Option 2 bucket boundaries:** σ-anchored on the market smile (e.g. ±0.5σ, ±1σ, ±1.5σ around forward, with outer-tail buckets), so Options 1 and 2 are directly comparable.
-- **Edge display:** absolute (quote ccy per unit notional) + % of mid premium.
-- **Baseline format on disk:** store the pre-computed (price, prob) array per snapshot/tenor. Recomputation from smile deferred to integration.
+- **Discount factor:** included in pricing math (default 1.0 in the prototype since it cancels out of edge under consistent application), not surfaced in UI.
+- **Grid extent:** truncate to the outer anchors; tail mass outside is dropped. UI shows a hard warning when a structure strike falls outside this range. No parametric tail in v2. **Revisit candidate** — see `NOTES.md`. If PMs routinely care about strikes outside their anchors, switch to a parametric tail or expand the anchor count.
+- **Edge decomposition:** Full edge / View edge / Anchoring cost displayed in both modes. The 4% tail truncation effect is surfaced explicitly rather than hidden — labelled in the UI as the anchoring cost.
+- **Option 1 input increments:** prices as floats with step=0.01, format `.4f`.
+- **Option 2 input increments:** integer percent (0–100), step=1, format `%d`. Largest-remainder (Hamilton) rounding ensures defaults and renormalisation sum to exactly 100.
+- **Option 2 bucket boundaries:** σ-anchored linearly across [−2.5σ, +2.5σ] on the market smile. Options 1 and 2 are directly comparable.
+- **Edge display:** absolute (quote ccy per unit notional) + % of mid premium, three metrics (Full / Anchoring / View) side-by-side.
+- **Baseline format on disk:** v1 JSON schema with `bins`, `probs`, `pair`, `forward`, `tenor_years`, `source`. Roundtrips via `save_snapshot` / `load_snapshot`. Real smile-implied data can slot in by writing to this format.
 - **"Edge vs market-implied" labelling** — explicit in the UI; never claim to isolate pure forecasting edge.
+- **Visualisations:** Altair (Streamlit-native; no extra dep). Option 1 strip plot with coloured inter-quantile bands; Option 2 grouped bars + stacked allocation bar. Same blueorange palette across modes so a given probability band reads the same colour everywhere.
+- **Mode labels in UI:** plain English — "Use fixed probability bins" / "Use fixed spot ranges" (rather than "Option 1 (CDF)" / "Option 2 (PDF)").
 
 ## Flexibility requirement — variable bucket count
 
@@ -151,12 +169,32 @@ Concretely:
 - Tests parametrise over N ∈ {5, 7, 11} to confirm the engine doesn't silently depend on a specific count.
 - Sanity checks (validity, monotonicity, sum-to-1) all phrased in terms of N, not 7.
 
-## Definition of done for v2
+## Definition of done for v2 — met
 
-- Streamlit app runs locally with mode toggle between **Option 1 (CDF)** and **Option 2 (PDF)**.
-- Either mode accepts 7 anchors, displays edge for a chosen vanilla strike (absolute + % of mid premium).
-- All 6 sanity tests pass for each mode.
-- Cross-mode sanity test passes (same belief expressed two ways → comparable edge).
-- Out-of-range strike triggers the warning, not a silent zero.
-- `NOTES.md` captures every non-trivial decision made during the build.
-- The elicitation UX is good enough in both modes that you'd actually use it on a real view. If not, iterate before declaring done.
+- ✅ Streamlit app runs locally with mode toggle.
+- ✅ Either mode accepts N anchors (5/7/9/11), displays a three-way edge decomposition for a chosen vanilla strike.
+- ✅ All sanity tests pass in both modes (engine identity, BS closed-form match, tail behaviour, monotone direction, decomposition identity, cross-mode consistency).
+- ✅ Out-of-range strike triggers a warning, not a silent zero.
+- ✅ `NOTES.md` captures non-trivial decisions made during the build.
+- ✅ Both modes have side-by-side visualisations comparing PM vs market.
+- 🟡 UX validation by PM — pending hands-on use.
+
+**Tests:** 95/95 passing.
+
+**Test breakdown:**
+- `test_elicitation.py` — Option 1 spline + binning, parametrised over N (17 tests)
+- `test_elicitation_option2.py` — Option 2 bucket → CDF construction, σ-boundary helpers (16 tests)
+- `test_pricing.py` — vanilla payoff arithmetic, DF, put-call parity, ATM equivalence (13 tests)
+- `test_baseline.py` — synthetic lognormal, BS closed-form match across F/σ/T/K and call/put (14 tests)
+- `test_edge.py` — engine identity, default-anchor truncation directionality, tail/skew sanity, shadow-market construction, three-way decomposition identity (20 tests)
+- `test_cross_mode.py` — same belief → same pricing across modes (5 tests)
+- `test_snapshot.py` — JSON round-trip + validation (7 tests)
+
+## What's next (out of scope for v2)
+
+- **Kelly fraction** — closed-form continuous (Thorp) + discrete log-utility solver. Operates on Full edge.
+- **Path-dependent payoff handling** — terminal PDF is insufficient; needs smile parametrisation + dynamic model (local vol or stochastic vol).
+- **PDF → implied vol smile transformation** — `pdf_to_implied_vol(dist, strikes, F, T)` via root-find on BS. Useful for integrating with MacroTool's smile-based pipeline.
+- **Multi-leg structure pricing** — vanilla payoff combinations (spreads, RR, seagulls, butterflies, European RKO at expiry, European digital RKO at expiry). Engine handles these trivially via linear combinations of vanilla prices; just needs a `structure_payoff(name, strikes)` registry.
+- **Real smile-implied snapshots** — exporter on the main MacroTool side that writes `compute_smile_distribution()` output into the v1 JSON schema in `fixtures/`.
+- **Slider input mode** — drag-segments on the stacked allocation bar (instead of/alongside number inputs). Requires a custom Streamlit component.

@@ -51,6 +51,29 @@ UI renders cleanly. Verified at initial render:
 
 Consequence: live UX interaction (sliders moving, edge updating, warnings firing) is for human verification, not automated self-test. Engine correctness is covered by unit tests (58/58 across elicitation, pricing, baseline, edge); the UI is only doing input wiring and display, and those render correctly at startup.
 
+### Post-v2 — UI iteration and edge decomposition (PM-driven changes)
+
+After the initial 9-step build, several UX issues surfaced during PM testing:
+
+- **Mode labels in plain English.** "Option 1 / Option 2 (CDF) / (PDF)" replaced with "Use fixed probability bins" / "Use fixed spot ranges" — closer to how PMs think about the input mode.
+- **Option 1 chart switched from histogram to strip plot.** The grouped-bar histogram conflated bin width with bar height (only market bars moved when PM adjusted prices, but the visual implied both market and user were changing). The strip plot shows what the PM is actually doing: positioning fixed quantile markers along a price axis. Single-dimension change.
+- **Coloured inter-quantile bands on the Option 1 strip plot.** Same blueorange palette as Option 2's stacked allocation bar — a given probability band sits in the same colour across modes.
+- **Option 2 charts stay visible while editing.** Initial code returned early when sum ≠ 1, blanking the grouped bar chart. Fixed so both charts render at every keystroke; only pricing is gated on sum-to-1.
+- **Option 2 inputs as integer percent (step 1).** Switched from fractional (0–1) to integer (0–100), `format="%d"`. Streamlit coerces fractional input to nearest integer. Default seeds and "Renormalise to 100%" use largest-remainder (Hamilton) rounding so sums are exactly 100.
+- **`st.session_state` modification rule.** The "Renormalise to 1" button initially failed with `StreamlitAPIException` because we wrote to `bucket_i` session-state keys *after* their widgets had been instantiated. Fixed by routing through `on_click` callbacks — Streamlit applies those before the next rerun.
+- **Three-way edge decomposition.** PM raised: "the displayed edge isn't zero even when I exactly match the market — that's because of the 4% truncation, right? Adjust for it." Implemented:
+  - `Full edge = price(pm) − price(market_full)`
+  - `View edge = price(pm) − price(shadow_market)` where shadow = market re-elicited through PM's own anchor scheme
+  - `Anchoring cost = price(shadow_market) − price(market_full)`
+  - Identity: Full = View + Anchoring. All three shown in the UI with one-line captions.
+  - **Kelly sizing (when added) operates on Full edge** — that's what the trade actually realises. View edge is the cognitive load-bearing number for "is my elicitation distinct from the market?".
+
+### Conceptual exchanges worth preserving
+
+- **Validity of the PDF in both modes.** The PCHIP monotonicity guarantee applies to both Option 1 and Option 2 because in both cases the engine fits a spline through (price, cumulative_probability) anchors where cumulative is monotone non-decreasing from 0 to 1. Per-bucket mass in Option 2 is preserved *exactly* at the boundary level (because the PCHIP spline passes through the boundary anchors); only the *within-bucket* mass distribution is smoothed.
+- **PDF approach is European-only.** Mathematically exact (up to bin resolution) for any European payoff that's a function of S_T alone — vanilla, all spreads, RR, strangle, butterfly, seagull, 1×2, European digital, European RKO at expiry, European digital RKO at expiry. *Not* sufficient for continuously-monitored barriers (path-dependent); those need smile + dynamic model.
+- **Smile parametrisation requires a model.** The smile at one tenor is mathematically equivalent to the marginal PDF at that tenor (via Breeden–Litzenberger). To unlock path-dependence you need a smile *plus a dynamic model* (Dupire local vol or stochastic vol); the smile alone doesn't conjure path info.
+
 ## Revisit candidates
 
-- Grid extent (truncate-with-warning vs parametric tail) — see PLAN.md decisions section. Reinforced after step 4 (above).
+- Grid extent (truncate-with-warning vs parametric tail) — see PLAN.md decisions section. Reinforced after step 4 (above). Three-way edge decomposition now makes the truncation cost explicit in the UI, which may reduce the need to change the policy itself.
