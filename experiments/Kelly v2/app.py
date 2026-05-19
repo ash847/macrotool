@@ -18,7 +18,7 @@ PKG_ROOT = Path(__file__).resolve().parent
 if str(PKG_ROOT) not in sys.path:
     sys.path.insert(0, str(PKG_ROOT))
 
-from baseline import synthetic_lognormal_baseline
+from baseline import load_snapshot, synthetic_lognormal_baseline
 from edge import anchors_from_baseline, compute_edge
 from elicitation import (
     Distribution,
@@ -27,6 +27,12 @@ from elicitation import (
     elicit_from_pdf_buckets,
     sigma_boundaries_to_prices,
 )
+from pricing import forward_of
+
+
+FIXTURE_DIR = PKG_ROOT / "fixtures"
+BASELINE_SOURCE_SYNTHETIC = "Synthetic lognormal"
+BASELINE_SOURCE_FIXTURE = "Load from fixture"
 
 
 MODE_OPTION1 = "Option 1 — prices at fixed quantiles (CDF)"
@@ -49,6 +55,7 @@ def init_state() -> None:
     defaults = {
         "mode": MODE_OPTION1,
         "n_anchors": 7,
+        "baseline_source": BASELINE_SOURCE_SYNTHETIC,
         "forward": 5.00,
         "sigma": 0.10,
         "tenor_years": 0.25,
@@ -60,7 +67,20 @@ def init_state() -> None:
             st.session_state[key] = val
 
 
+def _list_fixtures() -> list[Path]:
+    if not FIXTURE_DIR.exists():
+        return []
+    return sorted(p for p in FIXTURE_DIR.iterdir() if p.suffix == ".json")
+
+
 def _current_baseline() -> Distribution:
+    if st.session_state.baseline_source == BASELINE_SOURCE_FIXTURE and st.session_state.get("fixture_path"):
+        dist, meta = load_snapshot(st.session_state.fixture_path)
+        # Keep F/σ/T inputs in sync with the loaded fixture so derived UI elements
+        # (sigma-bucket boundaries in Option 2) line up with the loaded distribution.
+        st.session_state.forward = float(meta.get("forward", forward_of(dist)))
+        st.session_state.tenor_years = float(meta.get("tenor_years", st.session_state.tenor_years))
+        return dist
     return synthetic_lognormal_baseline(
         forward=st.session_state.forward,
         sigma=st.session_state.sigma,
@@ -130,15 +150,36 @@ def render_sidebar() -> None:
 
         st.divider()
         st.header("Market baseline")
-        st.number_input("Forward", min_value=0.01, step=0.01, format="%.4f", key="forward")
-        st.number_input(
-            "Vol (annualised)", min_value=0.001, max_value=2.0,
-            step=0.005, format="%.4f", key="sigma",
+        st.radio(
+            "Source",
+            options=[BASELINE_SOURCE_SYNTHETIC, BASELINE_SOURCE_FIXTURE],
+            key="baseline_source",
         )
-        st.number_input(
-            "Tenor (years)", min_value=1.0 / 365, max_value=10.0,
-            step=0.05, format="%.4f", key="tenor_years",
-        )
+
+        if st.session_state.baseline_source == BASELINE_SOURCE_FIXTURE:
+            fixtures = _list_fixtures()
+            if not fixtures:
+                st.warning("No fixtures found in fixtures/.")
+            else:
+                choice = st.selectbox(
+                    "Fixture",
+                    options=fixtures,
+                    format_func=lambda p: p.name,
+                    key="fixture_choice",
+                )
+                st.session_state.fixture_path = str(choice)
+                _, meta = load_snapshot(choice)
+                st.caption(f"pair: {meta.get('pair', '?')}, source: {meta.get('source', '?')}")
+        else:
+            st.number_input("Forward", min_value=0.01, step=0.01, format="%.4f", key="forward")
+            st.number_input(
+                "Vol (annualised)", min_value=0.001, max_value=2.0,
+                step=0.005, format="%.4f", key="sigma",
+            )
+            st.number_input(
+                "Tenor (years)", min_value=1.0 / 365, max_value=10.0,
+                step=0.05, format="%.4f", key="tenor_years",
+            )
 
         st.divider()
         st.header("Anchors / buckets")
