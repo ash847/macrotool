@@ -19,7 +19,12 @@ if str(PKG_ROOT) not in sys.path:
     sys.path.insert(0, str(PKG_ROOT))
 
 from baseline import load_snapshot, synthetic_lognormal_baseline
-from edge import anchors_from_baseline, compute_edge
+from edge import (
+    anchors_from_baseline,
+    compute_edge,
+    shadow_market_from_cdf_anchors,
+    shadow_market_from_pdf_buckets,
+)
 from elicitation import (
     Distribution,
     default_sigma_boundaries,
@@ -360,22 +365,43 @@ def render_edge_panel(rep, strike: float) -> None:
             f"actually have a view at this strike."
         )
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     col1.metric("PM price", f"{rep.pm_price:.4f}")
     col2.metric("Market price", f"{rep.mkt_price:.4f}")
-    if rep.edge_pct_of_mid is None:
-        col3.metric("Edge (abs / % mid)", f"{rep.edge_absolute:+.4f}", "—")
-    else:
-        col3.metric(
-            "Edge (abs / % mid)",
-            f"{rep.edge_absolute:+.4f}",
-            f"{rep.edge_pct_of_mid:+.1f}% of mid",
-        )
+
+    def _fmt_pct(pct):
+        return f"{pct:+.1f}% of mid" if pct is not None else "—"
+
+    col_full, col_anchor, col_view = st.columns(3)
+    col_full.metric(
+        "Full edge",
+        f"{rep.full_edge:+.4f}",
+        _fmt_pct(rep.full_edge_pct_of_mid),
+    )
+    col_full.caption(
+        "Your expected P&L on this trade vs the market price. Size Kelly on this."
+    )
+
+    col_anchor.metric("Anchoring cost", f"{rep.anchoring_cost:+.4f}")
+    col_anchor.caption(
+        "Pricing impact of the ~4% probability mass that your anchors don't "
+        "include — the tails outside your outer anchor points."
+    )
+
+    col_view.metric(
+        "View edge",
+        f"{rep.view_edge:+.4f}",
+        _fmt_pct(rep.view_edge_pct_of_mid),
+    )
+    col_view.caption(
+        "What your view adds inside the price range you've described — pure "
+        "view-divergence with the truncation effect cancelled out."
+    )
 
     st.caption(
-        "Edge is **vs market-implied** pricing — the market baseline is the "
-        "risk-neutral distribution, so this measures deviation from the "
-        "market's pricing of risk, not pure forecasting edge."
+        "Decomposition: **Full edge = View edge + Anchoring cost**. "
+        "Edge is **vs market-implied** (risk-neutral) pricing, not pure "
+        "forecasting edge."
     )
 
 
@@ -397,6 +423,7 @@ def main() -> None:
             st.error("Anchor prices must be strictly increasing. Adjust the values above.")
             return
         pm = elicit_from_cdf_anchors(prices, list(quantiles))
+        shadow = shadow_market_from_cdf_anchors(base, list(quantiles))
         st.altair_chart(
             render_option1_chart(prices, np.asarray(quantiles), base),
             use_container_width=True,
@@ -437,9 +464,10 @@ def main() -> None:
             )
             return
         pm = elicit_from_pdf_buckets(boundaries, probs)
+        shadow = shadow_market_from_pdf_buckets(base, boundaries)
 
     strike, is_call = render_structure_inputs()
-    rep = compute_edge(pm, base, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
+    rep = compute_edge(pm, base, shadow, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
     render_edge_panel(rep, strike)
 
 

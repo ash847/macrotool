@@ -2,8 +2,20 @@ import numpy as np
 import pytest
 
 from baseline import synthetic_lognormal_baseline
-from edge import anchors_from_baseline, compute_edge, quantile
-from elicitation import DEFAULT_OPTION1_QUANTILES, elicit_from_cdf_anchors
+from edge import (
+    anchors_from_baseline,
+    compute_edge,
+    quantile,
+    shadow_market_from_cdf_anchors,
+    shadow_market_from_pdf_buckets,
+)
+from elicitation import (
+    DEFAULT_OPTION1_QUANTILES,
+    default_sigma_boundaries,
+    elicit_from_cdf_anchors,
+    elicit_from_pdf_buckets,
+    sigma_boundaries_to_prices,
+)
 
 
 def _baseline(F=5.0, sigma=0.10, T=0.25):
@@ -13,7 +25,7 @@ def _baseline(F=5.0, sigma=0.10, T=0.25):
 def test_compute_edge_returns_zero_when_distributions_identical():
     dist = _baseline()
     rep = compute_edge(dist, dist, strike=5.0, is_call=True, discount_factor=0.97)
-    assert rep.edge_absolute == pytest.approx(0.0, abs=1e-12)
+    assert rep.full_edge == pytest.approx(0.0, abs=1e-12)
     assert rep.pm_price == pytest.approx(rep.mkt_price, abs=1e-12)
     assert rep.out_of_range is False
 
@@ -39,7 +51,7 @@ def test_edge_pct_none_when_market_price_near_zero():
     base = _baseline(F=5.0)
     # Strike well above support — both call prices ~ 0.
     rep = compute_edge(base, base, strike=100.0, is_call=True)
-    assert rep.edge_pct_of_mid is None
+    assert rep.full_edge_pct_of_mid is None
 
 
 # --- Sanity check 1: zero-edge identity ---
@@ -71,8 +83,8 @@ def test_engine_identity_with_wide_anchors(F, sigma, T, K, is_call):
 
     rep = compute_edge(pm, base, strike=K, is_call=is_call, discount_factor=0.97)
     tol = 1e-3 * F  # 10 bp of forward
-    assert abs(rep.edge_absolute) < tol, (
-        f"edge {rep.edge_absolute:.6f} exceeds {tol:.6f} "
+    assert abs(rep.full_edge) < tol, (
+        f"edge {rep.full_edge:.6f} exceeds {tol:.6f} "
         f"(PM={rep.pm_price:.6f}, mkt={rep.mkt_price:.6f})"
     )
 
@@ -88,8 +100,8 @@ def test_default_anchor_identity_edge_is_bounded_and_directional():
     pm = elicit_from_cdf_anchors(anchors, quantiles)
 
     rep = compute_edge(pm, base, strike=F, is_call=True)
-    assert rep.edge_absolute < 0.0
-    assert abs(rep.edge_absolute) < 0.02 * F  # within 2% of forward
+    assert rep.full_edge < 0.0
+    assert abs(rep.full_edge) < 0.02 * F  # within 2% of forward
 
 
 def test_zero_edge_tightens_as_anchor_coverage_widens():
@@ -103,7 +115,7 @@ def test_zero_edge_tightens_as_anchor_coverage_widens():
         anchors = anchors_from_baseline(base, qs)
         pm = elicit_from_cdf_anchors(anchors, qs)
         rep = compute_edge(pm, base, strike=K, is_call=True)
-        edges_by_coverage.append(abs(rep.edge_absolute))
+        edges_by_coverage.append(abs(rep.full_edge))
 
     # Edge must shrink as we widen the anchor coverage.
     assert edges_by_coverage[-1] < edges_by_coverage[0]
@@ -129,8 +141,8 @@ def test_lower_left_tail_anchor_raises_otm_put_price():
     # Both PMs must contain it (heavy_left support starts even further left, so OK).
     strike = float(base_anchors[1])  # at p_10
 
-    put_baseline = compute_edge(pm_baseline, base, strike, is_call=False).pm_price
-    put_heavy_left = compute_edge(pm_heavy_left, base, strike, is_call=False).pm_price
+    put_baseline = compute_edge(pm_baseline, base, strike=strike, is_call=False).pm_price
+    put_heavy_left = compute_edge(pm_heavy_left, base, strike=strike, is_call=False).pm_price
 
     assert put_heavy_left > put_baseline
 
@@ -150,8 +162,8 @@ def test_shifting_pm_distribution_right_increases_call_edge():
     pm_shifted = elicit_from_cdf_anchors(shifted_anchors, quantiles)
 
     strike = 5.0
-    edge_base = compute_edge(pm_baseline, base, strike, is_call=True).edge_absolute
-    edge_shift = compute_edge(pm_shifted, base, strike, is_call=True).edge_absolute
+    edge_base = compute_edge(pm_baseline, base, strike=strike, is_call=True).full_edge
+    edge_shift = compute_edge(pm_shifted, base, strike=strike, is_call=True).full_edge
 
     assert edge_shift > edge_base
 
@@ -179,3 +191,94 @@ def test_quantile_validation():
         quantile(base, 0.0)
     with pytest.raises(ValueError):
         quantile(base, 1.0)
+
+
+# --- shadow market + decomposition ---
+
+
+def test_edge_decomposition_identity():
+    """Full edge == view edge + anchoring cost, by construction."""
+    F = 5.0
+    base = _baseline(F=F)
+    quantiles = DEFAULT_OPTION1_QUANTILES
+    anchors = anchors_from_baseline(base, quantiles)
+    pm = elicit_from_cdf_anchors(anchors, quantiles)
+    shadow = shadow_market_from_cdf_anchors(base, list(quantiles))
+
+    rep = compute_edge(pm, base, shadow, strike=F, is_call=True)
+    assert rep.full_edge == pytest.approx(rep.view_edge + rep.anchoring_cost, abs=1e-12)
+
+
+def test_view_edge_near_zero_when_pm_matches_shadow_option1():
+    """If PM's anchors come from the market CDF, PM equals the shadow exactly
+    and the view edge is zero — leaving the full edge as the anchoring cost."""
+    F = 5.0
+    base = _baseline(F=F)
+    quantiles = DEFAULT_OPTION1_QUANTILES
+    anchors = anchors_from_baseline(base, quantiles)
+    pm = elicit_from_cdf_anchors(anchors, quantiles)
+    shadow = shadow_market_from_cdf_anchors(base, list(quantiles))
+
+    for K in [4.7, 5.0, 5.3]:
+        for is_call in (True, False):
+            rep = compute_edge(pm, base, shadow, strike=K, is_call=is_call)
+            assert abs(rep.view_edge) < 1e-9
+            # Anchoring cost soaks up the full edge.
+            assert rep.anchoring_cost == pytest.approx(rep.full_edge, abs=1e-9)
+
+
+def test_view_edge_near_zero_when_pm_matches_shadow_option2():
+    """Same property in Option 2: PM bucket masses = market masses → view edge ≈ 0."""
+    F = 5.0
+    base = _baseline(F=F)
+    offsets = default_sigma_boundaries(7)
+    boundaries = sigma_boundaries_to_prices(offsets, F, sigma=0.10, tenor_years=0.25)
+
+    # PM uses the baseline masses in each bucket — should equal the shadow.
+    masses = np.array([
+        float(base.probs[(base.bins >= boundaries[i]) & (base.bins < boundaries[i + 1])].sum())
+        for i in range(len(boundaries) - 1)
+    ])
+    masses = masses / masses.sum()
+    pm = elicit_from_pdf_buckets(boundaries, masses)
+    shadow = shadow_market_from_pdf_buckets(base, boundaries)
+
+    for K in [4.7, 5.0, 5.3]:
+        for is_call in (True, False):
+            rep = compute_edge(pm, base, shadow, strike=K, is_call=is_call)
+            assert abs(rep.view_edge) < 1e-9
+
+
+def test_anchoring_cost_negative_for_atm_call_default_anchors():
+    """Default Option 1 anchors drop ~4% tail mass; ATM call anchoring cost is negative."""
+    F = 5.0
+    base = _baseline(F=F)
+    quantiles = DEFAULT_OPTION1_QUANTILES
+    anchors = anchors_from_baseline(base, quantiles)
+    pm = elicit_from_cdf_anchors(anchors, quantiles)
+    shadow = shadow_market_from_cdf_anchors(base, list(quantiles))
+
+    rep = compute_edge(pm, base, shadow, strike=F, is_call=True)
+    assert rep.anchoring_cost < 0.0
+
+
+def test_shadow_market_from_pdf_buckets_rejects_zero_mass():
+    """Boundaries that capture no baseline mass should raise."""
+    base = _baseline(F=5.0)
+    # Boundaries far outside the baseline support
+    boundaries = np.array([100.0, 110.0, 120.0, 130.0])
+    with pytest.raises(ValueError, match="no mass"):
+        shadow_market_from_pdf_buckets(base, boundaries)
+
+
+def test_default_compute_edge_falls_back_to_market_as_shadow():
+    """If no shadow_dist is passed, view_edge == full_edge and anchoring_cost == 0."""
+    F = 5.0
+    base = _baseline(F=F)
+    quantiles = DEFAULT_OPTION1_QUANTILES
+    anchors = anchors_from_baseline(base, quantiles)
+    pm = elicit_from_cdf_anchors(anchors, quantiles)
+
+    rep = compute_edge(pm, base, strike=F, is_call=True)
+    assert rep.anchoring_cost == pytest.approx(0.0, abs=1e-12)
+    assert rep.view_edge == pytest.approx(rep.full_edge, abs=1e-12)
