@@ -16,6 +16,26 @@ Running log of decisions, surprises, and revisit candidates.
 - **Minimum N:** 3 anchors. Fewer than 3 doesn't make sense for a non-trivial CDF.
 - **No tail extension:** grid truncates to [prices[0], prices[-1]]; mass outside the outer anchors is dropped. Matches PLAN.md decision. **Revisit candidate** — log here if real usage suggests we need a parametric tail.
 
+### Step 4 — edge.py and sanity-check 1 finding
+
+PLAN.md's identity test specified `edge ≈ 0 to within < 1 bp` when PM anchors are extracted from baseline at the default quantiles. **Unreachable** with the truncate-to-anchors policy. Reasoning:
+
+- Default anchors span [p_2, p_98] of baseline.
+- PM's elicited distribution covers only [p_2, p_98] and renormalises mass-sum to 1 (i.e. each interior bin gets scaled by ~1/0.96).
+- Baseline covers full support, with ~4% mass in tails outside [p_2, p_98].
+- For a vanilla call ATM under F=5, σ=0.10, T=0.25: baseline right-tail above p_98 contributes ~10% of the option value. PM has no mass there, but interior bins are scaled up ~4%. Net effect on ATM call edge is ~−0.6% of forward.
+
+This is a **predictable, policy-induced edge**, not engine error. Two ways the engine could test sanity-check 1 cleanly:
+
+- **Wide-anchor variant:** extract anchors at very wide quantiles (e.g. [0.001, 0.005, ..., 0.999]). Truncation drops < 0.2% of mass; engine error dominates and is < 5 bp.
+- **Default-anchor variant:** accept the ~0.5–2% of forward edge as expected; assert it's in the right direction (typically negative for ATM call) and shrinks as quantile coverage widens.
+
+Implemented both in `tests/test_edge.py`.
+
+**Implication for the UI:** the "edge vs market-implied" label is still honest, but PMs should know that a chunk of the displayed edge for in-support strikes comes from the tail-truncation policy, not just view-divergence. Loud disclosure in the UI when this matters.
+
+**Revisit candidate, reinforced:** if PMs find this annoying or misleading, switch to parametric-tail extension (option b from the PLAN). The cost is asking PMs to commit to a tail decay assumption they didn't make.
+
 ## Revisit candidates
 
-- Grid extent (truncate-with-warning vs parametric tail) — see PLAN.md decisions section.
+- Grid extent (truncate-with-warning vs parametric tail) — see PLAN.md decisions section. Reinforced after step 4 (above).
