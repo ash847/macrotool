@@ -10,10 +10,10 @@ def test_seagull_display_label_includes_call_spread_wing_ratio():
         wing_ratio=0.63,
     )
 
-    assert variant_display_label("seagull", pv) == "1x1 Call spread + 0.63x put wing"
+    assert variant_display_label("seagull", pv) == "Seagull  ·  1x1 Call spread + 0.63x put wing"
     assert (
         variant_label_with_strikes("seagull", pv)
-        == "1x1 Call spread + 0.63x put wing  ·  Strikes: 5.0000 (ATMF) / 5.2500 (25D) / 4.7500 (25D)"
+        == "Seagull  ·  1x1 Call spread + 0.63x put wing  ·  Strikes: 5.0000 (ATMF) / 5.2500 (25D) / 4.7500 (25D)"
     )
 
 
@@ -24,7 +24,7 @@ def test_seagull_display_label_includes_put_spread_wing_ratio():
         wing_ratio=1.18,
     )
 
-    assert variant_display_label("seagull", pv) == "1x1 Put spread + 1.18x call wing"
+    assert variant_display_label("seagull", pv) == "Seagull  ·  1x1 Put spread + 1.18x call wing"
 
 
 def test_vanilla_label_includes_type_strike_and_delta():

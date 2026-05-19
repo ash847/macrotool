@@ -100,7 +100,7 @@ def variant_display_label(structure_id: str, pv) -> str:
         is_call_spread = _is_call_spread(pv)
         spread_type = "Call spread" if is_call_spread else "Put spread"
         wing_type = "put" if is_call_spread else "call"
-        return f"1x1 {spread_type} + {wing_ratio:.2f}x {wing_type} wing"
+        return f"Seagull  ·  1x1 {spread_type} + {wing_ratio:.2f}x {wing_type} wing"
 
     if structure_id == "european_digital":
         return "European digital"
