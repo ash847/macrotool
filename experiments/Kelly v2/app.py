@@ -284,13 +284,26 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
         msg_col.warning(
             f"Bucket probabilities sum to {total:.4f}, not 1.0 (off by {diff:+.4f})."
         )
-        if btn_col.button("Renormalise to 1"):
-            if total > 0:
-                for i in range(n_buckets):
-                    st.session_state[f"bucket_{i}"] = float(probs[i] / total)
-                st.rerun()
+        btn_col.button(
+            "Renormalise to 1",
+            on_click=_renormalise_buckets,
+            args=(n_buckets,),
+        )
 
     return boundaries, probs
+
+
+def _renormalise_buckets(n_buckets: int) -> None:
+    """Proportionally rescale bucket_i session-state values to sum to 1.
+
+    Runs as a button `on_click` callback so Streamlit applies the writes
+    BEFORE the next rerun instantiates the bucket widgets.
+    """
+    total = sum(float(st.session_state[f"bucket_{i}"]) for i in range(n_buckets))
+    if total <= 0:
+        return
+    for i in range(n_buckets):
+        st.session_state[f"bucket_{i}"] = float(st.session_state[f"bucket_{i}"]) / total
 
 
 def render_structure_inputs() -> tuple[float, bool]:
