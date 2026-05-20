@@ -244,7 +244,7 @@ def render_kelly_growth_curve(
 
     return (
         alt.layer(zero_line, curves, star_rule, star_point, star_label, disp_point, disp_label)
-        .properties(height=200)
+        .properties(height=270)
     )
 
 

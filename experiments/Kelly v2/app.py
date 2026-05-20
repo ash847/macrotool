@@ -326,6 +326,14 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
     return boundaries, probs
 
 
+def _decrement_multiplier() -> None:
+    st.session_state.kelly_multiplier = max(0.10, round(st.session_state.kelly_multiplier - 0.05, 2))
+
+
+def _increment_multiplier() -> None:
+    st.session_state.kelly_multiplier = min(1.00, round(st.session_state.kelly_multiplier + 0.05, 2))
+
+
 def _renormalise_buckets(n_buckets: int) -> None:
     """Proportionally rescale bucket_i percent values to sum to exactly 100.
 
@@ -374,28 +382,35 @@ def render_edge_panel(rep, strike: float) -> None:
     def _fmt_pct(pct):
         return f"{pct:+.1f}% of mid" if pct is not None else "—"
 
-    col_pm, col_mkt, col_edge = st.columns([1, 1, 2])
+    # Four columns: PM price | Truncated market | Full market | View edge
+    # Showing truncated market makes the view edge arithmetic visible:
+    # PM price − Truncated market = View edge (should be positive when PM > truncated mkt)
+    col_pm, col_shadow, col_mkt, col_edge = st.columns([1, 1, 1, 2])
     col_pm.metric("PM price", f"{rep.pm_price:.4f}")
-    col_mkt.metric("Market price", f"{rep.mkt_price:.4f}")
+    col_shadow.metric(
+        "Truncated market",
+        f"{rep.shadow_price:.4f}",
+        help="Market price computed over your anchor range only — same truncation as your view.",
+    )
+    col_mkt.metric("Full market price", f"{rep.mkt_price:.4f}")
     col_edge.metric(
-        "View edge — your view-divergence vs market",
+        "View edge",
         f"{rep.view_edge:+.4f}",
         _fmt_pct(rep.view_edge_pct_of_mid),
+        help="PM price − Truncated market. Positive when your distribution is richer than market over your anchor range.",
     )
 
-    # Anchoring cost shown as an accuracy / measurement-quality indicator,
-    # not as a P&L signal. It tells the PM how much the ~4% dropped tails
-    # distort the pricing, so they can judge how reliable the view edge number is.
+    # Anchoring cost: the gap between truncated market and full market price.
+    # Shown as an accuracy indicator — tells the PM how much the dropped tails matter.
     anc_pct_str = ""
     if rep.mkt_price > 1e-10:
         anc_pct = rep.anchoring_cost / rep.mkt_price * 100.0
         anc_pct_str = f" ({anc_pct:+.1f}% of mid)"
     st.caption(
         f"**Distribution accuracy — truncation error: {rep.anchoring_cost:+.4f}{anc_pct_str}.** "
-        f"Pricing impact of the ~4% tail mass outside your outer anchors. "
-        f"This is a measurement artifact — it does not affect your trade P&L. "
-        f"Large values mean the tails matter for this strike; small values mean "
-        f"the view edge number is a clean read."
+        f"Gap between truncated and full market price — pricing impact of the ~4% tail mass "
+        f"outside your outer anchors. Measurement artifact; does not affect your trade P&L. "
+        f"Large values mean the tails matter for this strike."
     )
 
 
@@ -416,10 +431,19 @@ def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
         return
 
     col_disp, col_raw, col_growth = st.columns([2, 1, 1])
-    col_disp.metric(
-        f"Kelly fraction (× {rep_kelly.multiplier:.2f} of full Kelly)",
-        f"{rep_kelly.f_displayed:.1%}",
-    )
+
+    with col_disp:
+        st.metric(
+            f"Kelly fraction (× {rep_kelly.multiplier:.2f} of full Kelly)",
+            f"{rep_kelly.f_displayed:.1%}",
+        )
+        btn_minus, btn_label, btn_plus = st.columns([1, 2, 1])
+        btn_minus.button("−", on_click=_decrement_multiplier, use_container_width=True,
+                         help="Decrease multiplier by 5%", key="kelly_minus")
+        btn_label.caption(f"Multiplier: **{rep_kelly.multiplier:.0%}**")
+        btn_plus.button("+", on_click=_increment_multiplier, use_container_width=True,
+                        help="Increase multiplier by 5%", key="kelly_plus")
+
     col_raw.metric("Full Kelly (before multiplier)", f"{rep_kelly.f_discrete:.1%}")
     col_growth.metric("Expected log-growth", f"{rep_kelly.expected_log_growth:+.4f}")
 
