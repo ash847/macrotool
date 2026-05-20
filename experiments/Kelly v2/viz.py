@@ -147,44 +147,64 @@ def render_option2_chart(
 
 def render_kelly_growth_curve(
     f_values: np.ndarray,
-    log_growth: np.ndarray,
+    geo_growth: np.ndarray,
+    er_curve: np.ndarray,
     f_star: float,
     f_displayed: float,
 ) -> alt.Chart:
-    """Kelly growth curve: E[log(1+f·r)] vs f.
+    """Kelly growth curve with expected-return overlay.
 
-    Shows the full curve, the full-Kelly peak (orange triangle), the current
-    choice (blue dot), and the zero-growth reference line.  The asymmetry —
-    that overbetting hurts faster than underbetting helps — is visible in the
-    curve shape.
+    Blue line  — geometric return per trade: exp(E[log(1+f·r)]) − 1.
+      Peaks at f_star; falls back through zero past the overbetting cliff (~2×f*).
+    Grey line  — expected return: f · E[r]. Linear, always above geometric return
+      past small f because it ignores variance drag.
+    The gap between the two is the variance drag — why chasing E[r] oversizes.
     """
-    df = pd.DataFrame({"f": f_values, "log_growth": log_growth})
+    _COLOUR_ER = _COLOUR_MARKET  # grey for the naive E[r] line
 
-    y_at_star = float(np.interp(f_star, f_values, log_growth))
-    y_at_displayed = float(np.interp(f_displayed, f_values, log_growth))
+    # Long-format DataFrame for the two lines
+    n = len(f_values)
+    df = pd.DataFrame({
+        "f": np.concatenate([f_values, f_values]),
+        "value": np.concatenate([geo_growth, er_curve]),
+        "series": ["Geometric return"] * n + ["Expected return (f · E[r])"] * n,
+    })
 
-    # Main curve
-    curve = (
+    _line_scale = alt.Scale(
+        domain=["Geometric return", "Expected return (f · E[r])"],
+        range=[_COLOUR_USER, _COLOUR_ER],
+    )
+    _dash_scale = alt.Scale(
+        domain=["Geometric return", "Expected return (f · E[r])"],
+        range=[[1, 0], [4, 3]],   # solid blue, dashed grey
+    )
+
+    curves = (
         alt.Chart(df)
-        .mark_line(color=_COLOUR_USER, strokeWidth=2)
+        .mark_line(strokeWidth=2)
         .encode(
             x=alt.X("f:Q", title="Fraction of bankroll (f)", axis=alt.Axis(format=".0%")),
-            y=alt.Y("log_growth:Q", title="E[log(1 + f·r)]"),
+            y=alt.Y("value:Q", title="Return per trade", axis=alt.Axis(format=".1%")),
+            color=alt.Color("series:N", scale=_line_scale, title=None,
+                            legend=alt.Legend(orient="top-left", labelFontSize=10)),
+            strokeDash=alt.StrokeDash("series:N", scale=_dash_scale, legend=None),
             tooltip=[
+                alt.Tooltip("series:N", title="Series"),
                 alt.Tooltip("f:Q", format=".1%", title="f"),
-                alt.Tooltip("log_growth:Q", format=".5f", title="Log growth"),
+                alt.Tooltip("value:Q", format=".2%", title="Return"),
             ],
         )
     )
 
-    # Zero reference line — below this the strategy destroys long-run wealth
+    # Zero reference line
     zero_line = (
         alt.Chart(pd.DataFrame({"y": [0.0]}))
-        .mark_rule(color="#aaaaaa", strokeDash=[4, 4], strokeWidth=1)
+        .mark_rule(color="#cccccc", strokeDash=[3, 3], strokeWidth=1)
         .encode(y="y:Q")
     )
 
-    # Full Kelly: vertical rule + triangle marker + label
+    # Full Kelly peak: orange triangle + label
+    y_at_star = float(np.interp(f_star, f_values, geo_growth))
     star_df = pd.DataFrame({
         "f": [f_star], "y": [y_at_star],
         "label": [f"Full Kelly ({f_star:.0%})"],
@@ -197,10 +217,7 @@ def render_kelly_growth_curve(
     star_point = (
         alt.Chart(star_df)
         .mark_point(color="#F58518", size=90, filled=True, shape="triangle-up")
-        .encode(
-            x="f:Q", y="y:Q",
-            tooltip=alt.Tooltip("label:N"),
-        )
+        .encode(x="f:Q", y="y:Q", tooltip="label:N")
     )
     star_label = (
         alt.Chart(star_df)
@@ -208,7 +225,8 @@ def render_kelly_growth_curve(
         .encode(x="f:Q", y="y:Q", text="label:N")
     )
 
-    # Current choice: filled circle + label
+    # Current choice: filled dot + label on the geometric curve
+    y_at_displayed = float(np.interp(f_displayed, f_values, geo_growth))
     disp_df = pd.DataFrame({
         "f": [f_displayed], "y": [y_at_displayed],
         "label": [f"Your choice ({f_displayed:.0%})"],
@@ -216,10 +234,7 @@ def render_kelly_growth_curve(
     disp_point = (
         alt.Chart(disp_df)
         .mark_point(color=_COLOUR_USER, size=100, filled=True)
-        .encode(
-            x="f:Q", y="y:Q",
-            tooltip=alt.Tooltip("label:N"),
-        )
+        .encode(x="f:Q", y="y:Q", tooltip="label:N")
     )
     disp_label = (
         alt.Chart(disp_df)
@@ -228,8 +243,8 @@ def render_kelly_growth_curve(
     )
 
     return (
-        alt.layer(zero_line, curve, star_rule, star_point, star_label, disp_point, disp_label)
-        .properties(height=185)
+        alt.layer(zero_line, curves, star_rule, star_point, star_label, disp_point, disp_label)
+        .properties(height=200)
     )
 
 

@@ -121,14 +121,22 @@ def kelly_growth_curve(
     discount_factor: float = 1.0,
     f_star: float = 0.0,
     n_points: int = 300,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return (f_values, expected_log_growth) for plotting the Kelly growth curve.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return (f_values, geo_growth, er_curve) for plotting the Kelly growth curve.
 
-    x range: 0 → ~2.5×f_star (shows the peak and the fall back through zero).
-    Capped at the ruin boundary (1/|r_min| − ε) so log terms stay finite.
+    geo_growth: exp(E[log(1+f·r)]) − 1 — geometric (compounding) return per trade.
+      This is what Kelly maximises. Peaks at f_star then falls back through zero.
+    er_curve:   f · E[r] — expected portfolio return. Linear in f, always above
+      geo_growth past small f because it ignores the variance drag.
+
+    The gap between the two lines is the variance drag — the visual reason why
+    chasing expected return oversizes and destroys long-run wealth.
+
+    x range: 0 → ~2.5×f_star. Capped at the ruin boundary so log terms stay finite.
     """
     r = _returns(dist, payoff, cost, discount_factor)
     r_min = float(r.min())
+    e_r = float(np.dot(dist.probs, r))
 
     if r_min <= -1.0 + 1e-9:
         f_upper = min(1.0 / (-r_min) - 1e-9, SAFETY_F_MAX)
@@ -142,7 +150,9 @@ def kelly_growth_curve(
         float(np.dot(dist.probs, np.log(np.clip(1.0 + f * r, 1e-300, None))))
         for f in f_values
     ])
-    return f_values, log_growth
+    geo_growth = np.exp(log_growth) - 1.0
+    er_curve = f_values * e_r
+    return f_values, geo_growth, er_curve
 
 
 def _expected_log_growth(

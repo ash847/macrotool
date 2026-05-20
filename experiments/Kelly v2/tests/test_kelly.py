@@ -213,9 +213,9 @@ def test_growth_curve_zero_at_origin():
     """E[log(1 + 0·r)] = 0 for any distribution."""
     dist = binary_distribution(p_win=0.6, win_price=6.0, lose_price=4.0)
     payoff = call_payoff(strike=5.0)
-    f_vals, lg_vals = kelly_growth_curve(dist, payoff, cost=0.4, f_star=0.3)
+    f_vals, geo_vals, er_vals = kelly_growth_curve(dist, payoff, cost=0.4, f_star=0.3)
     assert f_vals[0] == pytest.approx(0.0)
-    assert lg_vals[0] == pytest.approx(0.0, abs=1e-10)
+    assert geo_vals[0] == pytest.approx(0.0, abs=1e-10)
 
 
 def test_growth_curve_peaks_at_f_star():
@@ -224,22 +224,36 @@ def test_growth_curve_peaks_at_f_star():
     payoff = call_payoff(strike=5.0)
     cost = 0.4
     f_star = kelly_discrete(dist, payoff, cost=cost)
-    f_vals, lg_vals = kelly_growth_curve(dist, payoff, cost=cost, f_star=f_star)
-    peak_idx = int(np.argmax(lg_vals))
+    f_vals, geo_vals, er_vals = kelly_growth_curve(dist, payoff, cost=cost, f_star=f_star)
+    peak_idx = int(np.argmax(geo_vals))
     f_at_peak = f_vals[peak_idx]
     assert f_at_peak == pytest.approx(f_star, abs=0.02)  # within 2% of f*
 
 
 def test_growth_curve_decreasing_past_peak():
-    """Log growth should be strictly decreasing well past the peak."""
+    """Geometric growth should be strictly decreasing well past the peak."""
     dist = binary_distribution(p_win=0.6, win_price=6.0, lose_price=4.0)
     payoff = call_payoff(strike=5.0)
     cost = 0.4
     f_star = kelly_discrete(dist, payoff, cost=cost)
-    f_vals, lg_vals = kelly_growth_curve(dist, payoff, cost=cost, f_star=f_star)
+    f_vals, geo_vals, er_vals = kelly_growth_curve(dist, payoff, cost=cost, f_star=f_star)
     # Values in the upper half of the range should be decreasing
-    upper_half = lg_vals[len(lg_vals) // 2:]
+    upper_half = geo_vals[len(geo_vals) // 2:]
     assert np.all(np.diff(upper_half) < 0)
+
+
+def test_er_curve_linear_and_above_geo():
+    """E[r] overlay must be linear in f and lie above geometric growth past the peak."""
+    dist = binary_distribution(p_win=0.6, win_price=6.0, lose_price=4.0)
+    payoff = call_payoff(strike=5.0)
+    cost = 0.4
+    f_star = kelly_discrete(dist, payoff, cost=cost)
+    f_vals, geo_vals, er_vals = kelly_growth_curve(dist, payoff, cost=cost, f_star=f_star)
+    # er_curve is linear: second differences should be ~0
+    assert np.allclose(np.diff(er_vals, 2), 0.0, atol=1e-10)
+    # Past the peak, expected return exceeds geometric return (variance drag)
+    past_peak = f_vals > f_star
+    assert np.all(er_vals[past_peak] >= geo_vals[past_peak])
 
 
 # --- put symmetry ---
