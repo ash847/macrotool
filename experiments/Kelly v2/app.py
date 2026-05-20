@@ -422,6 +422,10 @@ def render_kelly_panel(rep_kelly) -> None:
     col_growth.metric("Expected log-growth", f"{rep_kelly.expected_log_growth:+.4f}")
 
     with st.expander("Kelly breakdown — solvers and risk metrics", expanded=False):
+        st.caption(
+            "**r = (payoff(S_T) − cost) / cost** — return on premium over the option's life "
+            "(not annualised). r = −1 means total loss of premium; r = +1 means you double your money."
+        )
         col_c, col_d = st.columns(2)
         col_c.metric("Continuous (Thorp)", f"{rep_kelly.f_continuous:.1%}")
         col_c.caption(
@@ -434,8 +438,8 @@ def render_kelly_panel(rep_kelly) -> None:
 
         st.markdown("**Return distribution under your view:**")
         col_e, col_v, col_l, col_t = st.columns(4)
-        col_e.metric("E[r]", f"{rep_kelly.expected_return:+.2%}")
-        col_v.metric("Var[r]", f"{rep_kelly.variance:.3f}")
+        col_e.metric("E[r] (over tenor, not annualised)", f"{rep_kelly.expected_return:+.2%}")
+        col_v.metric("Variance of r", f"{rep_kelly.variance:.3f}")
         col_l.metric("P(loss)", f"{rep_kelly.prob_loss:.1%}")
         col_t.metric("P(total loss)", f"{rep_kelly.prob_total_loss:.1%}")
 
