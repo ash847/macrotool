@@ -384,32 +384,25 @@ def render_edge_panel(rep, strike: float) -> None:
     col_pm.metric("PM price", f"{rep.pm_price:.4f}")
     col_mkt.metric("Market price", f"{rep.mkt_price:.4f}")
     col_edge.metric(
-        "Full edge — your expected P&L vs market",
-        f"{rep.full_edge:+.4f}",
-        _fmt_pct(rep.full_edge_pct_of_mid),
+        "View edge — your view-divergence vs market",
+        f"{rep.view_edge:+.4f}",
+        _fmt_pct(rep.view_edge_pct_of_mid),
     )
 
-    with st.expander("What's behind the full edge?", expanded=False):
-        sub1, sub2 = st.columns(2)
-        sub1.metric(
-            "View edge",
-            f"{rep.view_edge:+.4f}",
-            _fmt_pct(rep.view_edge_pct_of_mid),
-        )
-        sub1.caption(
-            "What your view adds inside the price range you've described — "
-            "pure view-divergence with the truncation effect cancelled out."
-        )
-        sub2.metric("Anchoring cost", f"{rep.anchoring_cost:+.4f}")
-        sub2.caption(
-            "Pricing impact of the ~4% probability mass that your anchors "
-            "don't include — the tails outside your outer anchor points."
-        )
-        st.caption(
-            "Identity: **Full edge = View edge + Anchoring cost**. Edge is "
-            "**vs market-implied** (risk-neutral) pricing, not pure "
-            "forecasting edge."
-        )
+    # Anchoring cost shown as an accuracy / measurement-quality indicator,
+    # not as a P&L signal. It tells the PM how much the ~4% dropped tails
+    # distort the pricing, so they can judge how reliable the view edge number is.
+    anc_pct_str = ""
+    if rep.mkt_price > 1e-10:
+        anc_pct = rep.anchoring_cost / rep.mkt_price * 100.0
+        anc_pct_str = f" ({anc_pct:+.1f}% of mid)"
+    st.caption(
+        f"**Distribution accuracy — truncation error: {rep.anchoring_cost:+.4f}{anc_pct_str}.** "
+        f"Pricing impact of the ~4% tail mass outside your outer anchors. "
+        f"This is a measurement artifact — it does not affect your trade P&L. "
+        f"Large values mean the tails matter for this strike; small values mean "
+        f"the view edge number is a clean read."
+    )
 
 
 def render_kelly_panel(rep_kelly) -> None:
@@ -447,9 +440,9 @@ def render_kelly_panel(rep_kelly) -> None:
         col_t.metric("P(total loss)", f"{rep_kelly.prob_total_loss:.1%}")
 
         st.caption(
-            "Sized on **Full edge** — the trading-economics number, including the "
-            "anchoring cost. Adjust the sidebar sliders to see how multiplier and "
-            "cap change the displayed fraction."
+            "Sized on **view edge** — your view-divergence within the elicited range, "
+            "with the truncation artifact stripped out. Adjust the sidebar sliders "
+            "to see how multiplier and cap change the displayed fraction."
         )
 
 
@@ -541,9 +534,12 @@ def main() -> None:
     render_edge_panel(rep, strike)
 
     payoff = call_payoff(strike) if is_call else put_payoff(strike)
-    if rep.mkt_price > 1e-10:
+    # Kelly sizes on view edge: use shadow_price as the cost basis so that
+    # r = (DF·payoff − shadow_price) / shadow_price and E[r] = view_edge / shadow_price.
+    # This treats the truncation artifact as measurement noise, not real edge.
+    if rep.shadow_price > 1e-10:
         rep_kelly = compute_kelly(
-            pm, payoff, cost=rep.mkt_price, discount_factor=DISCOUNT_FACTOR,
+            pm, payoff, cost=rep.shadow_price, discount_factor=DISCOUNT_FACTOR,
             multiplier=float(st.session_state.kelly_multiplier),
             position_cap=float(st.session_state.kelly_cap),
         )
