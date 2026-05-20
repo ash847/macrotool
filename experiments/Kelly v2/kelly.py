@@ -143,7 +143,8 @@ def kelly_growth_curve(
     else:
         f_upper = SAFETY_F_MAX
 
-    f_max_plot = min(f_star * 2.5, f_upper) if f_star > 1e-6 else min(0.5, f_upper)
+    # Extend to the full ruin boundary so the PM can see the whole curve.
+    f_max_plot = f_upper
 
     f_values = np.linspace(0.0, f_max_plot, n_points)
     log_growth = np.array([

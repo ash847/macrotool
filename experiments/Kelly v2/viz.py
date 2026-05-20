@@ -154,33 +154,17 @@ def render_kelly_growth_curve(
 ) -> alt.Chart:
     """Kelly growth curve with expected-return overlay.
 
-    Blue line  — geometric return per trade: exp(E[log(1+f·r)]) − 1.
-      Peaks at f_star; falls back through zero past the overbetting cliff (~2×f*).
-    Grey line  — expected return: f · E[r]. Linear, always above geometric return
-      past small f because it ignores variance drag.
-    The gap between the two is the variance drag — why chasing E[r] oversizes.
+    Blue/red line — geometric return: exp(E[log(1+f·r)]) − 1. Blue above zero,
+      red below. Peaks at f_star.
+    Grey dashed  — expected return: f · E[r]. Linear, ignores variance drag.
     """
-    _COLOUR_ER = _COLOUR_MARKET  # grey for the naive E[r] line
+    _COLOUR_ER = _COLOUR_MARKET
+    _COLOUR_NEG = "red"
 
-    # Long-format DataFrame for the two lines
-    n = len(f_values)
-    df = pd.DataFrame({
-        "f": np.concatenate([f_values, f_values]),
-        "value": np.concatenate([geo_growth, er_curve]),
-        "series": ["Geometric return"] * n + ["Expected return (f · E[r])"] * n,
-    })
+    geo_df = pd.DataFrame({"f": f_values, "value": geo_growth})
+    er_df  = pd.DataFrame({"f": f_values, "value": er_curve})
 
-    _line_scale = alt.Scale(
-        domain=["Geometric return", "Expected return (f · E[r])"],
-        range=[_COLOUR_USER, _COLOUR_ER],
-    )
-    _dash_scale = alt.Scale(
-        domain=["Geometric return", "Expected return (f · E[r])"],
-        range=[[1, 0], [4, 3]],   # solid blue, dashed grey
-    )
-
-    # X-axis: ticks only at whole-number percentages.
-    # Pick a step that gives ~5–8 ticks across the range.
+    # X-axis: whole-number % ticks, ~5–8 across the range.
     f_max = float(f_values[-1])
     if f_max <= 0.12:
         tick_step = 0.02
@@ -191,74 +175,111 @@ def render_kelly_growth_curve(
     else:
         tick_step = 0.20
     tick_values = [round(v, 4) for v in np.arange(0.0, f_max + tick_step * 0.5, tick_step)]
-    x_axis = alt.Axis(format=".0%", values=tick_values)
+    x_ax = alt.Axis(format=".0%", values=tick_values)
+    y_ax = alt.Axis(format=".1%")
 
-    curves = (
-        alt.Chart(df)
-        .mark_line(strokeWidth=2)
+    # Geometric return: blue where >= 0, red where < 0
+    geo_pos = (
+        alt.Chart(geo_df).mark_line(color=_COLOUR_USER, strokeWidth=2)
         .encode(
-            x=alt.X("f:Q", title="Fraction of bankroll (f)", axis=x_axis),
-            y=alt.Y("value:Q", title="Return per trade", axis=alt.Axis(format=".1%")),
-            color=alt.Color("series:N", scale=_line_scale, title=None,
-                            legend=alt.Legend(orient="top-left", labelFontSize=10)),
-            strokeDash=alt.StrokeDash("series:N", scale=_dash_scale, legend=None),
-            tooltip=[
-                alt.Tooltip("series:N", title="Series"),
-                alt.Tooltip("f:Q", format=".1%", title="f"),
-                alt.Tooltip("value:Q", format=".2%", title="Return"),
-            ],
+            x=alt.X("f:Q", title="Fraction of bankroll (f)", axis=x_ax),
+            y=alt.Y("value:Q", title="Return per trade", axis=y_ax),
+            tooltip=[alt.Tooltip("f:Q", format=".1%", title="f"),
+                     alt.Tooltip("value:Q", format=".2%", title="Geometric return")],
+        )
+        .transform_filter("datum.value >= 0")
+    )
+    geo_neg = (
+        alt.Chart(geo_df).mark_line(color=_COLOUR_NEG, strokeWidth=2)
+        .encode(
+            x=alt.X("f:Q", axis=x_ax),
+            y=alt.Y("value:Q", axis=y_ax),
+            tooltip=[alt.Tooltip("f:Q", format=".1%", title="f"),
+                     alt.Tooltip("value:Q", format=".2%", title="Geometric return")],
+        )
+        .transform_filter("datum.value < 0")
+    )
+
+    # Expected return overlay (grey dashed)
+    er_line = (
+        alt.Chart(er_df).mark_line(color=_COLOUR_ER, strokeWidth=1.5, strokeDash=[4, 3])
+        .encode(
+            x=alt.X("f:Q", axis=x_ax),
+            y=alt.Y("value:Q", axis=y_ax),
+            tooltip=[alt.Tooltip("f:Q", format=".1%", title="f"),
+                     alt.Tooltip("value:Q", format=".2%", title="E[r] × f")],
         )
     )
 
-    # Zero reference line — use alt.datum so it shares the curves' y scale
+    # Zero reference line (shares geo_df so y scale is inferred correctly)
     zero_line = (
-        alt.Chart(df)
-        .mark_rule(color="#cccccc", strokeDash=[3, 3], strokeWidth=1)
+        alt.Chart(geo_df).mark_rule(color="#cccccc", strokeDash=[3, 3], strokeWidth=1)
         .encode(y=alt.datum(0))
     )
 
-    # Full Kelly peak: orange vertical rule + triangle + label
-    # All annotation DataFrames use "value" to match the curves' y field.
-    y_at_star = float(np.interp(f_star, f_values, geo_growth))
-    star_df = pd.DataFrame({
-        "f": [f_star], "value": [y_at_star],
-        "label": [f"Full Kelly ({f_star:.0%})"],
-    })
-    star_rule = (
-        alt.Chart(star_df)
-        .mark_rule(color="#F58518", strokeDash=[5, 3], strokeWidth=1.5)
-        .encode(x="f:Q")
+    # Inline line labels at right edge
+    er_end = pd.DataFrame({"f": [f_max], "value": [float(er_curve[-1])], "label": ["E[r] × f"]})
+    er_end_label = (
+        alt.Chart(er_end).mark_text(align="right", dx=-4, dy=-8, fontSize=9, color=_COLOUR_ER)
+        .encode(x="f:Q", y="value:Q", text="label:N")
     )
-    star_point = (
-        alt.Chart(star_df)
-        .mark_point(color="#F58518", size=90, filled=True, shape="triangle-up")
-        .encode(x="f:Q", y="value:Q", tooltip="label:N")
-    )
-    star_label = (
-        alt.Chart(star_df)
-        .mark_text(align="left", dx=6, dy=-2, fontSize=10, color="#F58518")
+    geo_peak = pd.DataFrame({"f": [f_star], "value": [float(np.interp(f_star, f_values, geo_growth))],
+                              "label": ["Geometric return"]})
+    geo_peak_label = (
+        alt.Chart(geo_peak).mark_text(align="left", dx=4, dy=-8, fontSize=9, color=_COLOUR_USER)
         .encode(x="f:Q", y="value:Q", text="label:N")
     )
 
-    # Current choice: filled dot + label on the geometric curve
+    def _point_layers(x_p: float, y_p: float, colour: str, shape: str) -> list:
+        """Marker + dotted crosshairs to both axes + axis value labels."""
+        df_p = pd.DataFrame({"f": [x_p], "value": [y_p]})
+
+        marker = (
+            alt.Chart(df_p).mark_point(color=colour, size=90, filled=True, shape=shape)
+            .encode(x="f:Q", y="value:Q")
+        )
+        # Vertical dotted line: from x-axis (y=0) to point
+        v_line = (
+            alt.Chart(df_p)
+            .mark_rule(color=colour, strokeDash=[4, 4], strokeWidth=1, opacity=0.7)
+            .encode(x="f:Q", y=alt.datum(0), y2="value:Q")
+        )
+        # Horizontal dotted line: from y-axis (x=0) to point
+        h_line = (
+            alt.Chart(df_p)
+            .mark_rule(color=colour, strokeDash=[4, 4], strokeWidth=1, opacity=0.7)
+            .encode(y="value:Q", x=alt.datum(0), x2="f:Q")
+        )
+        # X-axis value label (below the zero line)
+        x_lbl = (
+            alt.Chart(df_p)
+            .mark_text(align="center", dy=13, fontSize=9, color=colour, fontWeight="bold")
+            .encode(x="f:Q", y=alt.datum(0), text=alt.value(f"{x_p:.1%}"))
+        )
+        # Y-axis value label (left of the y-axis)
+        y_lbl = (
+            alt.Chart(df_p)
+            .mark_text(align="right", dx=-6, fontSize=9, color=colour, fontWeight="bold")
+            .encode(x=alt.datum(0), y="value:Q", text=alt.value(f"{y_p:.1%}"))
+        )
+        return [v_line, h_line, marker, x_lbl, y_lbl]
+
+    y_at_star      = float(np.interp(f_star,      f_values, geo_growth))
     y_at_displayed = float(np.interp(f_displayed, f_values, geo_growth))
-    disp_df = pd.DataFrame({
-        "f": [f_displayed], "value": [y_at_displayed],
-        "label": [f"Your choice ({f_displayed:.0%})"],
-    })
-    disp_point = (
-        alt.Chart(disp_df)
-        .mark_point(color=_COLOUR_USER, size=100, filled=True)
-        .encode(x="f:Q", y="value:Q", tooltip="label:N")
-    )
-    disp_label = (
-        alt.Chart(disp_df)
-        .mark_text(align="right", dx=-6, dy=-10, fontSize=10, color=_COLOUR_USER)
-        .encode(x="f:Q", y="value:Q", text="label:N")
+
+    star_layers = _point_layers(f_star,      y_at_star,      "#F58518", "triangle-up")
+    # Skip choice layers if it coincides with full Kelly
+    disp_layers = (
+        _point_layers(f_displayed, y_at_displayed, _COLOUR_USER, "circle")
+        if abs(f_displayed - f_star) > 1e-4 else []
     )
 
     return (
-        alt.layer(zero_line, curves, star_rule, star_point, star_label, disp_point, disp_label)
+        alt.layer(
+            zero_line, geo_pos, geo_neg, er_line,
+            *star_layers, *disp_layers,
+            er_end_label, geo_peak_label,
+        )
         .properties(height=405)
     )
 
