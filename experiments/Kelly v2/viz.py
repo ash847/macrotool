@@ -210,17 +210,18 @@ def render_kelly_growth_curve(
         )
     )
 
-    # Zero reference line
+    # Zero reference line — use alt.datum so it shares the curves' y scale
     zero_line = (
-        alt.Chart(pd.DataFrame({"y": [0.0]}))
+        alt.Chart(df)
         .mark_rule(color="#cccccc", strokeDash=[3, 3], strokeWidth=1)
-        .encode(y="y:Q")
+        .encode(y=alt.datum(0))
     )
 
-    # Full Kelly peak: orange triangle + label
+    # Full Kelly peak: orange vertical rule + triangle + label
+    # All annotation DataFrames use "value" to match the curves' y field.
     y_at_star = float(np.interp(f_star, f_values, geo_growth))
     star_df = pd.DataFrame({
-        "f": [f_star], "y": [y_at_star],
+        "f": [f_star], "value": [y_at_star],
         "label": [f"Full Kelly ({f_star:.0%})"],
     })
     star_rule = (
@@ -231,34 +232,34 @@ def render_kelly_growth_curve(
     star_point = (
         alt.Chart(star_df)
         .mark_point(color="#F58518", size=90, filled=True, shape="triangle-up")
-        .encode(x="f:Q", y="y:Q", tooltip="label:N")
+        .encode(x="f:Q", y="value:Q", tooltip="label:N")
     )
     star_label = (
         alt.Chart(star_df)
         .mark_text(align="left", dx=6, dy=-2, fontSize=10, color="#F58518")
-        .encode(x="f:Q", y="y:Q", text="label:N")
+        .encode(x="f:Q", y="value:Q", text="label:N")
     )
 
     # Current choice: filled dot + label on the geometric curve
     y_at_displayed = float(np.interp(f_displayed, f_values, geo_growth))
     disp_df = pd.DataFrame({
-        "f": [f_displayed], "y": [y_at_displayed],
+        "f": [f_displayed], "value": [y_at_displayed],
         "label": [f"Your choice ({f_displayed:.0%})"],
     })
     disp_point = (
         alt.Chart(disp_df)
         .mark_point(color=_COLOUR_USER, size=100, filled=True)
-        .encode(x="f:Q", y="y:Q", tooltip="label:N")
+        .encode(x="f:Q", y="value:Q", tooltip="label:N")
     )
     disp_label = (
         alt.Chart(disp_df)
         .mark_text(align="right", dx=-6, dy=-10, fontSize=10, color=_COLOUR_USER)
-        .encode(x="f:Q", y="y:Q", text="label:N")
+        .encode(x="f:Q", y="value:Q", text="label:N")
     )
 
     return (
         alt.layer(zero_line, curves, star_rule, star_point, star_label, disp_point, disp_label)
-        .properties(height=270)
+        .properties(height=405)
     )
 
 
