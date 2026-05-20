@@ -145,6 +145,94 @@ def render_option2_chart(
     )
 
 
+def render_kelly_growth_curve(
+    f_values: np.ndarray,
+    log_growth: np.ndarray,
+    f_star: float,
+    f_displayed: float,
+) -> alt.Chart:
+    """Kelly growth curve: E[log(1+f·r)] vs f.
+
+    Shows the full curve, the full-Kelly peak (orange triangle), the current
+    choice (blue dot), and the zero-growth reference line.  The asymmetry —
+    that overbetting hurts faster than underbetting helps — is visible in the
+    curve shape.
+    """
+    df = pd.DataFrame({"f": f_values, "log_growth": log_growth})
+
+    y_at_star = float(np.interp(f_star, f_values, log_growth))
+    y_at_displayed = float(np.interp(f_displayed, f_values, log_growth))
+
+    # Main curve
+    curve = (
+        alt.Chart(df)
+        .mark_line(color=_COLOUR_USER, strokeWidth=2)
+        .encode(
+            x=alt.X("f:Q", title="Fraction of bankroll (f)", axis=alt.Axis(format=".0%")),
+            y=alt.Y("log_growth:Q", title="E[log(1 + f·r)]"),
+            tooltip=[
+                alt.Tooltip("f:Q", format=".1%", title="f"),
+                alt.Tooltip("log_growth:Q", format=".5f", title="Log growth"),
+            ],
+        )
+    )
+
+    # Zero reference line — below this the strategy destroys long-run wealth
+    zero_line = (
+        alt.Chart(pd.DataFrame({"y": [0.0]}))
+        .mark_rule(color="#aaaaaa", strokeDash=[4, 4], strokeWidth=1)
+        .encode(y="y:Q")
+    )
+
+    # Full Kelly: vertical rule + triangle marker + label
+    star_df = pd.DataFrame({
+        "f": [f_star], "y": [y_at_star],
+        "label": [f"Full Kelly ({f_star:.0%})"],
+    })
+    star_rule = (
+        alt.Chart(star_df)
+        .mark_rule(color="#F58518", strokeDash=[5, 3], strokeWidth=1.5)
+        .encode(x="f:Q")
+    )
+    star_point = (
+        alt.Chart(star_df)
+        .mark_point(color="#F58518", size=90, filled=True, shape="triangle-up")
+        .encode(
+            x="f:Q", y="y:Q",
+            tooltip=alt.Tooltip("label:N"),
+        )
+    )
+    star_label = (
+        alt.Chart(star_df)
+        .mark_text(align="left", dx=6, dy=-2, fontSize=10, color="#F58518")
+        .encode(x="f:Q", y="y:Q", text="label:N")
+    )
+
+    # Current choice: filled circle + label
+    disp_df = pd.DataFrame({
+        "f": [f_displayed], "y": [y_at_displayed],
+        "label": [f"Your choice ({f_displayed:.0%})"],
+    })
+    disp_point = (
+        alt.Chart(disp_df)
+        .mark_point(color=_COLOUR_USER, size=100, filled=True)
+        .encode(
+            x="f:Q", y="y:Q",
+            tooltip=alt.Tooltip("label:N"),
+        )
+    )
+    disp_label = (
+        alt.Chart(disp_df)
+        .mark_text(align="right", dx=-6, dy=-10, fontSize=10, color=_COLOUR_USER)
+        .encode(x="f:Q", y="y:Q", text="label:N")
+    )
+
+    return (
+        alt.layer(zero_line, curve, star_rule, star_point, star_label, disp_point, disp_label)
+        .properties(height=185)
+    )
+
+
 def render_option2_stacked_chart(
     user_probs: np.ndarray,
     market_probs: np.ndarray,

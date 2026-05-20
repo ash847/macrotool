@@ -32,9 +32,10 @@ from elicitation import (
     elicit_from_pdf_buckets,
     sigma_boundaries_to_prices,
 )
-from kelly import compute_kelly
+from kelly import compute_kelly, kelly_growth_curve
 from pricing import call_payoff, forward_of, put_payoff
 from viz import (
+    render_kelly_growth_curve,
     render_option1_chart,
     render_option2_chart,
     render_option2_stacked_chart,
@@ -398,7 +399,7 @@ def render_edge_panel(rep, strike: float) -> None:
     )
 
 
-def render_kelly_panel(rep_kelly) -> None:
+def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
     if rep_kelly.unbounded_loss:
         st.warning(
             "This structure has potential losses that exceed the premium by a large multiple. "
@@ -421,6 +422,15 @@ def render_kelly_panel(rep_kelly) -> None:
     )
     col_raw.metric("Full Kelly (before multiplier)", f"{rep_kelly.f_discrete:.1%}")
     col_growth.metric("Expected log-growth", f"{rep_kelly.expected_log_growth:+.4f}")
+
+    f_vals, lg_vals = kelly_growth_curve(
+        pm, payoff, cost=shadow_price, discount_factor=DISCOUNT_FACTOR,
+        f_star=rep_kelly.f_raw,
+    )
+    st.altair_chart(
+        render_kelly_growth_curve(f_vals, lg_vals, rep_kelly.f_raw, rep_kelly.f_displayed),
+        use_container_width=True,
+    )
 
     with st.expander("Kelly breakdown — solvers and risk metrics", expanded=False):
         st.caption(
@@ -547,7 +557,7 @@ def main() -> None:
             pm, payoff, cost=rep.shadow_price, discount_factor=DISCOUNT_FACTOR,
             multiplier=float(st.session_state.kelly_multiplier),
         )
-        render_kelly_panel(rep_kelly)
+        render_kelly_panel(rep_kelly, pm, payoff, rep.shadow_price)
 
 
 if __name__ == "__main__":

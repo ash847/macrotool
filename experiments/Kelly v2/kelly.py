@@ -114,6 +114,37 @@ def kelly_discrete(
     return max(0.0, float(result.x))
 
 
+def kelly_growth_curve(
+    dist: Distribution,
+    payoff: PayoffFn,
+    cost: float,
+    discount_factor: float = 1.0,
+    f_star: float = 0.0,
+    n_points: int = 300,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (f_values, expected_log_growth) for plotting the Kelly growth curve.
+
+    x range: 0 → ~2.5×f_star (shows the peak and the fall back through zero).
+    Capped at the ruin boundary (1/|r_min| − ε) so log terms stay finite.
+    """
+    r = _returns(dist, payoff, cost, discount_factor)
+    r_min = float(r.min())
+
+    if r_min <= -1.0 + 1e-9:
+        f_upper = min(1.0 / (-r_min) - 1e-9, SAFETY_F_MAX)
+    else:
+        f_upper = SAFETY_F_MAX
+
+    f_max_plot = min(f_star * 2.5, f_upper) if f_star > 1e-6 else min(0.5, f_upper)
+
+    f_values = np.linspace(0.0, f_max_plot, n_points)
+    log_growth = np.array([
+        float(np.dot(dist.probs, np.log(np.clip(1.0 + f * r, 1e-300, None))))
+        for f in f_values
+    ])
+    return f_values, log_growth
+
+
 def _expected_log_growth(
     dist: Distribution,
     payoff: PayoffFn,
