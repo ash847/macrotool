@@ -32,7 +32,8 @@ from elicitation import (
     elicit_from_pdf_buckets,
     sigma_boundaries_to_prices,
 )
-from pricing import forward_of
+from kelly import compute_kelly
+from pricing import call_payoff, forward_of, put_payoff
 from viz import (
     render_option1_chart,
     render_option2_chart,
@@ -71,6 +72,8 @@ def init_state() -> None:
         "tenor_years": 0.25,
         "strike": 5.00,
         "is_call": True,
+        "kelly_multiplier": 0.50,
+        "kelly_cap": 0.20,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -231,6 +234,21 @@ def render_sidebar() -> None:
         st.caption(
             "Discount factor for pricing is fixed at 1.0 in this prototype "
             "(it cancels out of edge under consistent application)."
+        )
+
+        st.divider()
+        st.header("Kelly sizing")
+        st.slider(
+            "Kelly multiplier",
+            min_value=0.10, max_value=1.00, step=0.05,
+            key="kelly_multiplier",
+            help="Fractional Kelly. Default 0.5 (half-Kelly). Full Kelly is famously aggressive.",
+        )
+        st.slider(
+            "Position cap",
+            min_value=0.05, max_value=1.00, step=0.05,
+            key="kelly_cap",
+            help="Hard ceiling on the displayed fraction (max % of bankroll per trade).",
         )
 
 
@@ -394,6 +412,47 @@ def render_edge_panel(rep, strike: float) -> None:
         )
 
 
+def render_kelly_panel(rep_kelly) -> None:
+    if rep_kelly.expected_return <= 0:
+        st.info(
+            "Expected return under your distribution is ≤ 0 — Kelly says don't take the trade. "
+            f"(E[r] = {rep_kelly.expected_return:+.2%})"
+        )
+        return
+
+    col_disp, col_raw, col_growth = st.columns([2, 1, 1])
+    col_disp.metric(
+        f"Kelly fraction (sized at × {rep_kelly.multiplier:.2f}, capped at {rep_kelly.position_cap:.0%})",
+        f"{rep_kelly.f_displayed:.1%}",
+    )
+    col_raw.metric("Raw Kelly (discrete)", f"{rep_kelly.f_discrete:.1%}")
+    col_growth.metric("Expected log-growth", f"{rep_kelly.expected_log_growth:+.4f}")
+
+    with st.expander("Kelly breakdown — solvers and risk metrics", expanded=False):
+        col_c, col_d = st.columns(2)
+        col_c.metric("Continuous (Thorp)", f"{rep_kelly.f_continuous:.1%}")
+        col_c.caption(
+            "Closed-form `E[r] / Var[r]`. Taylor expansion — breaks down when |r| is large."
+        )
+        col_d.metric("Discrete (numerical)", f"{rep_kelly.f_discrete:.1%}")
+        col_d.caption(
+            "Numerical max of `E[log(1 + f·r)]`. Canonical Kelly — trust this."
+        )
+
+        st.markdown("**Return distribution under your view:**")
+        col_e, col_v, col_l, col_t = st.columns(4)
+        col_e.metric("E[r]", f"{rep_kelly.expected_return:+.2%}")
+        col_v.metric("Var[r]", f"{rep_kelly.variance:.3f}")
+        col_l.metric("P(loss)", f"{rep_kelly.prob_loss:.1%}")
+        col_t.metric("P(total loss)", f"{rep_kelly.prob_total_loss:.1%}")
+
+        st.caption(
+            "Sized on **Full edge** — the trading-economics number, including the "
+            "anchoring cost. Adjust the sidebar sliders to see how multiplier and "
+            "cap change the displayed fraction."
+        )
+
+
 _COMPACT_CSS = """
 <style>
 section.main > div.block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 100% !important; }
@@ -480,6 +539,15 @@ def main() -> None:
     strike, is_call = render_structure_inputs()
     rep = compute_edge(pm, base, shadow, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
     render_edge_panel(rep, strike)
+
+    payoff = call_payoff(strike) if is_call else put_payoff(strike)
+    if rep.mkt_price > 1e-10:
+        rep_kelly = compute_kelly(
+            pm, payoff, cost=rep.mkt_price, discount_factor=DISCOUNT_FACTOR,
+            multiplier=float(st.session_state.kelly_multiplier),
+            position_cap=float(st.session_state.kelly_cap),
+        )
+        render_kelly_panel(rep_kelly)
 
 
 if __name__ == "__main__":
