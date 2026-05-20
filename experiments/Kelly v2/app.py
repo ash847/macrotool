@@ -399,6 +399,14 @@ def render_edge_panel(rep, strike: float) -> None:
 
 
 def render_kelly_panel(rep_kelly) -> None:
+    if rep_kelly.unbounded_loss:
+        st.warning(
+            "This structure has potential losses that exceed the premium by a large multiple. "
+            "Kelly sizing requires bounded downside — add a defined stop (e.g. an outer wing) "
+            "before sizing this trade."
+        )
+        return
+
     if rep_kelly.expected_return <= 0:
         st.info(
             "Expected return under your distribution is ≤ 0 — Kelly says don't take the trade. "
@@ -411,7 +419,7 @@ def render_kelly_panel(rep_kelly) -> None:
         f"Kelly fraction (× {rep_kelly.multiplier:.2f} of full Kelly)",
         f"{rep_kelly.f_displayed:.1%}",
     )
-    col_raw.metric("Raw Kelly (discrete)", f"{rep_kelly.f_discrete:.1%}")
+    col_raw.metric("Full Kelly (before multiplier)", f"{rep_kelly.f_discrete:.1%}")
     col_growth.metric("Expected log-growth", f"{rep_kelly.expected_log_growth:+.4f}")
 
     with st.expander("Kelly breakdown — solvers and risk metrics", expanded=False):

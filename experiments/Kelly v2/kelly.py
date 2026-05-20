@@ -24,6 +24,9 @@ from pricing import PayoffFn
 
 SAFETY_F_MAX: float = 0.999  # keeps log(1 + f·(-1)) finite for total-loss outcomes
 MIN_VARIANCE: float = 1e-12
+# If r_min is more negative than this the structure has material downside beyond
+# the distribution's truncated support — Kelly is unreliable and we decline.
+UNBOUNDED_LOSS_THRESHOLD: float = -10.0
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,7 @@ class KellyReport:
     prob_loss: float           # P(r < 0)
     prob_total_loss: float     # P(r = -1) — option expires worthless
     expected_log_growth: float # E[log(1 + f_displayed · r)] — the thing Kelly maximises
+    unbounded_loss: bool       # True if r_min << -1 → Kelly declined (all f_* are 0)
 
 
 def _returns(
@@ -84,10 +88,15 @@ def kelly_discrete(
     if e_r <= 0:
         return 0.0
 
-    # If the worst-case return is > -1 (e.g. all outcomes in-the-money), the
-    # log term is finite at f = 1 and we can raise the search ceiling.
+    # Set the search ceiling so that log(1 + f·r_min) never hits log(0).
+    # For long options r_min = -1 exactly → upper = SAFETY_F_MAX (< 1).
+    # For structures with r_min < -1 (loss exceeds premium) → upper = 1/|r_min| - ε.
+    # For structures with r_min > -1 (all bins ITM) → upper = f_max unconstrained.
     r_min = float(r.min())
-    upper = min(f_max, SAFETY_F_MAX) if r_min <= -1.0 + 1e-9 else f_max
+    if r_min <= -1.0 + 1e-9:
+        upper = min(f_max, 1.0 / (-r_min) - 1e-9)
+    else:
+        upper = f_max
 
     def neg_log_growth(f: float) -> float:
         terms = 1.0 + f * r
@@ -132,6 +141,25 @@ def compute_kelly(
     if not (0.0 < multiplier <= 1.0):
         raise ValueError(f"multiplier must lie in (0, 1]; got {multiplier}")
 
+    r = _returns(dist, payoff, cost, discount_factor)
+    r_min = float(r.min())
+    unbounded = r_min < UNBOUNDED_LOSS_THRESHOLD
+
+    if unbounded:
+        # Decline: structure has potential loss far exceeding premium; Kelly
+        # would be driven by the distribution truncation point, not the view.
+        e_r = float(np.dot(dist.probs, r))
+        var_r = float(np.dot(dist.probs, (r - e_r) ** 2))
+        prob_loss = float(dist.probs[r < 0].sum())
+        prob_total_loss = float(dist.probs[r <= -1.0 + 1e-9].sum())
+        return KellyReport(
+            f_continuous=0.0, f_discrete=0.0, f_raw=0.0, f_displayed=0.0,
+            multiplier=multiplier,
+            expected_return=e_r, variance=var_r,
+            prob_loss=prob_loss, prob_total_loss=prob_total_loss,
+            expected_log_growth=0.0, unbounded_loss=True,
+        )
+
     f_c = kelly_continuous(dist, payoff, cost, discount_factor)
     f_d = kelly_discrete(dist, payoff, cost, discount_factor)
 
@@ -140,7 +168,6 @@ def compute_kelly(
     f_raw = f_d
     f_displayed = f_raw * multiplier
 
-    r = _returns(dist, payoff, cost, discount_factor)
     e_r = float(np.dot(dist.probs, r))
     var_r = float(np.dot(dist.probs, (r - e_r) ** 2))
     prob_loss = float(dist.probs[r < 0].sum())
@@ -161,4 +188,5 @@ def compute_kelly(
         prob_loss=prob_loss,
         prob_total_loss=prob_total_loss,
         expected_log_growth=expected_log_growth,
+        unbounded_loss=False,
     )

@@ -78,9 +78,9 @@ After the initial 9-step build, several UX issues surfaced during PM testing:
 
 - Grid extent (truncate-with-warning vs parametric tail) — see PLAN.md decisions section. Reinforced after step 4 (above). Three-way edge decomposition now makes the truncation cost explicit in the UI, which may reduce the need to change the policy itself.
 
-## Kelly fraction (next phase) — agreed design
+## Kelly fraction — built and shipped
 
-Discussed and locked in this session; build deferred.
+Originally deferred; now built. Key decisions made during build:
 
 ### Sized on Full edge
 
@@ -124,16 +124,24 @@ Surface:
 | Kelly multiplier | 0.5 (half-Kelly) | 0.10–1.00 | Slider, recomputes outputs live |
 | Position cap | 0.20 | 0.05–1.00 | Hard ceiling on the displayed fraction |
 
-**Ordering:** `f_displayed = min(f* × multiplier, cap)` — multiply first, then cap. Cap is "max position size", not "max Kelly input".
+**Ordering:** `f_displayed = f* × multiplier` — position cap removed (redundant given multiplier).
 
-### UI panel layout (sketch)
+**View edge not full edge.** Kelly sizes on `view_edge`, not `full_edge`. Cost basis is `shadow_price` so that `r = (DF·payoff − shadow_price) / shadow_price` and `E[r] = view_edge / shadow_price`. The anchoring cost (truncation artifact) is shown as a distribution accuracy indicator, not a P&L signal.
 
-Sits under the existing edge readout. Strawman:
+**Unbounded downside guard.** If `r_min < UNBOUNDED_LOSS_THRESHOLD` (−10), Kelly declines with a warning. The optimizer upper bound is fixed to `1/|r_min| − ε` for bounded-but-excess-loss cases.
+
+**Multiplier next step.** Currently just scales f* arithmetically. Agreed direction: show the Kelly growth curve (E[log(1+f·r)] vs f) so the multiplier becomes a point on a curve the PM can read, not bare arithmetic.
+
+### UI panel layout (as built)
+
+Sits under the existing edge readout:
 
 ```
-Kelly fraction (raw, full):        0.84
-Kelly fraction (half × cap):       0.20    ← f_displayed
-   half-Kelly slider  [────●────]  0.50
+Kelly fraction (× 0.50 of full Kelly):   0.20    ← f_displayed
+Full Kelly (before multiplier):           0.40
+Expected log-growth:                     +0.012
+   [Kelly breakdown expander]
+```
    position cap       [─●────────] 0.20
 
 Expected return:                   +14.2%

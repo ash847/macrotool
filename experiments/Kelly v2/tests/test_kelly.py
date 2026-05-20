@@ -6,6 +6,7 @@ from elicitation import Distribution
 from kelly import (
     KellyReport,
     SAFETY_F_MAX,
+    UNBOUNDED_LOSS_THRESHOLD,
     compute_kelly,
     kelly_continuous,
     kelly_discrete,
@@ -216,3 +217,44 @@ def test_kelly_works_for_puts():
     cost = 0.4
     f = kelly_discrete(dist, payoff, cost=cost)
     assert f > 0
+
+
+# --- unbounded loss guard ---
+
+
+def test_unbounded_loss_flag_set():
+    """Payoff with r_min << -1 should set unbounded_loss=True and zero all fractions."""
+    bins = np.array([4.0, 5.0, 7.0])
+    probs = np.array([0.3, 0.4, 0.3])
+    dist = Distribution(bins=bins, probs=probs)
+    cost = 0.5
+
+    # At bin 7.0: payoff = -50 → r = (-50 - 0.5)/0.5 = -101 << UNBOUNDED_LOSS_THRESHOLD
+    def bad_payoff(s: np.ndarray) -> np.ndarray:
+        return np.where(s > 5.5, -50.0, 1.0)
+
+    rep = compute_kelly(dist, bad_payoff, cost=cost)
+    assert rep.unbounded_loss is True
+    assert rep.f_displayed == 0.0
+    assert rep.f_raw == 0.0
+
+
+def test_bounded_excess_loss_still_computes():
+    """r_min between -1 and UNBOUNDED_LOSS_THRESHOLD: Kelly runs, upper bound is correct."""
+    # r_min = -3: loss is 3× the premium but well within threshold.
+    # Distribution: two bins, one gives r = -3, other gives r = +5 with p=0.8.
+    bins = np.array([4.0, 6.0])
+    probs = np.array([0.2, 0.8])
+    dist = Distribution(bins=bins, probs=probs)
+    cost = 0.5
+
+    def bounded_payoff(s: np.ndarray) -> np.ndarray:
+        # payoff at 4.0 → -1.0  → r = (-1.0 - 0.5)/0.5 = -3.0
+        # payoff at 6.0 →  3.0  → r = (3.0 - 0.5)/0.5 = +5.0
+        return np.where(s < 5.0, -1.0, 3.0)
+
+    rep = compute_kelly(dist, bounded_payoff, cost=cost)
+    assert rep.unbounded_loss is False
+    assert rep.f_raw > 0
+    # Upper bound for optimizer was 1/3 - ε ≈ 0.333; f* must be below that.
+    assert rep.f_discrete < 1.0 / 3.0 + 1e-6
