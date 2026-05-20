@@ -73,7 +73,7 @@ def init_state() -> None:
         "tenor_years": 0.25,
         "strike": 5.00,
         "is_call": True,
-        "kelly_multiplier": 0.50,
+        "kelly_multiplier": 50,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -236,8 +236,6 @@ def render_sidebar() -> None:
             "(it cancels out of edge under consistent application)."
         )
 
-        st.divider()
-        st.caption("Kelly multiplier set in the main panel.")
 
 
 def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
@@ -256,6 +254,7 @@ def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
             v = st.number_input(
                 f"P ≤ {int(round(q * 100))}%",
                 min_value=0.0001, step=0.01, format="%.4f", key=key,
+                on_change=_mark_distribution_modified,
             )
             prices.append(v)
 
@@ -295,6 +294,7 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
                 "%",
                 min_value=0, max_value=100, step=1,
                 format="%d", key=key, label_visibility="collapsed",
+                on_change=_mark_distribution_modified,
             )
             probs_pct.append(v)
 
@@ -320,12 +320,8 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
     return boundaries, probs
 
 
-def _decrement_multiplier() -> None:
-    st.session_state.kelly_multiplier = max(0.10, round(st.session_state.kelly_multiplier - 0.05, 2))
-
-
-def _increment_multiplier() -> None:
-    st.session_state.kelly_multiplier = min(1.00, round(st.session_state.kelly_multiplier + 0.05, 2))
+def _mark_distribution_modified() -> None:
+    st.session_state.distribution_modified = True
 
 
 def _renormalise_buckets(n_buckets: int) -> None:
@@ -429,27 +425,24 @@ def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
     col_fstar.metric("Full Kelly (f*)", f"{rep_kelly.f_discrete:.1%}")
     col_growth.metric("Expected log-growth at your fraction", f"{rep_kelly.expected_log_growth:+.4f}")
 
-    # Multiplier input bar: [−]  [number_input]  [+]  →  fraction label
-    st.markdown("**Kelly multiplier**")
-    col_minus, col_num, col_plus, col_result = st.columns([0.4, 1, 0.4, 2])
-    col_minus.button("−", on_click=_decrement_multiplier, use_container_width=True,
-                     help="−5%", key="kelly_minus")
+    # Multiplier input — left-aligned, integer %, 1% steps, no buttons
+    col_num, col_result, _ = st.columns([1, 1, 2])
     col_num.number_input(
-        "multiplier", min_value=0.10, max_value=1.00, step=0.05, format="%.2f",
-        key="kelly_multiplier", label_visibility="collapsed",
+        "Multiplier (%)", min_value=10, max_value=100, step=1, format="%d",
+        key="kelly_multiplier",
     )
-    col_plus.button("+", on_click=_increment_multiplier, use_container_width=True,
-                    help="+5%", key="kelly_plus")
     col_result.markdown(f"→ &nbsp; **{rep_kelly.f_displayed:.1%}** of bankroll")
 
-    f_vals, geo_vals, er_vals = kelly_growth_curve(
-        pm, payoff, cost=shadow_price, discount_factor=DISCOUNT_FACTOR,
-        f_star=rep_kelly.f_raw,
-    )
-    st.altair_chart(
-        render_kelly_growth_curve(f_vals, geo_vals, er_vals, rep_kelly.f_raw, rep_kelly.f_displayed),
-        use_container_width=True,
-    )
+    # Chart: only after the PM has changed the distribution at least once
+    if st.session_state.get("distribution_modified", False):
+        f_vals, geo_vals, er_vals = kelly_growth_curve(
+            pm, payoff, cost=shadow_price, discount_factor=DISCOUNT_FACTOR,
+            f_star=rep_kelly.f_raw,
+        )
+        st.altair_chart(
+            render_kelly_growth_curve(f_vals, geo_vals, er_vals, rep_kelly.f_raw, rep_kelly.f_displayed),
+            use_container_width=True,
+        )
 
     with st.expander("Kelly breakdown — solvers and risk metrics", expanded=False):
         st.caption(
@@ -573,7 +566,7 @@ def main() -> None:
     if rep.shadow_price > 1e-10:
         rep_kelly = compute_kelly(
             pm, payoff, cost=rep.shadow_price, discount_factor=DISCOUNT_FACTOR,
-            multiplier=float(st.session_state.kelly_multiplier),
+            multiplier=st.session_state.kelly_multiplier / 100.0,
         )
         render_kelly_panel(rep_kelly, pm, payoff, rep.shadow_price)
 
