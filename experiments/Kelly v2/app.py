@@ -237,13 +237,7 @@ def render_sidebar() -> None:
         )
 
         st.divider()
-        st.header("Kelly sizing")
-        st.slider(
-            "Kelly multiplier",
-            min_value=0.10, max_value=1.00, step=0.05,
-            key="kelly_multiplier",
-            help="Fractional Kelly. Default 0.5 (half-Kelly). Full Kelly is famously aggressive.",
-        )
+        st.caption("Kelly multiplier set in the main panel.")
 
 
 def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
@@ -430,22 +424,23 @@ def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
         )
         return
 
-    col_disp, col_raw, col_growth = st.columns([2, 1, 1])
+    # Full Kelly + log-growth on one row
+    col_fstar, col_growth = st.columns([1, 1])
+    col_fstar.metric("Full Kelly (f*)", f"{rep_kelly.f_discrete:.1%}")
+    col_growth.metric("Expected log-growth at your fraction", f"{rep_kelly.expected_log_growth:+.4f}")
 
-    with col_disp:
-        st.metric(
-            f"Kelly fraction (× {rep_kelly.multiplier:.2f} of full Kelly)",
-            f"{rep_kelly.f_displayed:.1%}",
-        )
-        btn_minus, btn_label, btn_plus = st.columns([1, 2, 1])
-        btn_minus.button("−", on_click=_decrement_multiplier, use_container_width=True,
-                         help="Decrease multiplier by 5%", key="kelly_minus")
-        btn_label.caption(f"Multiplier: **{rep_kelly.multiplier:.0%}**")
-        btn_plus.button("+", on_click=_increment_multiplier, use_container_width=True,
-                        help="Increase multiplier by 5%", key="kelly_plus")
-
-    col_raw.metric("Full Kelly (before multiplier)", f"{rep_kelly.f_discrete:.1%}")
-    col_growth.metric("Expected log-growth", f"{rep_kelly.expected_log_growth:+.4f}")
+    # Multiplier input bar: [−]  [number_input]  [+]  →  fraction label
+    st.markdown("**Kelly multiplier**")
+    col_minus, col_num, col_plus, col_result = st.columns([0.4, 1, 0.4, 2])
+    col_minus.button("−", on_click=_decrement_multiplier, use_container_width=True,
+                     help="−5%", key="kelly_minus")
+    col_num.number_input(
+        "multiplier", min_value=0.10, max_value=1.00, step=0.05, format="%.2f",
+        key="kelly_multiplier", label_visibility="collapsed",
+    )
+    col_plus.button("+", on_click=_increment_multiplier, use_container_width=True,
+                    help="+5%", key="kelly_plus")
+    col_result.markdown(f"→ &nbsp; **{rep_kelly.f_displayed:.1%}** of bankroll")
 
     f_vals, geo_vals, er_vals = kelly_growth_curve(
         pm, payoff, cost=shadow_price, discount_factor=DISCOUNT_FACTOR,
@@ -480,8 +475,7 @@ def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
 
         st.caption(
             "Sized on **view edge** — your view-divergence within the elicited range, "
-            "with the truncation artifact stripped out. Adjust the sidebar sliders "
-            "to see how multiplier and cap change the displayed fraction."
+            "with the truncation artifact stripped out."
         )
 
 

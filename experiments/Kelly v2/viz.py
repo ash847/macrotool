@@ -179,11 +179,25 @@ def render_kelly_growth_curve(
         range=[[1, 0], [4, 3]],   # solid blue, dashed grey
     )
 
+    # X-axis: ticks only at whole-number percentages.
+    # Pick a step that gives ~5–8 ticks across the range.
+    f_max = float(f_values[-1])
+    if f_max <= 0.12:
+        tick_step = 0.02
+    elif f_max <= 0.30:
+        tick_step = 0.05
+    elif f_max <= 0.60:
+        tick_step = 0.10
+    else:
+        tick_step = 0.20
+    tick_values = [round(v, 4) for v in np.arange(0.0, f_max + tick_step * 0.5, tick_step)]
+    x_axis = alt.Axis(format=".0%", values=tick_values)
+
     curves = (
         alt.Chart(df)
         .mark_line(strokeWidth=2)
         .encode(
-            x=alt.X("f:Q", title="Fraction of bankroll (f)", axis=alt.Axis(format=".0%")),
+            x=alt.X("f:Q", title="Fraction of bankroll (f)", axis=x_axis),
             y=alt.Y("value:Q", title="Return per trade", axis=alt.Axis(format=".1%")),
             color=alt.Color("series:N", scale=_line_scale, title=None,
                             legend=alt.Legend(orient="top-left", labelFontSize=10)),
