@@ -10,6 +10,7 @@ from kelly import (
     kelly_continuous,
     kelly_discrete,
 )
+
 from pricing import call_payoff, put_payoff
 
 
@@ -134,40 +135,26 @@ def test_continuous_close_to_discrete_for_small_edge():
 def test_compute_kelly_returns_full_report():
     dist = binary_distribution(p_win=0.6, win_price=6.0, lose_price=4.0)
     payoff = call_payoff(strike=5.0)
-    rep = compute_kelly(dist, payoff, cost=0.4, multiplier=0.5, position_cap=0.20)
+    rep = compute_kelly(dist, payoff, cost=0.4, multiplier=0.5)
 
     assert isinstance(rep, KellyReport)
     assert rep.f_discrete > 0
-    assert rep.f_displayed == min(rep.f_raw * 0.5, 0.20)
+    assert rep.f_displayed == pytest.approx(rep.f_raw * 0.5, abs=1e-9)
     # r_lose = -1, r_win = (1.0 - 0.4)/0.4 = 1.5 → E[r] = 0.4*(-1) + 0.6*1.5 = 0.5
     expected_r = 0.4 * (-1.0) + 0.6 * 1.5
     assert rep.expected_return == pytest.approx(expected_r, abs=1e-12)
 
 
-def test_displayed_fraction_respects_multiplier_when_uncapped():
-    """When cap doesn't bind, f_displayed = f_raw × multiplier."""
+def test_displayed_fraction_respects_multiplier():
+    """f_displayed = f_raw × multiplier."""
     dist = binary_distribution(p_win=0.6, win_price=6.0, lose_price=4.0)
     payoff = call_payoff(strike=5.0)
-    # cost low enough that raw Kelly is comfortably below cap
     cost = 0.4
 
-    rep_full = compute_kelly(dist, payoff, cost=cost, multiplier=1.0, position_cap=1.0)
-    rep_half = compute_kelly(dist, payoff, cost=cost, multiplier=0.5, position_cap=1.0)
+    rep_full = compute_kelly(dist, payoff, cost=cost, multiplier=1.0)
+    rep_half = compute_kelly(dist, payoff, cost=cost, multiplier=0.5)
 
     assert rep_half.f_displayed == pytest.approx(rep_full.f_displayed * 0.5, abs=1e-9)
-
-
-def test_displayed_fraction_respects_cap():
-    """When raw × multiplier exceeds cap, f_displayed = cap."""
-    # Strong edge → high raw Kelly
-    dist = binary_distribution(p_win=0.9, win_price=6.0, lose_price=4.0)
-    payoff = call_payoff(strike=5.0)
-    cost = 0.2  # win-return = +400%, very favourable
-
-    rep = compute_kelly(dist, payoff, cost=cost, multiplier=1.0, position_cap=0.10)
-    assert rep.f_displayed == pytest.approx(0.10, abs=1e-9)
-    # Raw should be much larger than the cap
-    assert rep.f_raw > 0.10
 
 
 def test_compute_kelly_validation():
@@ -178,10 +165,6 @@ def test_compute_kelly_validation():
         compute_kelly(dist, payoff, cost=0.4, multiplier=0.0)
     with pytest.raises(ValueError, match="multiplier"):
         compute_kelly(dist, payoff, cost=0.4, multiplier=1.5)
-    with pytest.raises(ValueError, match="position_cap"):
-        compute_kelly(dist, payoff, cost=0.4, position_cap=0.0)
-    with pytest.raises(ValueError, match="position_cap"):
-        compute_kelly(dist, payoff, cost=0.4, position_cap=1.5)
 
 
 def test_zero_cost_raises():
@@ -197,7 +180,7 @@ def test_zero_cost_raises():
 def test_prob_loss_and_total_loss():
     dist = binary_distribution(p_win=0.6, win_price=6.0, lose_price=4.0)
     payoff = call_payoff(strike=5.0)
-    rep = compute_kelly(dist, payoff, cost=0.4, multiplier=0.5, position_cap=0.20)
+    rep = compute_kelly(dist, payoff, cost=0.4, multiplier=0.5)
 
     # 40% of mass below the strike → total loss
     assert rep.prob_loss == pytest.approx(0.4, abs=1e-9)
@@ -207,7 +190,7 @@ def test_prob_loss_and_total_loss():
 def test_expected_log_growth_positive_for_favourable_bet():
     dist = binary_distribution(p_win=0.6, win_price=6.0, lose_price=4.0)
     payoff = call_payoff(strike=5.0)
-    rep = compute_kelly(dist, payoff, cost=0.4, multiplier=0.5, position_cap=0.50)
+    rep = compute_kelly(dist, payoff, cost=0.4, multiplier=0.5)
     assert rep.expected_log_growth > 0
 
 

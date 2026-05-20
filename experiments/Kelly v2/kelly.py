@@ -31,9 +31,8 @@ class KellyReport:
     f_continuous: float        # Thorp closed-form
     f_discrete: float          # numerical max of E[log(1+f·r)]
     f_raw: float               # whichever solver we use as the "Kelly answer"
-    f_displayed: float         # after multiplier and cap
+    f_displayed: float         # after multiplier
     multiplier: float
-    position_cap: float
     expected_return: float     # E[r]
     variance: float            # Var[r]
     prob_loss: float           # P(r < 0)
@@ -128,13 +127,10 @@ def compute_kelly(
     cost: float,
     discount_factor: float = 1.0,
     multiplier: float = 0.5,
-    position_cap: float = 0.20,
 ) -> KellyReport:
-    """Build the full Kelly report. `multiplier` ∈ (0, 1], `position_cap` ∈ (0, 1]."""
+    """Build the full Kelly report. `multiplier` ∈ (0, 1]."""
     if not (0.0 < multiplier <= 1.0):
         raise ValueError(f"multiplier must lie in (0, 1]; got {multiplier}")
-    if not (0.0 < position_cap <= 1.0):
-        raise ValueError(f"position_cap must lie in (0, 1]; got {position_cap}")
 
     f_c = kelly_continuous(dist, payoff, cost, discount_factor)
     f_d = kelly_discrete(dist, payoff, cost, discount_factor)
@@ -142,7 +138,7 @@ def compute_kelly(
     # The "Kelly answer" we use for sizing is the discrete (numerical) solver —
     # the continuous one is shown alongside as a diagnostic.
     f_raw = f_d
-    f_displayed = min(f_raw * multiplier, position_cap)
+    f_displayed = f_raw * multiplier
 
     r = _returns(dist, payoff, cost, discount_factor)
     e_r = float(np.dot(dist.probs, r))
@@ -160,7 +156,6 @@ def compute_kelly(
         f_raw=f_raw,
         f_displayed=f_displayed,
         multiplier=multiplier,
-        position_cap=position_cap,
         expected_return=e_r,
         variance=var_r,
         prob_loss=prob_loss,

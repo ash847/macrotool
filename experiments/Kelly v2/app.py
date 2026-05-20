@@ -73,7 +73,6 @@ def init_state() -> None:
         "strike": 5.00,
         "is_call": True,
         "kelly_multiplier": 0.50,
-        "kelly_cap": 0.20,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -244,12 +243,6 @@ def render_sidebar() -> None:
             key="kelly_multiplier",
             help="Fractional Kelly. Default 0.5 (half-Kelly). Full Kelly is famously aggressive.",
         )
-        st.slider(
-            "Position cap",
-            min_value=0.05, max_value=1.00, step=0.05,
-            key="kelly_cap",
-            help="Hard ceiling on the displayed fraction (max % of bankroll per trade).",
-        )
 
 
 def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
@@ -415,7 +408,7 @@ def render_kelly_panel(rep_kelly) -> None:
 
     col_disp, col_raw, col_growth = st.columns([2, 1, 1])
     col_disp.metric(
-        f"Kelly fraction (sized at × {rep_kelly.multiplier:.2f}, capped at {rep_kelly.position_cap:.0%})",
+        f"Kelly fraction (× {rep_kelly.multiplier:.2f} of full Kelly)",
         f"{rep_kelly.f_displayed:.1%}",
     )
     col_raw.metric("Raw Kelly (discrete)", f"{rep_kelly.f_discrete:.1%}")
@@ -545,7 +538,6 @@ def main() -> None:
         rep_kelly = compute_kelly(
             pm, payoff, cost=rep.shadow_price, discount_factor=DISCOUNT_FACTOR,
             multiplier=float(st.session_state.kelly_multiplier),
-            position_cap=float(st.session_state.kelly_cap),
         )
         render_kelly_panel(rep_kelly)
 
