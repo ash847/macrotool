@@ -158,8 +158,14 @@ def render_kelly_growth_curve(
 
     f_max = float(f_values[-1])
 
-    # X-axis: whole-number % ticks, ~5–8 across the range.
-    if f_max <= 0.12:
+    # Clip geo_growth at -0.1% so the red tail floors at the bottom of the
+    # chart and the y-axis auto-scales to show the positive E[r] region.
+    geo_growth = np.maximum(geo_growth, -0.001)
+
+    # X-axis: whole-number % ticks, ~4–6 across the range.
+    if f_max <= 0.04:
+        tick_step = 0.01
+    elif f_max <= 0.12:
         tick_step = 0.02
     elif f_max <= 0.30:
         tick_step = 0.05
@@ -169,7 +175,7 @@ def render_kelly_growth_curve(
         tick_step = 0.20
     tick_values = [round(v, 4) for v in np.arange(0.0, f_max + tick_step * 0.5, tick_step)]
     x_ax = alt.Axis(format=".0%", values=tick_values)
-    y_ax = alt.Axis(format=".1%")
+    y_ax = alt.Axis(format=".2%")
 
     # ── Main curves ───────────────────────────────────────────────────────
     # All layers share "f" (x) and "value" (y) field names so Vega-Lite
