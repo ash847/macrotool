@@ -143,8 +143,13 @@ def kelly_growth_curve(
     else:
         f_upper = SAFETY_F_MAX
 
-    # Extend to the full ruin boundary so the PM can see the whole curve.
-    f_max_plot = f_upper
+    # Show 2.5× f_star so both the peak and the overbetting penalty are visible,
+    # but the chart isn't swamped by the irrelevant ruin tail.
+    # Floor at 0.10 so there's always meaningful x-range even for tiny f*.
+    if f_star > 0:
+        f_max_plot = min(max(2.5 * f_star, 0.10), f_upper)
+    else:
+        f_max_plot = min(0.10, f_upper)
 
     f_values = np.linspace(0.0, f_max_plot, n_points)
     log_growth = np.array([
