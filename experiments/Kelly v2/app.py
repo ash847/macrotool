@@ -396,6 +396,8 @@ def render_edge_panel(rep, strike: float) -> None:
 
 
 def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
+    st.markdown("##### Kelly sizing")
+
     if rep_kelly.unbounded_loss:
         st.warning(
             "This structure has potential losses that exceed the premium by a large multiple. "
@@ -539,6 +541,7 @@ def main() -> None:
     # Kelly sizes on view edge: use shadow_price as the cost basis so that
     # r = (DF·payoff − shadow_price) / shadow_price and E[r] = view_edge / shadow_price.
     # This treats the truncation artifact as measurement noise, not real edge.
+    st.markdown("---")
     if rep.shadow_price > 1e-10:
         rep_kelly = compute_kelly(
             pm, payoff, cost=rep.shadow_price, discount_factor=DISCOUNT_FACTOR,
