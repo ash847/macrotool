@@ -38,7 +38,6 @@ from viz import (
     render_kelly_growth_curve,
     render_option1_chart,
     render_option2_chart,
-    render_option2_stacked_chart,
 )
 
 
@@ -513,18 +512,14 @@ def main() -> None:
 
         boundaries, probs = render_option2_inputs(n)
 
-        # Charts always render — even when sum != 1 — so PMs can see what
-        # they're entering as they type. Pricing is gated on sum-to-1.
-        from viz import _market_mass_per_range  # local import to avoid widening public API
-        market_probs_buckets = _market_mass_per_range(base, boundaries)
-        if market_probs_buckets.sum() > 0:
-            market_probs_buckets = market_probs_buckets / market_probs_buckets.sum()
-
+        # Chart renders even when sum != 1 so PMs can see what they're entering.
+        # Pricing is gated on sum-to-1 below.
         st.altair_chart(
             render_option2_chart(boundaries, probs, base),
             use_container_width=True,
         )
 
+        total = float(probs.sum())
         if np.any(probs < 0):
             st.error("Bucket probabilities cannot be negative.")
             return
