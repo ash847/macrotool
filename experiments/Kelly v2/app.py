@@ -271,22 +271,19 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
         tenor_years=st.session_state.tenor_years,
     )
 
-    st.markdown("##### Your view — probability (%) per σ-anchored bucket (sum to 100)")
+    st.markdown("##### Your view — probability (%) per bucket (sum to 100)")
 
     if "bucket_0" not in st.session_state:
         reset_buckets_to_baseline()
 
+    # Offset the input columns by a narrow spacer to visually align them with
+    # the bars in the chart below (which has a y-axis of roughly 35 px).
+    # Using 0.25 units gives ~35 px on a typical wide-layout content area.
     probs_pct = []
-    cols = st.columns(n_buckets)
+    all_cols = st.columns([0.25] + [1] * n_buckets)
+    cols = all_cols[1:]  # skip the spacer
     for i, col in enumerate(cols):
         with col:
-            lo = boundaries[i]
-            hi = boundaries[i + 1]
-            sig_lo = offsets[i]
-            sig_hi = offsets[i + 1]
-            st.caption(
-                f"{lo:.4f}–{hi:.4f}\n\n{sig_lo:+.2g}σ → {sig_hi:+.2g}σ"
-            )
             key = f"bucket_{i}"
             if key not in st.session_state:
                 st.session_state[key] = int(round(100 / n_buckets))
@@ -530,17 +527,8 @@ def main() -> None:
         if market_probs_buckets.sum() > 0:
             market_probs_buckets = market_probs_buckets / market_probs_buckets.sum()
 
-        total = float(probs.sum())
-        # For the stacked allocation chart we display normalised user probs
-        # so the row width stays at 100% even mid-edit; this is purely visual.
-        display_probs = probs / total if total > 1e-12 else probs
-
         st.altair_chart(
-            render_option2_stacked_chart(display_probs, market_probs_buckets),
-            use_container_width=True,
-        )
-        st.altair_chart(
-            render_option2_chart(boundaries, probs, base, sigma_offsets=sigma_offsets),
+            render_option2_chart(boundaries, probs, base),
             use_container_width=True,
         )
 

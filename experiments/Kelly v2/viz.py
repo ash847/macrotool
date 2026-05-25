@@ -108,22 +108,14 @@ def render_option2_chart(
     boundaries: np.ndarray,
     user_probs: np.ndarray,
     baseline: Distribution,
-    sigma_offsets: np.ndarray | None = None,
 ) -> alt.Chart:
-    """Grouped bar chart of probability per σ-bucket: market vs user."""
+    """Grouped bar chart of probability per spot-range bucket: market vs user."""
     n_buckets = len(user_probs)
     market_mass = _market_mass_per_range(baseline, boundaries)
     if market_mass.sum() > 0:
         market_mass = market_mass / market_mass.sum()
 
-    if sigma_offsets is not None:
-        labels = [
-            f"{boundaries[i]:.3f}–{boundaries[i+1]:.3f}\n"
-            f"({sigma_offsets[i]:+.2g}σ → {sigma_offsets[i+1]:+.2g}σ)"
-            for i in range(n_buckets)
-        ]
-    else:
-        labels = [f"{boundaries[i]:.3f}–{boundaries[i+1]:.3f}" for i in range(n_buckets)]
+    labels = [f"{boundaries[i]:.3f}–{boundaries[i+1]:.3f}" for i in range(n_buckets)]
 
     df = pd.DataFrame({
         "bucket": labels * 2,
@@ -135,13 +127,13 @@ def render_option2_chart(
         alt.Chart(df)
         .mark_bar()
         .encode(
-            x=alt.X("bucket:N", title="Spot range (σ)", sort=labels, axis=alt.Axis(labelAngle=-25)),
+            x=alt.X("bucket:N", title="Spot range", sort=labels, axis=alt.Axis(labelAngle=-25, orient="bottom")),
             xOffset=alt.XOffset("source:N", scale=alt.Scale(paddingOuter=0.1)),
             y=alt.Y("prob:Q", title="Probability mass", axis=alt.Axis(format=".0%")),
             color=alt.Color("source:N", scale=_COLOUR_SCALE, title=None),
             tooltip=["bucket", "source", alt.Tooltip("prob:Q", format=".2%", title="Mass")],
         )
-        .properties(height=170)
+        .properties(height=510)
     )
 
 
@@ -306,7 +298,7 @@ def render_option2_stacked_chart(
         .mark_bar()
         .encode(
             y=alt.Y("source:N", title=None, sort=["Market-implied", "Your view"]),
-            x=alt.X("prob:Q", stack="zero", title="Probability allocation", axis=alt.Axis(format=".0%")),
+            x=alt.X("prob:Q", stack="zero", title=None, axis=None),
             color=alt.Color(
                 "bucket_idx:O",
                 scale=alt.Scale(scheme="blueorange"),
@@ -315,5 +307,5 @@ def render_option2_stacked_chart(
             order=alt.Order("bucket_idx:O"),
             tooltip=["source", "bucket_label", alt.Tooltip("prob:Q", format=".2%", title="Mass")],
         )
-        .properties(height=70)
+        .properties(height=50)
     )
