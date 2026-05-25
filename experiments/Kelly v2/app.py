@@ -254,7 +254,6 @@ def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
             v = st.number_input(
                 f"P ≤ {int(round(q * 100))}%",
                 min_value=0.0001, step=0.01, format="%.4f", key=key,
-                on_change=_mark_distribution_modified,
             )
             prices.append(v)
 
@@ -291,7 +290,6 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
                 "%",
                 min_value=0, max_value=100, step=1,
                 format="%d", key=key, label_visibility="collapsed",
-                on_change=_mark_distribution_modified,
             )
             probs_pct.append(v)
 
@@ -316,9 +314,6 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
 
     return boundaries, probs
 
-
-def _mark_distribution_modified() -> None:
-    st.session_state.distribution_modified = True
 
 
 def _renormalise_buckets(n_buckets: int) -> None:
@@ -430,16 +425,14 @@ def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
     )
     col_result.markdown(f"→ &nbsp; **{rep_kelly.f_displayed:.1%}** of bankroll")
 
-    # Chart: only after the PM has changed the distribution at least once
-    if st.session_state.get("distribution_modified", False):
-        f_vals, geo_vals, er_vals = kelly_growth_curve(
-            pm, payoff, cost=shadow_price, discount_factor=DISCOUNT_FACTOR,
-            f_star=rep_kelly.f_raw,
-        )
-        st.altair_chart(
-            render_kelly_growth_curve(f_vals, geo_vals, er_vals, rep_kelly.f_raw, rep_kelly.f_displayed),
-            use_container_width=True,
-        )
+    f_vals, geo_vals, er_vals = kelly_growth_curve(
+        pm, payoff, cost=shadow_price, discount_factor=DISCOUNT_FACTOR,
+        f_star=rep_kelly.f_raw,
+    )
+    st.altair_chart(
+        render_kelly_growth_curve(f_vals, geo_vals, er_vals, rep_kelly.f_raw, rep_kelly.f_displayed),
+        use_container_width=True,
+    )
 
     with st.expander("Kelly breakdown — solvers and risk metrics", expanded=False):
         st.caption(
