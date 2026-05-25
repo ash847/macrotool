@@ -149,15 +149,16 @@ def render_kelly_growth_curve(
     Blue/red line — geometric return: exp(E[log(1+f·r)]) − 1. Blue above zero,
       red below. Peaks at f_star.
     Grey dashed  — expected return: f · E[r]. Linear, ignores variance drag.
+
+    Note: no alt.datum() or transform_filter — uses explicit DataFrames with
+    consistent field names so the chart renders reliably across Altair versions.
     """
     _COLOUR_ER = _COLOUR_MARKET
     _COLOUR_NEG = "red"
 
-    geo_df = pd.DataFrame({"f": f_values, "value": geo_growth})
-    er_df  = pd.DataFrame({"f": f_values, "value": er_curve})
+    f_max = float(f_values[-1])
 
     # X-axis: whole-number % ticks, ~5–8 across the range.
-    f_max = float(f_values[-1])
     if f_max <= 0.12:
         tick_step = 0.02
     elif f_max <= 0.30:
@@ -170,29 +171,36 @@ def render_kelly_growth_curve(
     x_ax = alt.Axis(format=".0%", values=tick_values)
     y_ax = alt.Axis(format=".1%")
 
-    # Geometric return: blue where >= 0, red where < 0
+    # ── Main curves ───────────────────────────────────────────────────────
+    # All layers share "f" (x) and "value" (y) field names so Vega-Lite
+    # resolves them onto the same scale without needing alt.datum().
+
+    # Geometric return split at zero using pandas pre-filter (no transform_filter)
+    geo_full = pd.DataFrame({"f": f_values, "value": geo_growth})
+    geo_pos_df = geo_full[geo_full["value"] >= 0].copy()
+    geo_neg_df = geo_full[geo_full["value"] < 0].copy()
+
     geo_pos = (
-        alt.Chart(geo_df).mark_line(color=_COLOUR_USER, strokeWidth=2)
+        alt.Chart(geo_pos_df).mark_line(color=_COLOUR_USER, strokeWidth=2)
         .encode(
             x=alt.X("f:Q", title="Fraction of bankroll (f)", axis=x_ax),
             y=alt.Y("value:Q", title="Return per trade", axis=y_ax),
             tooltip=[alt.Tooltip("f:Q", format=".1%", title="f"),
                      alt.Tooltip("value:Q", format=".2%", title="Geometric return")],
         )
-        .transform_filter("datum.value >= 0")
     )
     geo_neg = (
-        alt.Chart(geo_df).mark_line(color=_COLOUR_NEG, strokeWidth=2)
+        alt.Chart(geo_neg_df).mark_line(color=_COLOUR_NEG, strokeWidth=2)
         .encode(
             x=alt.X("f:Q", axis=x_ax),
             y=alt.Y("value:Q", axis=y_ax),
             tooltip=[alt.Tooltip("f:Q", format=".1%", title="f"),
                      alt.Tooltip("value:Q", format=".2%", title="Geometric return")],
         )
-        .transform_filter("datum.value < 0")
     )
 
-    # Expected return overlay (grey dashed)
+    # Expected return overlay — same field names, different data
+    er_df = pd.DataFrame({"f": f_values, "value": er_curve})
     er_line = (
         alt.Chart(er_df).mark_line(color=_COLOUR_ER, strokeWidth=1.5, strokeDash=[4, 3])
         .encode(
@@ -203,64 +211,65 @@ def render_kelly_growth_curve(
         )
     )
 
-    # Zero reference line (shares geo_df so y scale is inferred correctly)
+    # Zero reference: explicit 2-point line at value=0 (no alt.datum)
+    zero_df = pd.DataFrame({"f": [0.0, f_max], "value": [0.0, 0.0]})
     zero_line = (
-        alt.Chart(geo_df).mark_rule(color="#cccccc", strokeDash=[3, 3], strokeWidth=1)
-        .encode(y=alt.datum(0))
+        alt.Chart(zero_df).mark_line(color="#cccccc", strokeDash=[3, 3], strokeWidth=1)
+        .encode(x="f:Q", y="value:Q")
     )
 
-    # Inline line labels at right edge
-    er_end = pd.DataFrame({"f": [f_max], "value": [float(er_curve[-1])], "label": ["E[r] × f"]})
+    # ── Inline labels at right edge ───────────────────────────────────────
+    er_end_df = pd.DataFrame({"f": [f_max], "value": [float(er_curve[-1])],
+                               "label": ["E[r] × f"]})
     er_end_label = (
-        alt.Chart(er_end).mark_text(align="right", dx=-4, dy=-8, fontSize=9, color=_COLOUR_ER)
+        alt.Chart(er_end_df).mark_text(align="right", dx=-4, dy=-8, fontSize=9, color=_COLOUR_ER)
         .encode(x="f:Q", y="value:Q", text="label:N")
     )
-    geo_peak = pd.DataFrame({"f": [f_star], "value": [float(np.interp(f_star, f_values, geo_growth))],
-                              "label": ["Geometric return"]})
+    y_at_star = float(np.interp(f_star, f_values, geo_growth))
+    geo_peak_df = pd.DataFrame({"f": [f_star], "value": [y_at_star],
+                                 "label": ["Geometric return"]})
     geo_peak_label = (
-        alt.Chart(geo_peak).mark_text(align="left", dx=4, dy=-8, fontSize=9, color=_COLOUR_USER)
+        alt.Chart(geo_peak_df).mark_text(align="left", dx=4, dy=-8, fontSize=9, color=_COLOUR_USER)
         .encode(x="f:Q", y="value:Q", text="label:N")
     )
 
+    # ── Point layers: marker + crosshairs to axes ─────────────────────────
+    # Crosshairs use explicit 2-point line segments (no alt.datum).
+    # Axis labels use DataFrames with value=0 (x-axis) or f=0 (y-axis).
     def _point_layers(x_p: float, y_p: float, colour: str, shape: str) -> list:
-        """Marker + dotted crosshairs to both axes + axis value labels."""
-        df_p = pd.DataFrame({"f": [x_p], "value": [y_p]})
-
         marker = (
-            alt.Chart(df_p).mark_point(color=colour, size=90, filled=True, shape=shape)
+            alt.Chart(pd.DataFrame({"f": [x_p], "value": [y_p]}))
+            .mark_point(color=colour, size=90, filled=True, shape=shape)
             .encode(x="f:Q", y="value:Q")
         )
-        # Vertical dotted line: from x-axis (y=0) to point
+        # Vertical dotted: (x_p, 0) → (x_p, y_p)
         v_line = (
-            alt.Chart(df_p)
-            .mark_rule(color=colour, strokeDash=[4, 4], strokeWidth=1, opacity=0.7)
-            .encode(x="f:Q", y=alt.datum(0), y2="value:Q")
+            alt.Chart(pd.DataFrame({"f": [x_p, x_p], "value": [0.0, y_p]}))
+            .mark_line(color=colour, strokeDash=[4, 4], strokeWidth=1, opacity=0.7)
+            .encode(x="f:Q", y="value:Q")
         )
-        # Horizontal dotted line: from y-axis (x=0) to point
+        # Horizontal dotted: (0, y_p) → (x_p, y_p)
         h_line = (
-            alt.Chart(df_p)
-            .mark_rule(color=colour, strokeDash=[4, 4], strokeWidth=1, opacity=0.7)
-            .encode(y="value:Q", x=alt.datum(0), x2="f:Q")
+            alt.Chart(pd.DataFrame({"f": [0.0, x_p], "value": [y_p, y_p]}))
+            .mark_line(color=colour, strokeDash=[4, 4], strokeWidth=1, opacity=0.7)
+            .encode(x="f:Q", y="value:Q")
         )
-        # X-axis value label (below the zero line)
+        # X-axis label: centred at x_p, placed at value=0
         x_lbl = (
-            alt.Chart(df_p)
+            alt.Chart(pd.DataFrame({"f": [x_p], "value": [0.0]}))
             .mark_text(align="center", dy=13, fontSize=9, color=colour, fontWeight="bold")
-            .encode(x="f:Q", y=alt.datum(0), text=alt.value(f"{x_p:.1%}"))
+            .encode(x="f:Q", y="value:Q", text=alt.value(f"{x_p:.1%}"))
         )
-        # Y-axis value label (left of the y-axis)
+        # Y-axis label: right-aligned at f=0, placed at value=y_p
         y_lbl = (
-            alt.Chart(df_p)
+            alt.Chart(pd.DataFrame({"f": [0.0], "value": [y_p]}))
             .mark_text(align="right", dx=-6, fontSize=9, color=colour, fontWeight="bold")
-            .encode(x=alt.datum(0), y="value:Q", text=alt.value(f"{y_p:.1%}"))
+            .encode(x="f:Q", y="value:Q", text=alt.value(f"{y_p:.1%}"))
         )
         return [v_line, h_line, marker, x_lbl, y_lbl]
 
-    y_at_star      = float(np.interp(f_star,      f_values, geo_growth))
+    star_layers = _point_layers(f_star, y_at_star, "#F58518", "triangle-up")
     y_at_displayed = float(np.interp(f_displayed, f_values, geo_growth))
-
-    star_layers = _point_layers(f_star,      y_at_star,      "#F58518", "triangle-up")
-    # Skip choice layers if it coincides with full Kelly
     disp_layers = (
         _point_layers(f_displayed, y_at_displayed, _COLOUR_USER, "circle")
         if abs(f_displayed - f_star) > 1e-4 else []
@@ -272,6 +281,7 @@ def render_kelly_growth_curve(
             *star_layers, *disp_layers,
             er_end_label, geo_peak_label,
         )
+        .resolve_scale(y="shared", x="shared")
         .properties(height=405)
     )
 
