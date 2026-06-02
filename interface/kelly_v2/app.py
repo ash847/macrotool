@@ -424,20 +424,20 @@ def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
     if "anchor_0" not in st.session_state:
         reset_anchors_to_baseline()
 
-    prices = []
     cols = st.columns(len(quantiles))
     for i, (q, col) in enumerate(zip(quantiles, cols)):
         with col:
             key = f"anchor_{i}"
             if key not in st.session_state:
                 st.session_state[key] = float(st.session_state.forward)
-            v = st.number_input(
+            st.number_input(
                 f"P ≤ {int(round(q * 100))}%",
                 min_value=0.0001, step=0.01, format="%.4f", key=key,
             )
-            prices.append(v)
-
-    return np.array(prices, dtype=float)
+    return np.array(
+        [float(st.session_state[f"anchor_{i}"]) for i in range(len(quantiles))],
+        dtype=float,
+    )
 
 
 def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
@@ -458,7 +458,6 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
     # Offset the input columns by a narrow spacer to visually align them with
     # the bars in the chart below (which has a y-axis of roughly 35 px).
     # Using 0.25 units gives ~35 px on a typical wide-layout content area.
-    probs_pct = []
     all_cols = st.columns([0.25] + [1] * n_buckets)
     cols = all_cols[1:]  # skip the spacer
     for i, col in enumerate(cols):
@@ -466,14 +465,15 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
             key = f"bucket_{i}"
             if key not in st.session_state:
                 st.session_state[key] = int(round(100 / n_buckets))
-            v = st.number_input(
+            st.number_input(
                 "%",
                 min_value=0, max_value=100, step=1,
                 format="%d", key=key, label_visibility="collapsed",
             )
-            probs_pct.append(v)
-
-    probs_pct = np.array(probs_pct, dtype=int)
+    probs_pct = np.array(
+        [int(st.session_state[f"bucket_{i}"]) for i in range(n_buckets)],
+        dtype=int,
+    )
     # Engine and pricing layer expect fractional probabilities in [0, 1].
     probs = probs_pct.astype(float) / 100.0
 
