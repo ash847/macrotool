@@ -89,7 +89,7 @@ class TestVanillaCallExpiry:
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         v = _vanilla_variant()
         rows = price_scenarios(v, "vanilla", scenarios, _TRADE_INPUTS, is_call=True)
-        expected_price_pct = (scenario_spot - _K_STRIKE) / _SPOT
+        expected_price_pct = (scenario_spot - _K_STRIKE) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected_price_pct) < 1e-6
 
     def test_otm_returns_zero(self):
@@ -126,7 +126,7 @@ class TestVanillaPutExpiry:
         inputs = {**_TRADE_INPUTS, "target": 0.95}
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "vanilla", scenarios, inputs, is_call=False)
-        expected_price_pct = (K - scenario_spot) / _SPOT
+        expected_price_pct = (K - scenario_spot) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected_price_pct) < 1e-6
 
     def test_otm_put_returns_zero(self):
@@ -160,8 +160,9 @@ class TestSpreadExpiry:
         )
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "1x1_spread", scenarios, _TRADE_INPUTS, is_call=True)
-        # At expiry, both legs are intrinsic; net = (K_short - K_long) / spot
-        expected = (K_short - K_long) / _SPOT
+        # At expiry, both legs are intrinsic; net = (K_short - K_long), converted
+        # to base ccy at the prevailing (scenario) spot.
+        expected = (K_short - K_long) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
 
     def test_between_strikes(self):
@@ -175,7 +176,7 @@ class TestSpreadExpiry:
         )
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "1x1_spread", scenarios, _TRADE_INPUTS, is_call=True)
-        expected = (scenario_spot - K_long) / _SPOT
+        expected = (scenario_spot - K_long) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
 
 
@@ -196,7 +197,7 @@ class TestOneByTwoExpiry:
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "1x2_spread", scenarios, _TRADE_INPUTS, is_call=True)
         # long K1 call: scenario_spot - K1; short 2× K2 call: 0 (at K2)
-        expected = (scenario_spot - K1) / _SPOT
+        expected = (scenario_spot - K1) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
 
 
@@ -216,7 +217,7 @@ class TestOneByOnePointFiveExpiry:
         )
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "1x1.5_spread", scenarios, _TRADE_INPUTS, is_call=True)
-        expected = (scenario_spot - K1) / _SPOT
+        expected = (scenario_spot - K1) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
 
 
@@ -237,7 +238,7 @@ class TestSeagullExpiry:
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "seagull", scenarios, _TRADE_INPUTS, is_call=True)
         # spread: K2 - K1; wing put OTM: 0
-        expected = (K2 - K1) / _SPOT
+        expected = (K2 - K1) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
 
     def test_below_put_wing_strike(self):
@@ -251,8 +252,8 @@ class TestSeagullExpiry:
         )
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "seagull", scenarios, _TRADE_INPUTS, is_call=True)
-        # spread: 0; wing: -(0.5 * (K3 - scenario_spot) / spot)
-        expected = -(0.5 * (K3 - scenario_spot)) / _SPOT
+        # spread: 0; wing: -(0.5 * (K3 - scenario_spot)) / prevailing spot
+        expected = -(0.5 * (K3 - scenario_spot)) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
 
 
@@ -272,8 +273,10 @@ class TestDigitalExpiry:
         )
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "european_digital", scenarios, _TRADE_INPUTS, is_call=True)
-        # payout = entry_spot; price = entry_spot; price_pct = 1.0
-        assert abs(rows[0]["price_pct"] - 1.0) < 1e-8
+        # ITM digital pays a fixed quote-ccy amount of entry_spot; converted to
+        # base ccy at the prevailing spot that is entry_spot / scenario_spot.
+        expected = _SPOT / scenario_spot
+        assert abs(rows[0]["price_pct"] - expected) < 1e-8
 
     def test_otm_digital_call_returns_zero(self):
         K = 1.12
@@ -305,7 +308,7 @@ class TestEuropeanRKOExpiry:
             max_loss_pct=0.03, wing_ratio=None, is_zero_cost=False,
         )
         rows = price_scenarios(v, "european_rko", _single_scenario(scenario_spot, remaining_time=0.0), _TRADE_INPUTS, is_call=True)
-        expected = (scenario_spot - K) / _SPOT
+        expected = (scenario_spot - K) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-8
 
     def test_call_zero_beyond_barrier(self):
@@ -354,7 +357,7 @@ class TestDeltaVolScenarios:
         rows = price_scenarios(v, "vanilla", scenarios, _TRADE_INPUTS, is_call=True)
         down = call_mtm(scenario_spot, _K_STRIKE, remaining_time, _VOL - vol_bump, _R_D, _R_F)
         up = call_mtm(scenario_spot, _K_STRIKE, remaining_time, _VOL + vol_bump, _R_D, _R_F)
-        expected = min(down, up) / _SPOT
+        expected = min(down, up) / scenario_spot
         assert abs(rows[0]["price_pct"] - expected) < 1e-6
         assert rows[0]["vol_shift"] == "±4% vol"
 
@@ -451,7 +454,7 @@ class TestIntegration:
         rows = price_scenarios(v, "vanilla", expiry, _TRADE_INPUTS, is_call=True)
         for r in rows:
             sspot = r["scenario_spot"]
-            expected = max(sspot - _K_STRIKE, 0.0) / _SPOT
+            expected = max(sspot - _K_STRIKE, 0.0) / sspot
             assert abs(r["price_pct"] - expected) < 1e-6, r["scenario_id"]
 
     def test_output_row_has_required_keys(self):

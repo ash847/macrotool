@@ -144,7 +144,10 @@ def price_scenarios(
                 raw = 0.0
             vol_shift = d["vol_shift"]
 
-        price_pct = raw / entry_spot
+        # Convert the quote-ccy option MtM to base ccy at the PREVAILING spot at
+        # this checkpoint (matches the delta-1/NDF settlement convention). The
+        # premium leg stays normalised to entry spot — it is an inception cashflow.
+        price_pct = raw / scenario_spot
         pnl_pct = price_pct - entry_premium_pct
         price_ccy = (price_pct * notional) if notional is not None else None
         pnl_ccy = (pnl_pct * notional) if notional is not None else None
