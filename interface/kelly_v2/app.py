@@ -110,18 +110,6 @@ def init_state() -> None:
             st.session_state[key] = val
     if "_kelly_state_initialized" not in st.session_state:
         st.session_state._kelly_state_initialized = True
-    _apply_baseline_signature(
-        signature=(
-            st.session_state.kelly_source_mode,
-            st.session_state.kelly_pair,
-            st.session_state.kelly_horizon,
-        ),
-        forward=st.session_state.forward,
-        sigma=st.session_state.sigma,
-        tenor_years=st.session_state.tenor_years,
-        strike=st.session_state.strike,
-        is_call=st.session_state.is_call,
-    )
 
 
 def _effective_snapshot():
@@ -367,8 +355,8 @@ def render_sidebar() -> None:
     st.divider()
     st.header("Market baseline")
     if st.session_state.kelly_source_mode == KELLY_SOURCE_STANDALONE:
-        market = _standalone_market_context()
-        st.selectbox("Pair", market["pair_options"], key="kelly_pair")
+        snapshot = _effective_snapshot()
+        st.selectbox("Pair", list(snapshot.currencies.keys()), key="kelly_pair")
         st.selectbox(
             "Horizon",
             [label for label, _ in _HORIZON_OPTIONS],
