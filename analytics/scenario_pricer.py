@@ -39,8 +39,12 @@ def price_linear_scenarios(
     entry forward (PV'd over remaining time) — NOT the change in spot. Measuring
     against spot would book the carry roll-down as phantom P&L, which is large on
     high-carry pairs (USDTRY, USDBRL) and makes the "F" column non-zero.
+
+    The quote-ccy MtM, N·(F_t − F0)·DF, is converted to base ccy at the PREVAILING
+    spot at each checkpoint (scenario_spot) — i.e. the fixing spot at expiry — not
+    at entry spot. At expiry this reproduces the NDF cash settlement
+    (S_T − F0)/S_T per unit base notional.
     """
-    entry_spot: float = trade_inputs["spot"]
     entry_fwd: float = trade_inputs["forward"]
     r_d: float = trade_inputs["r_d"]
     direction = 1.0 if is_call else -1.0
@@ -53,7 +57,7 @@ def price_linear_scenarios(
         scenario_fwd: float = d["scenario_fwd"]
         tau: float = d["remaining_time"]
         pv = math.exp(-r_d * tau)
-        raw_pnl_pct = direction * ((scenario_fwd - entry_fwd) / entry_spot) * pv
+        raw_pnl_pct = direction * ((scenario_fwd - entry_fwd) / scenario_spot) * pv
         pnl_pct = max(raw_pnl_pct, -max_loss_pct) if max_loss_pct is not None else raw_pnl_pct
         price_pct = pnl_pct
         pnl_ccy = pnl_pct * notional

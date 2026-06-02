@@ -360,10 +360,11 @@ class TestDeltaVolScenarios:
 
 
 class TestLinearScenarioPricer:
-    def test_linear_long_base_is_forward_mtm_not_spot_move(self):
-        # A delta-1 is a forward/NDF struck at the entry forward, so P&L is the
-        # change in forward-to-expiry vs entry forward, PV'd — NOT the spot move.
-        # At expiry (tau=0) scenario_fwd == scenario_spot, so P&L = (spot - F0)/S0.
+    def test_linear_long_base_is_ndf_settlement_at_expiry(self):
+        # A delta-1 is a forward/NDF struck at the entry forward. At expiry the
+        # P&L is the NDF cash settlement (S_T - F0)/S_T per unit base notional —
+        # quote-ccy gain converted to base ccy at the prevailing (fixing) spot,
+        # NOT the spot move and NOT divided by entry spot.
         scenarios = _single_scenario(1.10, remaining_time=0.0)
         rows = price_linear_scenarios(
             scenarios,
@@ -372,7 +373,8 @@ class TestLinearScenarioPricer:
             notional=100.0,
             max_loss_ccy=10.0,
         )
-        expected_pct = (1.10 - _FWD) / _SPOT
+        # At expiry scenario_fwd == scenario_spot == 1.10.
+        expected_pct = (1.10 - _FWD) / 1.10
         assert rows[0]["price_pct"] == pytest.approx(expected_pct)
         assert rows[0]["pnl_pct"] == pytest.approx(expected_pct)
         assert rows[0]["price_ccy"] == pytest.approx(expected_pct * 100.0)
@@ -396,10 +398,12 @@ class TestLinearScenarioPricer:
             assert r["pnl_pct"] == pytest.approx(0.0, abs=1e-9), r["scenario_id"]
             assert r["pnl_ccy"] == pytest.approx(0.0, abs=1e-7), r["scenario_id"]
 
-    def test_linear_pre_expiry_forward_mtm_is_pv_discounted(self):
-        # Before expiry, P&L is the forward MtM discounted over remaining time.
+    def test_linear_pre_expiry_forward_mtm_is_pv_discounted_at_prevailing_spot(self):
+        # Before expiry, P&L is the forward MtM discounted over remaining time and
+        # converted to base ccy at the prevailing (scenario) spot, not entry spot.
         scenario_fwd = 1.10
-        scenarios = _single_scenario(1.05, remaining_time=0.2, scenario_fwd=scenario_fwd)
+        scenario_spot = 1.05
+        scenarios = _single_scenario(scenario_spot, remaining_time=0.2, scenario_fwd=scenario_fwd)
         rows = price_linear_scenarios(
             scenarios,
             _TRADE_INPUTS,
@@ -407,7 +411,7 @@ class TestLinearScenarioPricer:
             notional=100.0,
             max_loss_ccy=10.0,
         )
-        expected_pct = ((scenario_fwd - _FWD) / _SPOT) * math.exp(-_R_D * 0.2)
+        expected_pct = ((scenario_fwd - _FWD) / scenario_spot) * math.exp(-_R_D * 0.2)
         assert rows[0]["pnl_pct"] == pytest.approx(expected_pct)
 
     def test_linear_short_base_caps_losses_at_max_loss(self):
