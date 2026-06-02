@@ -2,9 +2,11 @@
 Structure variant pricer.
 
 Prices the concrete instances defined in structure_variants.json.
-All premiums and payoffs expressed as a fraction of spot (e.g., 0.03 = 3% of spot).
-Digital payout is normalised to spot, so a "15% digital" costs 15% of spot to receive
-spot if ITM — same basis as vanilla premium percentages.
+Premiums (inception cashflows) are expressed as a fraction of entry spot.
+Payoff-at-target is base-ccy and converted at the PREVAILING spot at that scenario
+— i.e. divided by `target` (spot equals target in that scenario), matching the
+scenario grid's prevailing-spot convention. Digital payout is a fixed quote-ccy
+amount of entry spot, so its base-ccy payoff at target is spot / target.
 
 Uses ATM vol (ms.vol) for all strikes (flat smile approximation).
 """
@@ -271,7 +273,7 @@ def _vanilla(
         payoff_pct, rr = None, None
         if target is not None:
             raw = max(target - K, 0.0) if is_call else max(K - target, 0.0)
-            payoff_pct = raw / spot
+            payoff_pct = raw / target
             rr = (payoff_pct / prem_pct) if prem_pct > 1e-8 else None
 
         result.append(PricedVariant(
@@ -324,7 +326,7 @@ def _spread(
                 raw = min(max(target - K_long, 0.0), max_payoff)
             else:
                 raw = min(max(K_long - target, 0.0), max_payoff)
-            payoff_pct = raw / spot
+            payoff_pct = raw / target
             rr = (payoff_pct / prem_pct) if prem_pct > 1e-8 else None
 
         result.append(PricedVariant(
@@ -377,7 +379,7 @@ def _1x1p5(
         payoff_pct = None
         if target is not None:
             gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
-            payoff_pct = gross_at_target / spot
+            payoff_pct = gross_at_target / target
         rr = (
             payoff_pct / prem_pct
             if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
@@ -447,7 +449,7 @@ def _1x2(
         payoff_pct = None
         if target is not None:
             gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
-            payoff_pct = gross_at_target / spot
+            payoff_pct = gross_at_target / target
         rr = (
             payoff_pct / prem_pct
             if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
@@ -542,7 +544,7 @@ def _seagull(
             else:
                 sp_payoff = min(max(K1 - target, 0.0), K1 - K2)
                 wing_payoff = -max(target - K3, 0.0) * wing_ratio if target > K3 else 0.0
-            payoff_pct = (sp_payoff + wing_payoff) / spot
+            payoff_pct = (sp_payoff + wing_payoff) / target
 
         result.append(PricedVariant(
             variant_label=v["label"],
@@ -591,7 +593,9 @@ def _digital(
         if target is not None:
             itm = (target > K) if is_call else (target < K)
             if itm:
-                payoff_pct = 1.0   # payout = spot → payoff = 100% of spot
+                # Digital pays a fixed quote-ccy amount of entry spot; in base
+                # ccy at the target scenario (spot == target) that is spot/target.
+                payoff_pct = spot / target
                 rr = payoff_pct / prem_pct if prem_pct > 1e-8 else None
             else:
                 payoff_pct = 0.0
@@ -646,7 +650,8 @@ def _digital_rko(
             itm = (target > K) if is_call else (target < K)
             not_ko = (target < barrier) if is_call else (target > barrier)
             if itm and not_ko:
-                payoff_pct = 1.0
+                # Fixed quote-ccy payout of entry spot → base ccy = spot/target.
+                payoff_pct = spot / target
                 rr = payoff_pct / prem_pct if prem_pct > 1e-8 else None
             else:
                 payoff_pct = 0.0
@@ -699,7 +704,7 @@ def _european_rko(
         raw = max(target - K, 0.0) if is_call else max(K - target, 0.0)
         not_ko = (target < barrier) if is_call else (target > barrier)
         if raw > 0.0 and not_ko:
-            payoff_pct = raw / spot
+            payoff_pct = raw / target
             rr = payoff_pct / prem_pct if prem_pct > 1e-8 else None
         else:
             payoff_pct = 0.0

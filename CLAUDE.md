@@ -7,7 +7,7 @@ EM FX trade structuring & sizing tool for macro fund PMs. The target architectur
 ```bash
 .venv/bin/streamlit run interface/app.py   # UI
 .venv/bin/python demo.py                   # full pipeline without LLM
-.venv/bin/python demo.py --pair USDTRY --direction base_higher --horizon-days 60
+.venv/bin/python demo.py --pair USDTRY --direction base_higher --horizon 60
 .venv/bin/python -m pytest                 # 206 tests
 ```
 
