@@ -13,6 +13,8 @@ Invariants (enforced by caller):
 
 from __future__ import annotations
 
+import math
+
 from analytics.structure_pricer import PricedVariant
 from pricing.black_scholes import call_mtm, put_mtm
 from pricing.digital import digital_call_mtm, digital_put_mtm
@@ -31,8 +33,16 @@ def price_linear_scenarios(
 
     The position is long the base currency when `is_call=True` and short the base
     currency when `is_call=False`. P&L is capped at the provided max loss, if any.
+
+    A delta-1 expression of an FX view is a forward/NDF transacted at the entry
+    forward, so its mark-to-market is the change in the forward-to-expiry vs the
+    entry forward (PV'd over remaining time) — NOT the change in spot. Measuring
+    against spot would book the carry roll-down as phantom P&L, which is large on
+    high-carry pairs (USDTRY, USDBRL) and makes the "F" column non-zero.
     """
     entry_spot: float = trade_inputs["spot"]
+    entry_fwd: float = trade_inputs["forward"]
+    r_d: float = trade_inputs["r_d"]
     direction = 1.0 if is_call else -1.0
     max_loss_pct = (max_loss_ccy / notional) if (max_loss_ccy is not None and notional > 0) else None
 
@@ -40,7 +50,10 @@ def price_linear_scenarios(
     for sc in scenarios:
         d = sc["derived"]
         scenario_spot: float = d["scenario_spot"]
-        raw_pnl_pct = direction * ((scenario_spot - entry_spot) / entry_spot)
+        scenario_fwd: float = d["scenario_fwd"]
+        tau: float = d["remaining_time"]
+        pv = math.exp(-r_d * tau)
+        raw_pnl_pct = direction * ((scenario_fwd - entry_fwd) / entry_spot) * pv
         pnl_pct = max(raw_pnl_pct, -max_loss_pct) if max_loss_pct is not None else raw_pnl_pct
         price_pct = pnl_pct
         pnl_ccy = pnl_pct * notional

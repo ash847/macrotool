@@ -360,7 +360,10 @@ class TestDeltaVolScenarios:
 
 
 class TestLinearScenarioPricer:
-    def test_linear_long_base_tracks_spot_move(self):
+    def test_linear_long_base_is_forward_mtm_not_spot_move(self):
+        # A delta-1 is a forward/NDF struck at the entry forward, so P&L is the
+        # change in forward-to-expiry vs entry forward, PV'd — NOT the spot move.
+        # At expiry (tau=0) scenario_fwd == scenario_spot, so P&L = (spot - F0)/S0.
         scenarios = _single_scenario(1.10, remaining_time=0.0)
         rows = price_linear_scenarios(
             scenarios,
@@ -369,11 +372,43 @@ class TestLinearScenarioPricer:
             notional=100.0,
             max_loss_ccy=10.0,
         )
-        expected_pct = (1.10 - _SPOT) / _SPOT
+        expected_pct = (1.10 - _FWD) / _SPOT
         assert rows[0]["price_pct"] == pytest.approx(expected_pct)
         assert rows[0]["pnl_pct"] == pytest.approx(expected_pct)
         assert rows[0]["price_ccy"] == pytest.approx(expected_pct * 100.0)
         assert rows[0]["pnl_ccy"] == pytest.approx(expected_pct * 100.0)
+
+    def test_linear_f_column_is_zero_across_rows(self):
+        # Invariant: in the "F" scenario the forward-to-expiry is unchanged, so a
+        # delta-1 struck at that forward must show ~0 P&L at every checkpoint.
+        # Carry roll-down must NOT be booked as profit (regression for the
+        # high-carry phantom-P&L bug).
+        scenarios = [s for s in generate_scenarios(_TRADE_INPUTS) if s["col"] == "F"]
+        assert scenarios
+        rows = price_linear_scenarios(
+            scenarios,
+            _TRADE_INPUTS,
+            is_call=True,
+            notional=100.0,
+            max_loss_ccy=10.0,
+        )
+        for r in rows:
+            assert r["pnl_pct"] == pytest.approx(0.0, abs=1e-9), r["scenario_id"]
+            assert r["pnl_ccy"] == pytest.approx(0.0, abs=1e-7), r["scenario_id"]
+
+    def test_linear_pre_expiry_forward_mtm_is_pv_discounted(self):
+        # Before expiry, P&L is the forward MtM discounted over remaining time.
+        scenario_fwd = 1.10
+        scenarios = _single_scenario(1.05, remaining_time=0.2, scenario_fwd=scenario_fwd)
+        rows = price_linear_scenarios(
+            scenarios,
+            _TRADE_INPUTS,
+            is_call=True,
+            notional=100.0,
+            max_loss_ccy=10.0,
+        )
+        expected_pct = ((scenario_fwd - _FWD) / _SPOT) * math.exp(-_R_D * 0.2)
+        assert rows[0]["pnl_pct"] == pytest.approx(expected_pct)
 
     def test_linear_short_base_caps_losses_at_max_loss(self):
         scenarios = _single_scenario(1.20, remaining_time=0.0)
