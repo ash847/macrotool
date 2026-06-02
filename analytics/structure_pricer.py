@@ -8,7 +8,16 @@ Payoff-at-target is base-ccy and converted at the PREVAILING spot at that scenar
 scenario grid's prevailing-spot convention. Digital payout is a fixed quote-ccy
 amount of entry spot, so its base-ccy payoff at target is spot / target.
 
-Uses ATM vol (ms.vol) for all strikes (flat smile approximation).
+Smile vols
+----------
+By default every leg is priced at the ATM vol (ms.vol) — the flat-smile
+approximation. When a SmileInterpolator is passed to price_variants(smile=...),
+the leg-based structures (vanilla, 1x1 / 1x1.5 / 1x2 spreads, seagull) instead
+price each leg at its own interpolated smile vol (delta-defined legs at their
+delta-pillar vol; strike-defined legs at vol_at_strike). This is Phase 1: the
+digital / RKO / european-RKO pricers and the scenario mark-to-market path
+(_today_package_value_pct) remain on flat ATM vol pending a skew-consistent
+treatment.
 """
 
 from __future__ import annotations
@@ -17,6 +26,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from analytics.market_state import MarketState
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
@@ -24,6 +34,37 @@ from pricing.black_scholes import black76_call, black76_put, call_mtm, put_mtm
 from pricing.digital import digital_call, digital_put
 from pricing.digital_rko import digital_rko_call, digital_rko_put
 from pricing.european_rko import european_rko_call, european_rko_put
+
+if TYPE_CHECKING:
+    from analytics.vol_surface import SmileInterpolator
+
+
+class _VolModel:
+    """Resolves a per-leg implied vol.
+
+    Flat (``smile is None``) returns the ATM vol for every strike/delta, which
+    reproduces the legacy flat-smile behaviour byte-for-byte. With a smile, it
+    delegates to the interpolator: delta-defined legs use ``vol_at_delta`` (the
+    delta is the smile pillar coordinate), strike-defined legs use
+    ``vol_at_strike``.
+    """
+
+    def __init__(self, flat_vol, smile=None, F=None, horizon_days=None):
+        self._flat = flat_vol
+        self._smile = smile
+        self._F = F
+        self._h = horizon_days
+
+    def at_strike(self, K: float) -> float:
+        if self._smile is None:
+            return self._flat
+        return self._smile.vol_at_strike(K, self._F, self._h)
+
+    def at_delta(self, delta: float, is_call: bool) -> float:
+        if self._smile is None:
+            return self._flat
+        # vol_at_delta takes a call delta (positive) or put delta (negative).
+        return self._smile.vol_at_delta(delta if is_call else -delta, self._h)
 
 _VARIANTS_PATH = Path(__file__).parent.parent / "knowledge" / "defaults" / "structure_variants.json"
 _MAX_STRUCTURE_NOTIONAL = 500.0
@@ -62,6 +103,7 @@ def price_variants(
     is_call: bool = True,
     stop_price: float | None = None,
     loss_budget: float | None = None,
+    smile: "SmileInterpolator | None" = None,
 ) -> list[PricedVariant]:
     """
     Price all defined variants for a structure. Returns [] if no variants defined.
@@ -70,6 +112,10 @@ def price_variants(
     max loss equals the loss budget. The dollar-equivalent fields on PricedVariant
     (structure_notional, net_premium_ccy, payoff_at_target_ccy, max_loss_ccy) are
     populated. If loss_budget is None, those fields remain None.
+
+    If a ``smile`` (SmileInterpolator) is supplied, the leg-based structures price
+    each leg at its interpolated smile vol; otherwise every leg uses ms.vol (flat
+    smile). See module docstring for the Phase 1 scope.
     """
     cfg = _load_variants()
     if structure_id not in cfg:
@@ -79,19 +125,20 @@ def price_variants(
     F, vol, T, r_d, r_f, spot = ms.fwd, ms.vol, ms.T, ms.r_d, ms.r_f, ms.spot
     DF = math.exp(-r_d * T)
     vol_sqrtT = vol * math.sqrt(T)
+    vm = _VolModel(vol, smile=smile, F=F, horizon_days=round(T * 365))
 
     if structure_id == "vanilla":
-        result = _vanilla(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+        result = _vanilla(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "1x1_spread":
-        result = _spread(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+        result = _spread(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "1x1.5_spread":
-        result = _1x1p5(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+        result = _1x1p5(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "1x2_spread":
-        result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+        result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "european_rko":
         result = _european_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     elif structure_id == "seagull":
-        result = _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price)
+        result = _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price, vm)
     elif structure_id == "european_digital":
         result = _digital(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     elif structure_id == "european_digital_rko":
@@ -148,6 +195,31 @@ def _spread_strikes_from_deltas(
     )
 
 
+def _delta_spread_legs(
+    F: float,
+    T: float,
+    is_call: bool,
+    long_delta: float,
+    short_delta: float,
+    vm: _VolModel,
+) -> tuple[float, float, float, float]:
+    """Resolve (K_long, K_short, vol_long, vol_short) for a delta-pair spread.
+
+    Each leg's strike is resolved with that leg's own (delta-pillar) vol, and the
+    same vol is returned for pricing — so under a flat vol model the result is
+    identical to the legacy ATM-vol path.
+    """
+    v_long = vm.at_delta(long_delta, is_call)
+    v_short = vm.at_delta(short_delta, is_call)
+    resolve = otm_call_strike if is_call else otm_put_strike
+    return (
+        resolve(F, v_long, T, long_delta),
+        resolve(F, v_short, T, short_delta),
+        v_long,
+        v_short,
+    )
+
+
 def _resolve_ratio_spread_strikes(
     variant: dict,
     *,
@@ -157,15 +229,18 @@ def _resolve_ratio_spread_strikes(
     vol_sqrtT: float,
     is_call: bool,
     target: float | None,
-) -> tuple[float, float] | None:
-    """Resolve strikes for a ratio-spread variant.
+    vm: _VolModel,
+) -> tuple[float, float, float, float] | None:
+    """Resolve (K1, K2, vol1, vol2) for a ratio-spread variant.
 
     Supports target-anchored variants (`long_type`) and delta-pair variants
-    (`long_delta` / `short_delta`) that mirror the 1x1 spread family.
+    (`long_delta` / `short_delta`) that mirror the 1x1 spread family. Strike-
+    defined legs (ATMF / half-sigma / target) take vol_at_strike; delta-defined
+    legs take their delta-pillar vol.
     """
     if "long_delta" in variant and "short_delta" in variant:
-        return _spread_strikes_from_deltas(
-            F, vol, T, is_call, variant["long_delta"], variant["short_delta"]
+        return _delta_spread_legs(
+            F, T, is_call, variant["long_delta"], variant["short_delta"], vm
         )
 
     if target is None:
@@ -180,7 +255,7 @@ def _resolve_ratio_spread_strikes(
     else:  # half_sigma toward target
         K1 = F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
 
-    return K1, target
+    return K1, target, vm.at_strike(K1), vm.at_strike(target)
 
 
 def _resolve_target_or_delta_long_strike(
@@ -255,18 +330,19 @@ def _today_package_value_pct(
 # ---------------------------------------------------------------------------
 
 def _vanilla(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
         delta = v["delta"]
+        leg_vol = vm.at_delta(delta, is_call)
         if is_call:
-            K = otm_call_strike(F, vol, T, delta)
-            prem = black76_call(F, K, T, vol, DF)
+            K = otm_call_strike(F, leg_vol, T, delta)
+            prem = black76_call(F, K, T, leg_vol, DF)
             be = K + prem
         else:
-            K = otm_put_strike(F, vol, T, delta)
-            prem = black76_put(F, K, T, vol, DF)
+            K = otm_put_strike(F, leg_vol, T, delta)
+            prem = black76_put(F, K, T, leg_vol, DF)
             be = K - prem
 
         prem_pct = prem / spot
@@ -296,19 +372,19 @@ def _vanilla(
 # ---------------------------------------------------------------------------
 
 def _spread(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
-        K_long, K_short = _spread_strikes_from_deltas(
-            F, vol, T, is_call, v["long_delta"], v["short_delta"]
+        K_long, K_short, v_long, v_short = _delta_spread_legs(
+            F, T, is_call, v["long_delta"], v["short_delta"], vm
         )
         if is_call:
-            prem_long  = black76_call(F, K_long,  T, vol, DF)
-            prem_short = black76_call(F, K_short, T, vol, DF)
+            prem_long  = black76_call(F, K_long,  T, v_long,  DF)
+            prem_short = black76_call(F, K_short, T, v_short, DF)
         else:
-            prem_long  = black76_put(F, K_long,  T, vol, DF)
-            prem_short = black76_put(F, K_short, T, vol, DF)
+            prem_long  = black76_put(F, K_long,  T, v_long,  DF)
+            prem_short = black76_put(F, K_short, T, v_short, DF)
 
         net_prem = prem_long - prem_short
         prem_pct = net_prem / spot
@@ -349,24 +425,24 @@ def _spread(
 # ---------------------------------------------------------------------------
 
 def _1x1p5(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm
 ) -> list[PricedVariant]:
     """Price 1x1.5 ratio spreads from target-based or delta-pair variants."""
     result = []
     for v in variants:
         resolved = _resolve_ratio_spread_strikes(
-            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target
+            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target, vm=vm
         )
         if resolved is None:
             continue
-        K1, K2 = resolved
+        K1, K2, v1, v2 = resolved
 
         if is_call:
-            prem1 = black76_call(F, K1, T, vol, DF)
-            prem2 = black76_call(F, K2, T, vol, DF)
+            prem1 = black76_call(F, K1, T, v1, DF)
+            prem2 = black76_call(F, K2, T, v2, DF)
         else:
-            prem1 = black76_put(F, K1, T, vol, DF)
-            prem2 = black76_put(F, K2, T, vol, DF)
+            prem1 = black76_put(F, K1, T, v1, DF)
+            prem2 = black76_put(F, K2, T, v2, DF)
 
         net_prem = prem1 - 1.5 * prem2
         prem_pct = net_prem / spot
@@ -420,23 +496,23 @@ def _1x1p5(
 # ---------------------------------------------------------------------------
 
 def _1x2(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
         resolved = _resolve_ratio_spread_strikes(
-            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target
+            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target, vm=vm
         )
         if resolved is None:
             continue
-        K1, K2 = resolved
+        K1, K2, v1, v2 = resolved
 
         if is_call:
-            prem1 = black76_call(F, K1, T, vol, DF)
-            prem2 = black76_call(F, K2, T, vol, DF)
+            prem1 = black76_call(F, K1, T, v1, DF)
+            prem2 = black76_call(F, K2, T, v2, DF)
         else:
-            prem1 = black76_put(F, K1, T, vol, DF)
-            prem2 = black76_put(F, K2, T, vol, DF)
+            prem1 = black76_put(F, K1, T, v1, DF)
+            prem2 = black76_put(F, K2, T, v2, DF)
 
         net_prem = prem1 - 2.0 * prem2
         prem_pct = net_prem / spot
@@ -491,29 +567,32 @@ def _1x2(
 # ---------------------------------------------------------------------------
 
 def _seagull(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price, vm
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
         ld, sd, wd = v["spread_long"], v["spread_short"], v["wing_delta"]
+        # Spread legs in the view direction; wing on the opposite side.
+        v1 = vm.at_delta(ld, is_call)
+        v2 = vm.at_delta(sd, is_call)
+        v3 = vm.at_delta(wd, not is_call)
 
-        # Spread legs (in direction of view)
         if is_call:
-            K1 = otm_call_strike(F, vol, T, ld)   # long call (lower K)
-            K2 = otm_call_strike(F, vol, T, sd)   # short call (higher K)
-            prem1 = black76_call(F, K1, T, vol, DF)
-            prem2 = black76_call(F, K2, T, vol, DF)
+            K1 = otm_call_strike(F, v1, T, ld)   # long call (lower K)
+            K2 = otm_call_strike(F, v2, T, sd)   # short call (higher K)
+            prem1 = black76_call(F, K1, T, v1, DF)
+            prem2 = black76_call(F, K2, T, v2, DF)
             # Wing: OTM put (opposite direction)
-            K3 = otm_put_strike(F, vol, T, wd)
-            prem3 = black76_put(F, K3, T, vol, DF)
+            K3 = otm_put_strike(F, v3, T, wd)
+            prem3 = black76_put(F, K3, T, v3, DF)
         else:
-            K1 = otm_put_strike(F, vol, T, ld)    # long put (higher K)
-            K2 = otm_put_strike(F, vol, T, sd)    # short put (lower K)
-            prem1 = black76_put(F, K1, T, vol, DF)
-            prem2 = black76_put(F, K2, T, vol, DF)
+            K1 = otm_put_strike(F, v1, T, ld)    # long put (higher K)
+            K2 = otm_put_strike(F, v2, T, sd)    # short put (lower K)
+            prem1 = black76_put(F, K1, T, v1, DF)
+            prem2 = black76_put(F, K2, T, v2, DF)
             # Wing: OTM call (opposite direction)
-            K3 = otm_call_strike(F, vol, T, wd)
-            prem3 = black76_call(F, K3, T, vol, DF)
+            K3 = otm_call_strike(F, v3, T, wd)
+            prem3 = black76_call(F, K3, T, v3, DF)
 
         spread_cost = prem1 - prem2
         wing_ratio = (spread_cost / prem3) if prem3 > 1e-8 else 0.0

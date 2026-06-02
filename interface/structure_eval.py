@@ -170,6 +170,24 @@ def target_price(flow: ConversationFlow) -> float | None:
 # Structure variants block (inline pricing table, no scenario weighting)
 # ---------------------------------------------------------------------------
 
+def _build_smile(flow: ConversationFlow):
+    """Build a SmileInterpolator for the trade's pair, or None on any failure.
+
+    Returns None (→ flat ATM vol fallback) when the pair has no complete vol
+    surface or the ccy snapshot is missing, so entry pricing never crashes on a
+    thin surface — it just degrades to the legacy flat-vol behaviour.
+    """
+    ccy = getattr(flow, "ccy", None)
+    if ccy is None:
+        return None
+    try:
+        from analytics.vol_surface import SmileInterpolator
+
+        return SmileInterpolator(ccy)
+    except Exception:
+        return None
+
+
 def render_structure_variants(
     flow: ConversationFlow,
     is_call: bool,
@@ -182,9 +200,10 @@ def render_structure_variants(
     ms = flow.market_state
     _base_ccy = flow.view.pair[:3]
     _primary_items = flow.selector_result.shortlist
+    _smile = _build_smile(flow)
 
     _any_variants = any(
-        _price_variants(ms, s.structure_id, target=target, is_call=is_call, stop_price=stop_price, loss_budget=loss_budget)
+        _price_variants(ms, s.structure_id, target=target, is_call=is_call, stop_price=stop_price, loss_budget=loss_budget, smile=_smile)
         for s in _primary_items
     )
     if not _any_variants:
@@ -192,15 +211,16 @@ def render_structure_variants(
 
     st.subheader("Structure variants")
     st.caption(
-        "Indicative pricing — flat ATM vol for all strikes. "
-        "Premium and payoff as % of spot. "
+        ("Indicative pricing — interpolated smile vol per strike. " if _smile is not None
+         else "Indicative pricing — flat ATM vol for all strikes. ")
+        + "Premium and payoff as % of spot. "
         "**Payout/$1**: gross payoff at target per $1 of max loss (zero-cost seagull: "
         "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
     )
 
     for _i, _item in enumerate(_primary_items):
         try:
-            _pvs = _price_variants(ms, _item.structure_id, target=target, is_call=is_call, stop_price=stop_price, loss_budget=loss_budget)
+            _pvs = _price_variants(ms, _item.structure_id, target=target, is_call=is_call, stop_price=stop_price, loss_budget=loss_budget, smile=_smile)
         except Exception as _e:
             st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
             continue

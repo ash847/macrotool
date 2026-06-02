@@ -541,6 +541,7 @@ def build_comparator_inputs(
     stop_price: float | None,
     loss_budget: float | None,
     preferences: PMPreferences | None = None,
+    smile: object | None = None,
 ) -> ComparatorInputs:
     """
     Build real pricing/scenario inputs for the comparator from existing engines.
@@ -548,6 +549,11 @@ def build_comparator_inputs(
     The comparator should remain an explanation layer, so this function is only
     a thin adapter around the existing variant pricer, scenario generator,
     scenario pricer, scenario weighter, and scenario scorer.
+
+    ``smile`` is an optional ``SmileInterpolator`` passed straight through to the
+    variant pricer so entry pricing uses interpolated smile vol per strike. When
+    None, the pricer falls back to flat ATM vol (legacy behaviour). Scenario
+    re-pricing (MtM) stays on flat ATM vol regardless — see structure_pricer.
     """
     from analytics.scenario_generator import generate_scenarios
     from analytics.scenario_pricer import price_scenarios
@@ -590,6 +596,7 @@ def build_comparator_inputs(
                 is_call=is_call,
                 stop_price=stop_price,
                 loss_budget=loss_budget,
+                smile=smile,
             )
         except Exception:
             variants = []

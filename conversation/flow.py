@@ -442,6 +442,14 @@ class ConversationFlow:
                 trade_management=self.trade_management,
                 structure_constraint=self.structure_constraint,
             )
+            smile = None
+            if self.ccy is not None:
+                try:
+                    from analytics.vol_surface import SmileInterpolator
+
+                    smile = SmileInterpolator(self.ccy)
+                except Exception:
+                    smile = None
             comparator_inputs = build_comparator_inputs(
                 self.market_state,
                 self.selector_result,
@@ -450,6 +458,7 @@ class ConversationFlow:
                 stop_price=stop_price,
                 loss_budget=loss_budget,
                 preferences=prefs,
+                smile=smile,
             )
             pack = build_recommendation_pack(
                 self.market_state,
