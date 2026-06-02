@@ -132,6 +132,16 @@ def _make_flow() -> ConversationFlow:
     )
 
 
+def _reset_trade_form_state(snapshot=None) -> None:
+    trade_snapshot = snapshot or _get_effective_snapshot()
+    pair_options = list(trade_snapshot.currencies.keys())
+    default_pair = "USDBRL" if "USDBRL" in pair_options else pair_options[0]
+    st.session_state.trade_form_pair = default_pair
+    st.session_state.trade_form_direction = "Lower"
+    st.session_state.trade_form_horizon = "3M"
+    st.session_state.trade_form_target = 5.60
+
+
 # ---------------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------------
@@ -156,6 +166,8 @@ if "pref_trade_management" not in st.session_state:
     st.session_state.pref_trade_management = "Standard hold"
 if "market_edit_mode" not in st.session_state:
     st.session_state.market_edit_mode = {}
+if "trade_form_pair" not in st.session_state:
+    _reset_trade_form_state(st.session_state.flow._snapshot)
 
 flow: ConversationFlow = st.session_state.flow
 
@@ -189,6 +201,7 @@ with st.sidebar:
         ):
             if label == "Trade View":
                 st.session_state.flow = _make_flow()
+                _reset_trade_form_state(st.session_state.flow._snapshot)
                 st.session_state.submitted = False
                 st.session_state.last_prompt = ""
                 st.session_state.clarification = ""
@@ -960,32 +973,37 @@ else:
         with st.form("trade_view_form", clear_on_submit=False):
             _pair_options = list(flow._snapshot.currencies.keys())
             _default_pair = "USDBRL" if "USDBRL" in _pair_options else _pair_options[0]
-            _pair_ix = _pair_options.index(_default_pair)
             _dir_label_default = "Lower"
             _horizon_days_default = _HORIZON_OPTIONS[2][1]
             _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
-            _horizon_values = [days for _, days in _HORIZON_OPTIONS]
-            _h_ix = _horizon_values.index(_horizon_days_default)
+            _default_horizon_label = next(
+                label for label, days in _HORIZON_OPTIONS if days == _horizon_days_default
+            )
+            if st.session_state.trade_form_pair not in _pair_options:
+                st.session_state.trade_form_pair = _default_pair
+            if st.session_state.trade_form_direction not in _DIRECTION_OPTIONS:
+                st.session_state.trade_form_direction = _dir_label_default
+            if st.session_state.trade_form_horizon not in _horizon_labels:
+                st.session_state.trade_form_horizon = _default_horizon_label
 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                form_pair = st.selectbox("Pair", _pair_options, index=_pair_ix)
+                form_pair = st.selectbox("Pair", _pair_options, key="trade_form_pair")
             with c2:
                 form_direction_label = st.selectbox(
                     "Direction",
                     list(_DIRECTION_OPTIONS.keys()),
-                    index=list(_DIRECTION_OPTIONS.keys()).index(_dir_label_default),
+                    key="trade_form_direction",
                 )
             with c3:
-                form_horizon_label = st.selectbox("Horizon", _horizon_labels, index=_h_ix)
+                form_horizon_label = st.selectbox("Horizon", _horizon_labels, key="trade_form_horizon")
             with c4:
-                _fallback_target = 5.60
                 form_target = st.number_input(
                     "Target",
                     min_value=0.0001,
-                    value=float(_fallback_target),
                     step=0.0001,
                     format="%.4f",
+                    key="trade_form_target",
                 )
 
             st.markdown("**Trade preferences**")
