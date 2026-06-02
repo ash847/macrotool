@@ -3,6 +3,7 @@ import pytest
 
 from interface.kelly_v2.elicitation import Distribution, elicit_from_cdf_anchors
 from interface.kelly_v2.pricing import (
+    base_ccy_payoff_for_trade_rec,
     call_payoff,
     expected_payoff,
     forward_of,
@@ -119,3 +120,31 @@ def test_atm_call_equals_put_at_forward_strike():
     c = price_vanilla(dist, fwd, is_call=True, discount_factor=df)
     p = price_vanilla(dist, fwd, is_call=False, discount_factor=df)
     assert c == pytest.approx(p, abs=1e-9)
+
+
+def test_trade_rec_call_spread_payoff_in_base_ccy():
+    payoff = base_ccy_payoff_for_trade_rec(
+        "1x1_spread",
+        strikes=[5.0, 6.0],
+        barrier=None,
+        is_call=True,
+        entry_spot=5.0,
+    )
+    prices = np.array([4.5, 5.5, 7.0])
+    np.testing.assert_allclose(
+        payoff(prices),
+        [0.0, 0.5 / 5.5, 1.0 / 7.0],
+        atol=1e-12,
+    )
+
+
+def test_trade_rec_digital_payoff_scales_by_entry_spot():
+    payoff = base_ccy_payoff_for_trade_rec(
+        "european_digital",
+        strikes=[5.5],
+        barrier=None,
+        is_call=True,
+        entry_spot=5.0,
+    )
+    prices = np.array([5.4, 5.6])
+    np.testing.assert_allclose(payoff(prices), [0.0, 5.0 / 5.6], atol=1e-12)

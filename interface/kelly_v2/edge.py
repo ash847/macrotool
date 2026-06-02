@@ -30,7 +30,7 @@ from .elicitation import (
     elicit_from_cdf_anchors,
     elicit_from_pdf_buckets,
 )
-from .pricing import price_vanilla
+from .pricing import PayoffFn, price_option, price_vanilla
 
 
 @dataclass(frozen=True)
@@ -75,6 +75,49 @@ def compute_edge(
 
     lo, hi = pm_dist.support
     out_of_range = strike < lo or strike > hi
+
+    return EdgeReport(
+        pm_price=pm_price,
+        mkt_price=mkt_price,
+        shadow_price=shadow_price,
+        full_edge=full_edge,
+        view_edge=view_edge,
+        anchoring_cost=anchoring_cost,
+        full_edge_pct_of_mid=full_pct,
+        view_edge_pct_of_mid=view_pct,
+        out_of_range=out_of_range,
+    )
+
+
+def compute_edge_for_payoff(
+    pm_dist: Distribution,
+    mkt_dist: Distribution,
+    payoff: PayoffFn,
+    shadow_dist: Distribution | None = None,
+    discount_factor: float = 1.0,
+    reference_levels: list[float] | None = None,
+) -> EdgeReport:
+    """Generic edge decomposition for an arbitrary payoff function."""
+    if shadow_dist is None:
+        shadow_dist = mkt_dist
+    pm_price = price_option(pm_dist, payoff, discount_factor)
+    mkt_price = price_option(mkt_dist, payoff, discount_factor)
+    shadow_price = price_option(shadow_dist, payoff, discount_factor)
+
+    full_edge = pm_price - mkt_price
+    view_edge = pm_price - shadow_price
+    anchoring_cost = shadow_price - mkt_price
+
+    if mkt_price > 1e-10:
+        full_pct = full_edge / mkt_price * 100.0
+        view_pct = view_edge / mkt_price * 100.0
+    else:
+        full_pct = None
+        view_pct = None
+
+    lo, hi = pm_dist.support
+    levels = reference_levels or []
+    out_of_range = any(level < lo or level > hi for level in levels)
 
     return EdgeReport(
         pm_price=pm_price,

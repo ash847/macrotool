@@ -8,15 +8,21 @@ buckets, with bucket boundaries on the lognormal market smile.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import streamlit as st
 
-from .baseline import load_snapshot, synthetic_lognormal_baseline
+from analytics.distributions import interpolate_atm_vol
+from data.snapshot_loader import load_snapshot as load_live_snapshot
+from data.snapshot_overrides import apply_overrides
+from pricing.forwards import interpolate_forward
+from .baseline import synthetic_lognormal_baseline
 from .edge import (
     anchors_from_baseline,
     compute_edge,
+    compute_edge_for_payoff,
     shadow_market_from_cdf_anchors,
     shadow_market_from_pdf_buckets,
 )
@@ -28,7 +34,11 @@ from .elicitation import (
     sigma_boundaries_to_prices,
 )
 from .kelly import compute_kelly, kelly_growth_curve
-from .pricing import call_payoff, forward_of, put_payoff
+from .pricing import (
+    base_ccy_payoff_for_trade_rec,
+    call_payoff,
+    put_payoff,
+)
 from .viz import (
     render_kelly_growth_curve,
     render_option1_chart,
@@ -37,10 +47,8 @@ from .viz import (
 
 
 PKG_ROOT = Path(__file__).resolve().parent
-FIXTURE_DIR = PKG_ROOT / "fixtures"
-BASELINE_SOURCE_SYNTHETIC = "Synthetic lognormal (set F, σ, T)"
-BASELINE_SOURCE_FIXTURE = "Load saved baseline (.json)"
-
+KELLY_SOURCE_STANDALONE = "Standalone"
+KELLY_SOURCE_TRADE_REC = "From Trade Rec"
 
 MODE_OPTION1 = "Use fixed probability bins"
 MODE_OPTION2 = "Use fixed spot ranges"
@@ -53,6 +61,30 @@ ANCHOR_PRESETS: dict[int, tuple[float, ...]] = {
 }
 
 DISCOUNT_FACTOR: float = 1.0
+_HORIZON_OPTIONS: list[tuple[str, int]] = [
+    (f"{month}M", round(month * 365 / 12)) for month in range(1, 13)
+]
+
+
+@dataclass(frozen=True)
+class TradeRecCandidate:
+    id: str
+    pair: str
+    horizon_days: int
+    structure_id: str
+    display_name: str
+    structure_label: str
+    variant_label: str
+    strikes: list[float]
+    barrier: float | None
+    wing_ratio: float | None
+    is_call: bool
+    entry_spot: float
+    forward: float
+    sigma: float
+    tenor_years: float
+    net_premium_pct: float
+    max_loss_pct: float
 
 
 # --- session state ---
@@ -60,39 +92,69 @@ DISCOUNT_FACTOR: float = 1.0
 
 def init_state() -> None:
     defaults = {
+        "kelly_source_mode": KELLY_SOURCE_STANDALONE,
         "mode": MODE_OPTION1,
         "n_anchors": 7,
-        "baseline_source": BASELINE_SOURCE_SYNTHETIC,
+        "kelly_pair": "USDBRL",
+        "kelly_horizon": "3M",
         "forward": 5.00,
         "sigma": 0.10,
         "tenor_years": 0.25,
         "strike": 5.00,
         "is_call": True,
         "kelly_multiplier": 50,
+        "kelly_trade_rec_choice": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
     if "_kelly_state_initialized" not in st.session_state:
+        st.session_state._kelly_state_initialized = True
+    _apply_baseline_signature(
+        signature=(
+            st.session_state.kelly_source_mode,
+            st.session_state.kelly_pair,
+            st.session_state.kelly_horizon,
+        ),
+        forward=st.session_state.forward,
+        sigma=st.session_state.sigma,
+        tenor_years=st.session_state.tenor_years,
+        strike=st.session_state.strike,
+        is_call=st.session_state.is_call,
+    )
+
+
+def _effective_snapshot():
+    base = load_live_snapshot()
+    overrides = st.session_state.get("market_overrides", {})
+    return apply_overrides(base, overrides) if overrides else base
+
+
+def _apply_baseline_signature(
+    *,
+    signature: tuple,
+    forward: float,
+    sigma: float,
+    tenor_years: float,
+    strike: float | None = None,
+    is_call: bool | None = None,
+) -> None:
+    changed = st.session_state.get("_kelly_baseline_signature") != signature
+    st.session_state.forward = float(forward)
+    st.session_state.sigma = float(sigma)
+    st.session_state.tenor_years = float(tenor_years)
+    if strike is not None and (changed or "strike" not in st.session_state):
+        st.session_state.strike = float(strike)
+    if is_call is not None and changed:
+        st.session_state.is_call = bool(is_call)
+        st.session_state.option_type = "Call" if is_call else "Put"
+    if changed:
         reset_anchors_to_baseline()
         reset_buckets_to_baseline()
-        st.session_state._kelly_state_initialized = True
-
-
-def _list_fixtures() -> list[Path]:
-    if not FIXTURE_DIR.exists():
-        return []
-    return sorted(p for p in FIXTURE_DIR.iterdir() if p.suffix == ".json")
+        st.session_state._kelly_baseline_signature = signature
 
 
 def _current_baseline() -> Distribution:
-    if st.session_state.baseline_source == BASELINE_SOURCE_FIXTURE and st.session_state.get("fixture_path"):
-        dist, meta = load_snapshot(st.session_state.fixture_path)
-        # Keep F/σ/T inputs in sync with the loaded fixture so derived UI elements
-        # (sigma-bucket boundaries in Option 2) line up with the loaded distribution.
-        st.session_state.forward = float(meta.get("forward", forward_of(dist)))
-        st.session_state.tenor_years = float(meta.get("tenor_years", st.session_state.tenor_years))
-        return dist
     return synthetic_lognormal_baseline(
         forward=st.session_state.forward,
         sigma=st.session_state.sigma,
@@ -100,6 +162,127 @@ def _current_baseline() -> Distribution:
         n_bins=400,
         n_stdev=6.0,
     )
+
+
+def _standalone_market_context() -> dict:
+    snapshot = _effective_snapshot()
+    pair_options = list(snapshot.currencies.keys())
+    default_pair = "USDBRL" if "USDBRL" in pair_options else pair_options[0]
+    if st.session_state.kelly_pair not in pair_options:
+        st.session_state.kelly_pair = default_pair
+    horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
+    if st.session_state.kelly_horizon not in horizon_labels:
+        st.session_state.kelly_horizon = "3M"
+    pair = st.session_state.kelly_pair
+    horizon_days = dict(_HORIZON_OPTIONS)[st.session_state.kelly_horizon]
+    ccy = snapshot.get(pair)
+    tenor_years = horizon_days / 365.0
+    forward = interpolate_forward(ccy, tenor_years)
+    sigma = interpolate_atm_vol(ccy, horizon_days)
+    _apply_baseline_signature(
+        signature=(KELLY_SOURCE_STANDALONE, pair, horizon_days),
+        forward=forward,
+        sigma=sigma,
+        tenor_years=tenor_years,
+        strike=forward,
+        is_call=st.session_state.get("is_call", True),
+    )
+    return {
+        "pair_options": pair_options,
+        "pair": pair,
+        "ccy": ccy,
+        "horizon_days": horizon_days,
+        "horizon_label": st.session_state.kelly_horizon,
+    }
+
+
+def _live_trade_rec_candidates() -> list[TradeRecCandidate]:
+    flow = st.session_state.get("flow")
+    if not (
+        flow
+        and getattr(flow, "view", None)
+        and getattr(flow, "market_state", None)
+        and getattr(flow, "selector_result", None)
+        and flow.selector_result.shortlist
+    ):
+        return []
+
+    from analytics.structure_pricer import price_variants
+    from interface.structure_eval import fmt_ccy, target_price, variant_label_with_strikes
+
+    target = target_price(flow)
+    if target is None:
+        return []
+    ms = flow.market_state
+    is_call = flow.view.direction == "base_higher"
+    move_pct = abs(target - ms.fwd) / ms.fwd
+    stop_pct = move_pct / flow.target_rr
+    stop_price = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
+    loss_budget = 100.0 * stop_pct
+
+    candidates: list[TradeRecCandidate] = []
+    pair = flow.view.pair
+    for struct_rank, item in enumerate(flow.selector_result.shortlist, start=1):
+        priced = price_variants(
+            ms,
+            item.structure_id,
+            target=target,
+            is_call=is_call,
+            stop_price=stop_price,
+            loss_budget=loss_budget,
+        )
+        for variant_rank, pv in enumerate(priced, start=1):
+            variant_label = variant_label_with_strikes(item.structure_id, pv)
+            notional = (
+                f" · Notional {fmt_ccy(pv.structure_notional, pair[:3])}"
+                if pv.structure_notional is not None
+                else ""
+            )
+            display_name = f"{struct_rank}.{variant_rank} {variant_label}{notional}"
+            candidates.append(
+                TradeRecCandidate(
+                    id=f"{item.structure_id}:{struct_rank}:{variant_rank}",
+                    pair=pair,
+                    horizon_days=flow.view.horizon_days,
+                    structure_id=item.structure_id,
+                    display_name=display_name,
+                    structure_label=item.display_name,
+                    variant_label=variant_label,
+                    strikes=list(pv.strikes),
+                    barrier=pv.barrier,
+                    wing_ratio=pv.wing_ratio,
+                    is_call=is_call,
+                    entry_spot=ms.spot,
+                    forward=ms.fwd,
+                    sigma=ms.vol,
+                    tenor_years=ms.T,
+                    net_premium_pct=pv.net_premium_pct,
+                    max_loss_pct=pv.max_loss_pct,
+                )
+            )
+            if len(candidates) >= 10:
+                return candidates
+    return candidates
+
+
+def _selected_trade_rec_candidate() -> TradeRecCandidate | None:
+    candidates = _live_trade_rec_candidates()
+    if not candidates:
+        st.session_state.kelly_trade_rec_choice = None
+        return None
+    ids = [candidate.id for candidate in candidates]
+    if st.session_state.kelly_trade_rec_choice not in ids:
+        st.session_state.kelly_trade_rec_choice = ids[0]
+    selected = next(candidate for candidate in candidates if candidate.id == st.session_state.kelly_trade_rec_choice)
+    _apply_baseline_signature(
+        signature=(KELLY_SOURCE_TRADE_REC, selected.id),
+        forward=selected.forward,
+        sigma=selected.sigma,
+        tenor_years=selected.tenor_years,
+        strike=selected.strikes[0] if selected.strikes else selected.forward,
+        is_call=selected.is_call,
+    )
+    return selected
 
 
 def reset_anchors_to_baseline() -> None:
@@ -183,36 +366,35 @@ def render_sidebar() -> None:
 
     st.divider()
     st.header("Market baseline")
-    st.radio(
-        "Source",
-        options=[BASELINE_SOURCE_SYNTHETIC, BASELINE_SOURCE_FIXTURE],
-        key="baseline_source",
-    )
-
-    if st.session_state.baseline_source == BASELINE_SOURCE_FIXTURE:
-        fixtures = _list_fixtures()
-        if not fixtures:
-            st.warning("No fixtures found in fixtures/.")
-        else:
-            choice = st.selectbox(
-                "Fixture",
-                options=fixtures,
-                format_func=lambda p: p.name,
-                key="fixture_choice",
-            )
-            st.session_state.fixture_path = str(choice)
-            _, meta = load_snapshot(choice)
-            st.caption(f"pair: {meta.get('pair', '?')}, source: {meta.get('source', '?')}")
+    if st.session_state.kelly_source_mode == KELLY_SOURCE_STANDALONE:
+        market = _standalone_market_context()
+        st.selectbox("Pair", market["pair_options"], key="kelly_pair")
+        st.selectbox(
+            "Horizon",
+            [label for label, _ in _HORIZON_OPTIONS],
+            key="kelly_horizon",
+        )
+        market = _standalone_market_context()
+        col_spot, col_fwd = st.columns(2)
+        col_spot.metric("Spot", f"{market['ccy'].spot:.4f}")
+        col_fwd.metric("Forward", f"{st.session_state.forward:.4f}")
+        col_vol, col_tenor = st.columns(2)
+        col_vol.metric("ATM vol", f"{st.session_state.sigma:.1%}")
+        col_tenor.metric("Tenor", market["horizon_label"])
     else:
-        st.number_input("Forward", min_value=0.01, step=0.01, format="%.4f", key="forward")
-        st.number_input(
-            "Vol (annualised)", min_value=0.001, max_value=2.0,
-            step=0.005, format="%.4f", key="sigma",
-        )
-        st.number_input(
-            "Tenor (years)", min_value=1.0 / 365, max_value=10.0,
-            step=0.05, format="%.4f", key="tenor_years",
-        )
+        candidate = _selected_trade_rec_candidate()
+        if candidate is None:
+            st.info("No live Trade Rec found. Run Trade View first or switch to Standalone.")
+        else:
+            st.caption(f"{candidate.pair} · {candidate.horizon_days}d")
+            st.caption(candidate.structure_label)
+            st.caption(candidate.variant_label)
+            col_spot, col_fwd = st.columns(2)
+            col_spot.metric("Spot", f"{candidate.entry_spot:.4f}")
+            col_fwd.metric("Forward", f"{candidate.forward:.4f}")
+            col_vol, col_loss = st.columns(2)
+            col_vol.metric("ATM vol", f"{candidate.sigma:.1%}")
+            col_loss.metric("Max loss", f"{candidate.max_loss_pct:.1%}")
 
     st.divider()
     st.header("Anchors / buckets")
@@ -331,8 +513,8 @@ def _renormalise_buckets(n_buckets: int) -> None:
         st.session_state[f"bucket_{i}"] = int(rounded[i])
 
 
-def render_structure_inputs() -> tuple[float, bool]:
-    st.markdown("##### Option to price")
+def render_vanilla_inputs() -> tuple[float, bool]:
+    st.markdown("##### Vanilla option to price")
     col_k, col_t = st.columns([3, 2])
     with col_k:
         strike = st.number_input(
@@ -351,12 +533,46 @@ def render_structure_inputs() -> tuple[float, bool]:
     return strike, is_call
 
 
-def render_edge_panel(rep, strike: float) -> None:
-    if rep.out_of_range:
+def render_trade_rec_selector() -> TradeRecCandidate | None:
+    candidates = _live_trade_rec_candidates()
+    if not candidates:
+        st.info("No live Trade Rec found in this session yet. Run Trade View first or switch back to Standalone.")
+        return None
+    ids = [candidate.id for candidate in candidates]
+    if st.session_state.kelly_trade_rec_choice not in ids:
+        st.session_state.kelly_trade_rec_choice = ids[0]
+    st.selectbox(
+        "Recommended trade",
+        options=ids,
+        key="kelly_trade_rec_choice",
+        format_func=lambda candidate_id: next(
+            candidate.display_name for candidate in candidates if candidate.id == candidate_id
+        ),
+    )
+    candidate = next(
+        candidate for candidate in candidates if candidate.id == st.session_state.kelly_trade_rec_choice
+    )
+    _selected_trade_rec_candidate()
+    return candidate
+
+
+def render_trade_rec_summary(candidate: TradeRecCandidate) -> None:
+    st.markdown("##### Linked Trade Rec")
+    st.caption(f"{candidate.pair} · {candidate.horizon_days}d · {candidate.structure_label}")
+    st.markdown(candidate.variant_label)
+    col_spot, col_fwd, col_vol, col_loss = st.columns(4)
+    col_spot.metric("Spot", f"{candidate.entry_spot:.4f}")
+    col_fwd.metric("Forward", f"{candidate.forward:.4f}")
+    col_vol.metric("ATM vol", f"{candidate.sigma:.1%}")
+    col_loss.metric("Max loss", f"{candidate.max_loss_pct:.1%}")
+
+
+def render_edge_panel(rep, *, out_of_range_label: str | None = None) -> None:
+    if rep.out_of_range and out_of_range_label:
         st.warning(
-            f"Strike {strike:.4f} is outside your elicited support — your "
+            f"{out_of_range_label} is outside your elicited support — your "
             f"distribution puts no mass beyond the outer anchors. Widen the "
-            f"outer anchors if you actually have a view at this strike."
+            f"outer anchors if you actually have a view at that level."
         )
 
     def _fmt_pct(pct):
@@ -390,11 +606,11 @@ def render_edge_panel(rep, strike: float) -> None:
         f"**Distribution accuracy — truncation error: {rep.anchoring_cost:+.4f}{anc_pct_str}.** "
         f"Gap between truncated and full market price — pricing impact of the ~4% tail mass "
         f"outside your outer anchors. Measurement artifact; does not affect your trade P&L. "
-        f"Large values mean the tails matter for this strike."
+        "Large values mean the tails matter for the selected payoff."
     )
 
 
-def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
+def render_kelly_panel(rep_kelly, pm, payoff, cost_basis: float, *, cost_label: str) -> None:
     st.markdown("##### Kelly sizing")
 
     if rep_kelly.unbounded_loss:
@@ -426,13 +642,14 @@ def render_kelly_panel(rep_kelly, pm, payoff, shadow_price: float) -> None:
     col_result.markdown(f"→ &nbsp; **{rep_kelly.f_displayed:.1%}** of bankroll")
 
     f_vals, geo_vals, er_vals = kelly_growth_curve(
-        pm, payoff, cost=shadow_price, discount_factor=DISCOUNT_FACTOR,
+        pm, payoff, cost=cost_basis, discount_factor=DISCOUNT_FACTOR,
         f_star=rep_kelly.f_raw,
     )
     st.altair_chart(
         render_kelly_growth_curve(f_vals, geo_vals, er_vals, rep_kelly.f_raw, rep_kelly.f_displayed),
         use_container_width=True,
     )
+    st.caption(f"Kelly cost basis: **{cost_label}**.")
 
     with st.expander("Kelly breakdown — solvers and risk metrics", expanded=False):
         st.caption(
@@ -489,6 +706,26 @@ def render_page() -> None:
     st.markdown("##### Kelly v2 — Subjective Distribution → Edge")
 
     init_state()
+    st.segmented_control(
+        "Source mode",
+        options=[KELLY_SOURCE_STANDALONE, KELLY_SOURCE_TRADE_REC],
+        key="kelly_source_mode",
+        selection_mode="single",
+    )
+
+    trade_rec_candidate: TradeRecCandidate | None = None
+    if st.session_state.kelly_source_mode == KELLY_SOURCE_STANDALONE:
+        market = _standalone_market_context()
+        st.caption(
+            f"Standalone market baseline: {market['pair']} · {market['horizon_label']} · "
+            f"spot {market['ccy'].spot:.4f} · forward {st.session_state.forward:.4f} · "
+            f"ATM vol {st.session_state.sigma:.1%}"
+        )
+    else:
+        trade_rec_candidate = render_trade_rec_selector()
+        if trade_rec_candidate is None:
+            return
+        render_trade_rec_summary(trade_rec_candidate)
 
     n = st.session_state.n_anchors
     base = _current_baseline()
@@ -527,21 +764,54 @@ def render_page() -> None:
         pm = elicit_from_pdf_buckets(boundaries, probs)
         shadow = shadow_market_from_pdf_buckets(base, boundaries)
 
-    strike, is_call = render_structure_inputs()
-    rep = compute_edge(pm, base, shadow, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
-    render_edge_panel(rep, strike)
+    if st.session_state.kelly_source_mode == KELLY_SOURCE_STANDALONE:
+        strike, is_call = render_vanilla_inputs()
+        payoff = call_payoff(strike) if is_call else put_payoff(strike)
+        rep = compute_edge(pm, base, shadow, strike=strike, is_call=is_call, discount_factor=DISCOUNT_FACTOR)
+        render_edge_panel(rep, out_of_range_label=f"Strike {strike:.4f}")
+        cost_basis = rep.shadow_price
+        cost_label = "truncated market price"
+    else:
+        assert trade_rec_candidate is not None
+        payoff = base_ccy_payoff_for_trade_rec(
+            trade_rec_candidate.structure_id,
+            strikes=trade_rec_candidate.strikes,
+            barrier=trade_rec_candidate.barrier,
+            is_call=trade_rec_candidate.is_call,
+            entry_spot=trade_rec_candidate.entry_spot,
+            wing_ratio=trade_rec_candidate.wing_ratio,
+        )
+        ref_levels = trade_rec_candidate.strikes + (
+            [trade_rec_candidate.barrier] if trade_rec_candidate.barrier is not None else []
+        )
+        rep = compute_edge_for_payoff(
+            pm,
+            base,
+            payoff,
+            shadow_dist=shadow,
+            discount_factor=DISCOUNT_FACTOR,
+            reference_levels=ref_levels,
+        )
+        render_edge_panel(
+            rep,
+            out_of_range_label=f"Selected trade ({trade_rec_candidate.structure_label})",
+        )
+        if rep.shadow_price > 1e-10:
+            cost_basis = rep.shadow_price
+            cost_label = "truncated market price"
+        else:
+            cost_basis = trade_rec_candidate.max_loss_pct
+            cost_label = "max-loss capital proxy"
 
-    payoff = call_payoff(strike) if is_call else put_payoff(strike)
-    # Kelly sizes on view edge: use shadow_price as the cost basis so that
-    # r = (DF·payoff − shadow_price) / shadow_price and E[r] = view_edge / shadow_price.
-    # This treats the truncation artifact as measurement noise, not real edge.
     st.markdown("---")
-    if rep.shadow_price > 1e-10:
+    if cost_basis > 1e-10:
         rep_kelly = compute_kelly(
-            pm, payoff, cost=rep.shadow_price, discount_factor=DISCOUNT_FACTOR,
+            pm, payoff, cost=cost_basis, discount_factor=DISCOUNT_FACTOR,
             multiplier=st.session_state.kelly_multiplier / 100.0,
         )
-        render_kelly_panel(rep_kelly, pm, payoff, rep.shadow_price)
+        render_kelly_panel(rep_kelly, pm, payoff, cost_basis, cost_label=cost_label)
+    else:
+        st.info("Kelly sizing is unavailable because the selected trade has no positive cost basis yet.")
 
 
 def main() -> None:
