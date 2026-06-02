@@ -1,6 +1,6 @@
 [project]
 name = "macrotool"
-version = "0.1.24"
+version = "0.1.25"
 description = "EM FX Trade Structuring & Sizing Tool"
 requires-python = ">=3.10"
 dependencies = [
@@ -11,9 +11,11 @@ dependencies = [
     "scipy>=1.12.0",
     "rich>=13.7.0",
     "streamlit>=1.55.0",
+    "altair>=5.2.0",
     "Authlib==1.6.5",
     "plotly>=5.20.0",
     "langfuse>=2.0.0",
+    "pandas>=2.1.0",
     "supabase>=2.0.0",
 ]
 

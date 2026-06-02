@@ -174,7 +174,12 @@ with st.sidebar:
     st.button("Sign out", on_click=st.logout, use_container_width=True)
     st.divider()
 
-    nav_labels = ("Trade View", "Market Data", "Structure Selection", "Scenario Weightings", "Query log") if IS_ADMIN else ("Trade View",)
+    user_nav_labels = ("Trade View", "Kelly Sizing")
+    nav_labels = (
+        user_nav_labels + ("Market Data", "Structure Selection", "Scenario Weightings", "Query log")
+        if IS_ADMIN
+        else user_nav_labels
+    )
     for label in nav_labels:
         active = st.session_state.page == label
         if st.button(
@@ -193,48 +198,53 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown("Risk / Reward target")
-    with st.container(border=True):
-        st.session_state.target_rr = st.slider(
-            "Risk 1 to make",
-            min_value=1.5,
-            max_value=10.0,
-            value=st.session_state.target_rr,
-            step=0.5,
-            format="%.1f×",
-        )
+    if st.session_state.page == "Kelly Sizing":
+        from interface.kelly_v2.app import render_sidebar as _render_kelly_sidebar
 
-    st.divider()
+        _render_kelly_sidebar()
+    else:
+        st.markdown("Risk / Reward target")
+        with st.container(border=True):
+            st.session_state.target_rr = st.slider(
+                "Risk 1 to make",
+                min_value=1.5,
+                max_value=10.0,
+                value=st.session_state.target_rr,
+                step=0.5,
+                format="%.1f×",
+            )
 
-    active_provider = get_llm_provider()
-    active_model = get_provider_model(active_provider)
-    st.caption(f"LLM: {provider_label(active_provider)} · {active_model}")
-    if active_provider == "gemini":
-        gemini_ready, gemini_message = gemini_status()
-        if gemini_ready:
-            st.success(gemini_message)
-            if st.button("Test LLM connection", use_container_width=True):
-                with st.spinner("Calling LLM…"):
-                    try:
-                        _test_msgs = [{"role": "user", "content": "Reply with exactly: OK"}]
-                        for _ in st.session_state.flow._client.stream(_test_msgs, system="You are a helpful assistant."):
-                            pass
-                        _test_resp = st.session_state.flow._client.last_response.strip()
-                        st.success(f"LLM responded: {_test_resp!r}")
-                    except Exception as _e:
-                        st.error(f"LLM call failed: {_e}")
+        st.divider()
+
+        active_provider = get_llm_provider()
+        active_model = get_provider_model(active_provider)
+        st.caption(f"LLM: {provider_label(active_provider)} · {active_model}")
+        if active_provider == "gemini":
+            gemini_ready, gemini_message = gemini_status()
+            if gemini_ready:
+                st.success(gemini_message)
+                if st.button("Test LLM connection", use_container_width=True):
+                    with st.spinner("Calling LLM…"):
+                        try:
+                            _test_msgs = [{"role": "user", "content": "Reply with exactly: OK"}]
+                            for _ in st.session_state.flow._client.stream(_test_msgs, system="You are a helpful assistant."):
+                                pass
+                            _test_resp = st.session_state.flow._client.last_response.strip()
+                            st.success(f"LLM responded: {_test_resp!r}")
+                        except Exception as _e:
+                            st.error(f"LLM call failed: {_e}")
+            else:
+                st.error(gemini_message)
+        elif get_provider_api_key(active_provider):
+            st.success("API key ready")
         else:
-            st.error(gemini_message)
-    elif get_provider_api_key(active_provider):
-        st.success("API key ready")
-    else:
-        st.error(f"Server {provider_label(active_provider)} API key not configured.")
+            st.error(f"Server {provider_label(active_provider)} API key not configured.")
 
-    sb_connected, sb_error = _sb_status()
-    if sb_connected:
-        st.success("Supabase connected")
-    else:
-        st.warning(f"Supabase: {sb_error}")
+        sb_connected, sb_error = _sb_status()
+        if sb_connected:
+            st.success("Supabase connected")
+        else:
+            st.warning(f"Supabase: {sb_error}")
 
 
 # ---------------------------------------------------------------------------
@@ -687,7 +697,7 @@ def _render_market_data() -> None:
 # Page routing
 # ---------------------------------------------------------------------------
 
-if st.session_state.page != "Trade View" and not IS_ADMIN:
+if st.session_state.page not in ("Trade View", "Kelly Sizing") and not IS_ADMIN:
     st.session_state.page = "Trade View"
     st.rerun()
 
@@ -704,6 +714,11 @@ elif st.session_state.page == "Structure Selection":
 elif st.session_state.page == "Scenario Weightings":
     from interface.context_rules import render as _render_context_rules
     _render_context_rules()
+
+elif st.session_state.page == "Kelly Sizing":
+    from interface.kelly_v2.app import render_page as _render_kelly_page
+
+    _render_kelly_page()
 
 else:
     # ---- Trade View page ----
