@@ -212,8 +212,12 @@ with st.sidebar:
     st.divider()
 
     if st.session_state.page == "Kelly Sizing":
-        from interface.kelly_v2.app import render_sidebar as _render_kelly_sidebar
+        from interface.kelly_v2.app import (
+            init_state as _init_kelly_state,
+            render_sidebar as _render_kelly_sidebar,
+        )
 
+        _init_kelly_state()
         _render_kelly_sidebar()
     else:
         st.markdown("Risk / Reward target")

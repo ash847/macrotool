@@ -73,6 +73,10 @@ def init_state() -> None:
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
+    if "_kelly_state_initialized" not in st.session_state:
+        reset_anchors_to_baseline()
+        reset_buckets_to_baseline()
+        st.session_state._kelly_state_initialized = True
 
 
 def _list_fixtures() -> list[Path]:
