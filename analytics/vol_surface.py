@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 from scipy.interpolate import CubicSpline
@@ -44,6 +45,87 @@ _CALL_DELTAS: list[float] = [0.10,   0.25,   0.50,  0.75,   0.90]
 _TENOR_DAYS: dict[str, int] = {
     "1W": 7, "1M": 30, "2M": 60, "3M": 91, "6M": 182, "1Y": 365,
 }
+
+
+# ---------------------------------------------------------------------------
+# Pluggable surface interface
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class VolSurface(Protocol):
+    """Stable interface every vanilla pricing site depends on.
+
+    Implementations decide HOW the vol is built (cubic-spline smile today, SABR
+    later); call sites only ever ask for a vol at a strike or a delta. Swapping
+    the build method, the pillar resolution, or the interpolation scheme is a
+    change behind this interface, never at the call site.
+
+    ``vol_at_delta`` takes a *signed* delta: a positive call delta in (0,1) or a
+    negative put delta in (-1,0), matching ``black_scholes`` delta conventions.
+    """
+
+    def vol_at_strike(self, K: float, F: float, horizon_days: int) -> float: ...
+
+    def vol_at_delta(self, delta: float, horizon_days: int) -> float: ...
+
+
+class FlatSurface:
+    """Degenerate surface: returns one ATM vol for every strike and delta.
+
+    This is the flat-smile approximation expressed as a first-class surface, so
+    every pricing site can hold a ``VolSurface`` unconditionally instead of
+    branching on ``smile is None``. Pricing against a ``FlatSurface(atm_vol)`` is
+    byte-for-byte identical to the legacy scalar-vol path.
+    """
+
+    __slots__ = ("_v",)
+
+    def __init__(self, atm_vol: float) -> None:
+        self._v = float(atm_vol)
+
+    def vol_at_strike(self, K: float, F: float, horizon_days: int) -> float:
+        return self._v
+
+    def vol_at_delta(self, delta: float, horizon_days: int) -> float:
+        return self._v
+
+
+def build_vol_surface(
+    ccy: CurrencySnapshot,
+    *,
+    method: str = "cubic_spline",
+    **params,
+) -> VolSurface:
+    """Construct a VolSurface for a pair via the chosen build method.
+
+    ``method`` selects the builder; ``**params`` carry resolution/interpolation
+    knobs forwarded to that builder. Add a new method (e.g. ``"sabr"``) by adding
+    a branch here and a class that satisfies the ``VolSurface`` protocol — no
+    call site changes. Raises ``ValueError`` for an unknown method or, for
+    ``cubic_spline``, an incomplete surface.
+    """
+    if method == "cubic_spline":
+        return SmileInterpolator(ccy, **params)
+    raise ValueError(f"Unknown vol surface build method: {method!r}")
+
+
+def smile_skew_spread(
+    surface: VolSurface | None,
+    K: float,
+    F: float,
+    horizon_days: int,
+) -> float:
+    """Sticky-delta skew spread: vol_at_strike(K) minus the ATM vol at horizon.
+
+    Used to re-anchor a scenario's ATM vol level (which carries term structure
+    and any vol shock) while applying the surface's skew shape at the strike's
+    delta *under the scenario forward* — i.e. sticky-delta. Returns 0.0 for a
+    None or flat surface, so the caller's scalar vol is reproduced exactly.
+    """
+    if surface is None:
+        return 0.0
+    atm = surface.vol_at_delta(0.50, horizon_days)
+    return surface.vol_at_strike(K, F, horizon_days) - atm
 
 
 @dataclass(frozen=True)
@@ -64,23 +146,39 @@ class SmileInterpolator:
         vol = interp.vol_at_strike(5.50, F=5.897, horizon_days=120)
     """
 
-    def __init__(self, ccy: CurrencySnapshot) -> None:
+    def __init__(
+        self,
+        ccy: CurrencySnapshot,
+        *,
+        pillars: list[str] | None = None,
+        call_deltas: list[float] | None = None,
+        tenor_days: dict[str, int] | None = None,
+        bc_type: str = "not-a-knot",
+        delta_clip: tuple[float, float] | None = None,
+    ) -> None:
         self._ccy = ccy
+        self._pillars = pillars or list(_PILLARS)
+        self._call_deltas = call_deltas or list(_CALL_DELTAS)
+        self._tenor_days = tenor_days or dict(_TENOR_DAYS)
+        self._bc_type = bc_type
+        self._delta_lo, self._delta_hi = delta_clip or (
+            self._call_deltas[0], self._call_deltas[-1]
+        )
         self._tenors: list[_TenorSmile] = self._build_tenors()
 
     def _build_tenors(self) -> list[_TenorSmile]:
         smiles = []
-        for label, days in _TENOR_DAYS.items():
+        for label, days in self._tenor_days.items():
             vols = []
-            for pillar in _PILLARS:
+            for pillar in self._pillars:
                 v = self._ccy.get_vol(label, pillar)  # type: ignore[arg-type]
                 if v is None:
                     break
                 vols.append(v)
-            if len(vols) == len(_PILLARS):
+            if len(vols) == len(self._pillars):
                 spline = CubicSpline(
-                    _CALL_DELTAS, vols,
-                    bc_type="not-a-knot",
+                    self._call_deltas, vols,
+                    bc_type=self._bc_type,
                     extrapolate=True,
                 )
                 smiles.append(_TenorSmile(days, days / 365.0, spline))
@@ -100,7 +198,7 @@ class SmileInterpolator:
             Annualised implied vol (e.g. 0.175 = 17.5%).
         """
         call_delta = _to_call_delta(delta)
-        call_delta = float(np.clip(call_delta, _CALL_DELTAS[0], _CALL_DELTAS[-1]))
+        call_delta = float(np.clip(call_delta, self._delta_lo, self._delta_hi))
         T = horizon_days / 365.0
         return self._interp_total_variance(call_delta, T)
 
@@ -129,7 +227,7 @@ class SmileInterpolator:
                 break
             d1 = (math.log(F / K) + 0.5 * sigma ** 2 * T) / (sigma * math.sqrt(T))
             call_delta = float(norm.cdf(d1))
-            call_delta = float(np.clip(call_delta, _CALL_DELTAS[0], _CALL_DELTAS[-1]))
+            call_delta = float(np.clip(call_delta, self._delta_lo, self._delta_hi))
             sigma_new = self._interp_total_variance(call_delta, T)
             if abs(sigma_new - sigma) < tol:
                 return sigma_new

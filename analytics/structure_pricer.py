@@ -11,13 +11,16 @@ amount of entry spot, so its base-ccy payoff at target is spot / target.
 Smile vols
 ----------
 By default every leg is priced at the ATM vol (ms.vol) — the flat-smile
-approximation. When a SmileInterpolator is passed to price_variants(smile=...),
-the leg-based structures (vanilla, 1x1 / 1x1.5 / 1x2 spreads, seagull) instead
-price each leg at its own interpolated smile vol (delta-defined legs at their
-delta-pillar vol; strike-defined legs at vol_at_strike). This is Phase 1: the
-digital / RKO / european-RKO pricers and the scenario mark-to-market path
-(_today_package_value_pct) remain on flat ATM vol pending a skew-consistent
-treatment.
+approximation. When a VolSurface is passed to price_variants(smile=...), the
+leg-based structures (vanilla, 1x1 / 1x1.5 / 1x2 spreads, seagull) instead price
+each leg at its own interpolated smile vol (delta-defined legs at their
+delta-pillar vol; strike-defined legs at vol_at_strike). The max-loss helper
+``_today_package_value_pct`` likewise reprices its vanilla legs under a
+sticky-delta smile when a surface is supplied.
+
+The digital / RKO / european-RKO pricers remain on flat ATM vol by design (kept
+flat pending a skew-consistent barrier/binary treatment). Scenario MtM follows
+the same split — see analytics/scenario_pricer.py.
 """
 
 from __future__ import annotations
@@ -54,6 +57,11 @@ class _VolModel:
         self._smile = smile
         self._F = F
         self._h = horizon_days
+
+    @property
+    def surface(self):
+        """The underlying VolSurface, or None for the flat model."""
+        return self._smile
 
     def at_strike(self, K: float) -> float:
         if self._smile is None:
@@ -299,26 +307,41 @@ def _today_package_value_pct(
     spot: float,
     is_call: bool,
     wing_ratio: float | None = None,
+    surface: object | None = None,
 ) -> float:
     scenario_spot = _spot_for_forward_today(fwd_today, T, r_d, r_f)
+
+    # Sticky-delta per-leg vol: the package is valued at the stressed forward
+    # (fwd_today), so each fixed strike is re-deltaed there and picks up the
+    # surface's skew. Flat/None surface → every leg uses `vol` (byte-identical).
+    if surface is not None:
+        from analytics.vol_surface import smile_skew_spread
+        h_days = max(round(T * 365), 1)
+
+        def lv(strike: float) -> float:
+            return max(vol + smile_skew_spread(surface, strike, fwd_today, h_days), 0.01)
+    else:
+        def lv(strike: float) -> float:
+            return vol
+
     if structure_id == "1x1.5_spread":
         if is_call:
-            raw = call_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 1.5 * call_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+            raw = call_mtm(scenario_spot, strikes[0], T, lv(strikes[0]), r_d, r_f) - 1.5 * call_mtm(scenario_spot, strikes[1], T, lv(strikes[1]), r_d, r_f)
         else:
-            raw = put_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 1.5 * put_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+            raw = put_mtm(scenario_spot, strikes[0], T, lv(strikes[0]), r_d, r_f) - 1.5 * put_mtm(scenario_spot, strikes[1], T, lv(strikes[1]), r_d, r_f)
     elif structure_id == "1x2_spread":
         if is_call:
-            raw = call_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 2.0 * call_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+            raw = call_mtm(scenario_spot, strikes[0], T, lv(strikes[0]), r_d, r_f) - 2.0 * call_mtm(scenario_spot, strikes[1], T, lv(strikes[1]), r_d, r_f)
         else:
-            raw = put_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - 2.0 * put_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
+            raw = put_mtm(scenario_spot, strikes[0], T, lv(strikes[0]), r_d, r_f) - 2.0 * put_mtm(scenario_spot, strikes[1], T, lv(strikes[1]), r_d, r_f)
     elif structure_id == "seagull":
         ratio = wing_ratio or 0.0
         if is_call:
-            spread = call_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - call_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
-            wing = put_mtm(scenario_spot, strikes[2], T, vol, r_d, r_f)
+            spread = call_mtm(scenario_spot, strikes[0], T, lv(strikes[0]), r_d, r_f) - call_mtm(scenario_spot, strikes[1], T, lv(strikes[1]), r_d, r_f)
+            wing = put_mtm(scenario_spot, strikes[2], T, lv(strikes[2]), r_d, r_f)
         else:
-            spread = put_mtm(scenario_spot, strikes[0], T, vol, r_d, r_f) - put_mtm(scenario_spot, strikes[1], T, vol, r_d, r_f)
-            wing = call_mtm(scenario_spot, strikes[2], T, vol, r_d, r_f)
+            spread = put_mtm(scenario_spot, strikes[0], T, lv(strikes[0]), r_d, r_f) - put_mtm(scenario_spot, strikes[1], T, lv(strikes[1]), r_d, r_f)
+            wing = call_mtm(scenario_spot, strikes[2], T, lv(strikes[2]), r_d, r_f)
         raw = spread - ratio * wing
     else:
         raise ValueError(f"Unsupported structure for today-value helper: {structure_id}")
@@ -473,6 +496,7 @@ def _1x1p5(
                 r_f=r_f,
                 spot=spot,
                 is_call=is_call,
+                surface=vm.surface,
             ),
             abs(prem_pct),
         )
@@ -543,6 +567,7 @@ def _1x2(
                 r_f=r_f,
                 spot=spot,
                 is_call=is_call,
+                surface=vm.surface,
             ),
             abs(prem_pct),
         )
@@ -609,6 +634,7 @@ def _seagull(
                 spot=spot,
                 is_call=is_call,
                 wing_ratio=wing_ratio,
+                surface=vm.surface,
             )
         else:
             max_loss = 0.0

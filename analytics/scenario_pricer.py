@@ -97,6 +97,7 @@ def price_scenarios(
     scenarios: list[dict],
     trade_inputs: dict,
     is_call: bool,
+    surface: object | None = None,
 ) -> list[dict]:
     """
     Price `variant` in every scenario. Returns one row per scenario with
@@ -104,6 +105,13 @@ def price_scenarios(
     pnl_pct (price_pct minus entry premium paid).
 
     trade_inputs must contain: spot, r_d, r_f.
+
+    ``surface`` is an optional VolSurface. When supplied, the vanilla legs
+    (vanilla / 1x1 / 1x1.5 / 1x2 / seagull) are repriced under a sticky-delta
+    smile: each leg keeps the scenario's ATM vol level but picks up the surface's
+    skew at the leg's delta under the scenario forward. Digital / digital_rko /
+    european_rko legs stay on the flat scenario vol. When None (or a flat
+    surface), every leg uses the scalar scenario vol — byte-identical to legacy.
     """
     entry_spot: float = trade_inputs["spot"]
     r_d: float = trade_inputs["r_d"]
@@ -124,7 +132,7 @@ def price_scenarios(
                     raw = _value_variant(
                         structure_id, variant,
                         scenario_spot, max(trade_inputs["implied_vol"] + shift, 0.01), tau,
-                        r_d, r_f, entry_spot, is_call,
+                        r_d, r_f, entry_spot, is_call, surface,
                     )
                 except Exception:
                     raw = 0.0
@@ -138,7 +146,7 @@ def price_scenarios(
                 raw = _value_variant(
                     structure_id, variant,
                     scenario_spot, scenario_vol, tau,
-                    r_d, r_f, entry_spot, is_call,
+                    r_d, r_f, entry_spot, is_call, surface,
                 )
             except Exception:
                 raw = 0.0
@@ -194,30 +202,50 @@ def _value_variant(
     r_f: float,
     entry_spot: float,
     is_call: bool,
+    surface: object | None = None,
 ) -> float:
-    """Return absolute MtM value (same currency units as entry_spot)."""
+    """Return absolute MtM value (same currency units as entry_spot).
+
+    Vanilla legs (vanilla / spreads / seagull) reprice under a sticky-delta
+    smile when ``surface`` is supplied: each leg uses ``svol`` plus the surface's
+    skew spread at the leg's strike under the scenario forward. Digital / RKO /
+    european_rko legs stay on the flat ``svol`` (Phase 2 keeps them flat).
+    """
     K = variant.strikes
     barrier = variant.barrier
 
+    # Sticky-delta per-leg vol for vanilla legs. The scenario forward sets the
+    # delta of each fixed strike; the surface supplies the skew at that delta.
+    if surface is not None and tau > 0:
+        from analytics.vol_surface import smile_skew_spread
+        F_s = sspot * math.exp((r_d - r_f) * tau)
+        h_days = max(round(tau * 365), 1)
+
+        def leg_vol(strike: float) -> float:
+            return max(svol + smile_skew_spread(surface, strike, F_s, h_days), 0.01)
+    else:
+        def leg_vol(strike: float) -> float:
+            return svol
+
     if structure_id == "vanilla":
         if is_call:
-            return call_mtm(sspot, K[0], tau, svol, r_d, r_f)
-        return put_mtm(sspot, K[0], tau, svol, r_d, r_f)
+            return call_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f)
+        return put_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f)
 
     if structure_id == "1x1_spread":
         if is_call:
-            return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - call_mtm(sspot, K[1], tau, svol, r_d, r_f)
-        return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - put_mtm(sspot, K[1], tau, svol, r_d, r_f)
+            return call_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - call_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
+        return put_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - put_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
 
     if structure_id == "1x1.5_spread":
         if is_call:
-            return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - 1.5 * call_mtm(sspot, K[1], tau, svol, r_d, r_f)
-        return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - 1.5 * put_mtm(sspot, K[1], tau, svol, r_d, r_f)
+            return call_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - 1.5 * call_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
+        return put_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - 1.5 * put_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
 
     if structure_id == "1x2_spread":
         if is_call:
-            return call_mtm(sspot, K[0], tau, svol, r_d, r_f) - 2.0 * call_mtm(sspot, K[1], tau, svol, r_d, r_f)
-        return put_mtm(sspot, K[0], tau, svol, r_d, r_f) - 2.0 * put_mtm(sspot, K[1], tau, svol, r_d, r_f)
+            return call_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - 2.0 * call_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
+        return put_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - 2.0 * put_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
 
     if structure_id == "european_rko":
         if is_call:
@@ -228,12 +256,12 @@ def _value_variant(
         wing_ratio = variant.wing_ratio or 0.0
         if is_call:
             # long call spread + short put wing
-            spread = call_mtm(sspot, K[0], tau, svol, r_d, r_f) - call_mtm(sspot, K[1], tau, svol, r_d, r_f)
-            wing = put_mtm(sspot, K[2], tau, svol, r_d, r_f)
+            spread = call_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - call_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
+            wing = put_mtm(sspot, K[2], tau, leg_vol(K[2]), r_d, r_f)
         else:
             # long put spread + short call wing
-            spread = put_mtm(sspot, K[0], tau, svol, r_d, r_f) - put_mtm(sspot, K[1], tau, svol, r_d, r_f)
-            wing = call_mtm(sspot, K[2], tau, svol, r_d, r_f)
+            spread = put_mtm(sspot, K[0], tau, leg_vol(K[0]), r_d, r_f) - put_mtm(sspot, K[1], tau, leg_vol(K[1]), r_d, r_f)
+            wing = call_mtm(sspot, K[2], tau, leg_vol(K[2]), r_d, r_f)
         return spread - wing_ratio * wing
 
     if structure_id == "european_digital":

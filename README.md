@@ -91,6 +91,26 @@ Current hard exclusions:
 - `Avoid complex structures`: excludes `seagull`, `rko`, `european_rko`, `european_digital_rko`
 - `Avoid tail-risky structures`: excludes `seagull`, `1x2_spread`
 
+## Kelly Screen
+
+The Streamlit app now exposes a separate `Kelly Sizing` page in the sidebar.
+
+Current modes:
+
+- `Standalone`: pair-and-horizon driven. The user picks a supported currency pair and tenor, the page derives the current forward and ATM vol from the live snapshot, and the PM elicits a subjective distribution to price a single vanilla option.
+- `From Trade Rec`: session-linked. If a live `Trade View` recommendation exists, the Kelly page reads the top ranked concrete variants from that session, shows up to 10 of them in a dropdown, and lets the PM size one of those recommended trades against their subjective distribution.
+
+Current implementation notes:
+
+- `Standalone` no longer uses a free-form fixture or manual `F/σ/T` baseline in normal operation; it is anchored to the current snapshot and tenor interpolation.
+- `From Trade Rec` operates on concrete variants, not abstract structure families, because Kelly needs a fully specified payoff.
+- The payoff bridge currently supports the recommended structure variants already produced by `analytics.structure_pricer.price_variants()`, including vanilla, spreads, ratio spreads, seagulls, digitals, and RKOs.
+
+Streamlit state lessons from the recent Kelly build:
+
+- Anchor and bucket widgets must be read back from `st.session_state` after rendering. Relying on transient widget return values made the chart and edge section lag or ignore `+/-` edits.
+- Baseline reseeding must happen only when the actual market context changes, such as switching Kelly mode, changing pair/tenor, or selecting a different Trade Rec candidate. Reseeding on every rerun causes the anchor grid to snap back toward baseline and makes the `+/-` buttons feel unstable.
+
 ## Deployment
 
 GitHub repository: `ash847/macrotool`

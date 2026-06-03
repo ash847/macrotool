@@ -171,19 +171,25 @@ def target_price(flow: ConversationFlow) -> float | None:
 # ---------------------------------------------------------------------------
 
 def _build_smile(flow: ConversationFlow):
-    """Build a SmileInterpolator for the trade's pair, or None on any failure.
+    """Resolve the trade's VolSurface, or None on any failure.
 
+    Prefers the surface the market state was already priced against (so every
+    screen shares one surface); otherwise builds one from the ccy snapshot.
     Returns None (→ flat ATM vol fallback) when the pair has no complete vol
-    surface or the ccy snapshot is missing, so entry pricing never crashes on a
-    thin surface — it just degrades to the legacy flat-vol behaviour.
+    surface, so pricing never crashes on a thin surface — it degrades to the
+    legacy flat-vol behaviour.
     """
+    ms = getattr(flow, "market_state", None)
+    surface = getattr(ms, "surface", None) if ms is not None else None
+    if surface is not None:
+        return surface
     ccy = getattr(flow, "ccy", None)
     if ccy is None:
         return None
     try:
-        from analytics.vol_surface import SmileInterpolator
+        from analytics.vol_surface import build_vol_surface
 
-        return SmileInterpolator(ccy)
+        return build_vol_surface(ccy)
     except Exception:
         return None
 
@@ -331,6 +337,7 @@ def render_structure_evaluation(
         "r_f": _ev_ms.r_f,
     }
     _ev_scenarios = _gen_sc(_ev_inputs)
+    _ev_smile = _build_smile(flow)
 
     _ev_structs = []
     for _ev_item in flow.selector_result.shortlist:
@@ -339,6 +346,7 @@ def render_structure_evaluation(
                 _ev_ms, _ev_item.structure_id,
                 target=_ev_target, is_call=_ev_is_call,
                 stop_price=_ev_stop, loss_budget=_ev_loss_budget,
+                smile=_ev_smile,
             )
         except Exception:
             continue
@@ -347,7 +355,8 @@ def render_structure_evaluation(
         _ev_variants = []
         for _ev_pv in _ev_pvs:
             _ev_rows = _price_sc(
-                _ev_pv, _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call
+                _ev_pv, _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call,
+                surface=_ev_smile,
             )
             _ev_score = _score_struct(_ev_rows, _ev_weights)
             _ev_score_base = _score_struct(_ev_rows, _ev_base_weights)

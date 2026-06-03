@@ -550,10 +550,10 @@ def build_comparator_inputs(
     a thin adapter around the existing variant pricer, scenario generator,
     scenario pricer, scenario weighter, and scenario scorer.
 
-    ``smile`` is an optional ``SmileInterpolator`` passed straight through to the
-    variant pricer so entry pricing uses interpolated smile vol per strike. When
-    None, the pricer falls back to flat ATM vol (legacy behaviour). Scenario
-    re-pricing (MtM) stays on flat ATM vol regardless — see structure_pricer.
+    ``smile`` is an optional ``VolSurface`` passed straight through to both the
+    variant pricer (entry pricing per strike) and the scenario pricer (sticky-
+    delta MtM on the vanilla legs). When None, both fall back to flat ATM vol
+    (legacy behaviour). Digital / RKO / european_rko legs stay flat regardless.
     """
     from analytics.scenario_generator import generate_scenarios
     from analytics.scenario_pricer import price_scenarios
@@ -612,6 +612,7 @@ def build_comparator_inputs(
                 scenarios,
                 trade_inputs,
                 is_call,
+                surface=smile,
             )
             base_score = score_structure(rows, base_weights)
             pm_score = score_structure(rows, weighter.weights)

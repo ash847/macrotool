@@ -8,7 +8,7 @@ EM FX trade structuring & sizing tool for macro fund PMs. The target architectur
 .venv/bin/streamlit run interface/app.py   # UI
 .venv/bin/python demo.py                   # full pipeline without LLM
 .venv/bin/python demo.py --pair USDTRY --direction base_higher --horizon 60
-.venv/bin/python -m pytest                 # 206 tests
+.venv/bin/python -m pytest                 # 373 tests
 ```
 
 Python 3.13. Venv at `.venv/`. Requires `ANTHROPIC_API_KEY` (sidebar or secrets).
@@ -126,6 +126,26 @@ NDF outrights already embed the full interest rate differential — use them as-
 
 Other pairs in snapshot (EURUSD, USDCNH, USDMXN, USDJPY) are not yet wired into the conversation flow.
 
+## Option pricing and smile vol
+
+`analytics/structure_pricer.py: price_variants()` prices every structure variant
+in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
+
+**Premium basis (load-bearing invariant):** `black76(F,K,T,σ,DF_d) / spot == DF_f × (forward_value / forward)`. Black-76 returns a premium in *quote* ccy discounted at the *quote* rate `r_d`; dividing by **spot** (not forward) collapses that into the *base* rate `r_f`, so the displayed `net_premium_pct` is base-ccy-notional %, effectively USD-discounted. This is correct and intended. The buggy basis (quote-discounted value ÷ forward) lands ~one quote-DF away. `tests/test_premium_basis.py` pins this on a high-carry TRY-like market — do not "fix" the `/spot` to `/fwd`.
+
+**Pluggable vol surface (`analytics/vol_surface.py`):** all vanilla pricing depends on a `VolSurface` Protocol — `vol_at_strike(K, F, horizon_days)` and `vol_at_delta(delta, horizon_days)`.
+- `SmileInterpolator` is the cubic-spline build method; its resolution/interpolation knobs (`pillars`, `call_deltas`, `tenor_days`, `bc_type`, `delta_clip`) are constructor params with the legacy values as defaults.
+- `FlatSurface(atm_vol)` is the degenerate surface — one ATM vol everywhere — so the flat path is just a surface, not a separate branch. Pricing against it is byte-for-byte identical to the legacy scalar-vol path.
+- `build_vol_surface(ccy, method="cubic_spline", **params)` is the only construction site. Add a new build method (e.g. `"sabr"`) by adding a class that satisfies the Protocol plus a branch here — no call-site changes.
+
+**Where the smile applies (every vanilla, inception → completion):**
+- **Entry pricing** — `price_variants(..., smile=<surface>)`: leg-based structures (`vanilla`, `1x1_spread`, `1x1.5_spread`, `1x2_spread`, `seagull`) price each leg at its own vol (delta legs `vol_at_delta`, strike legs `vol_at_strike`). A `_VolModel` wrapper hides the branch.
+- **atmfsratio** — `compute_market_state(..., surface=<surface>)`: the ATM-fwd / ATM-spot legs (vanillas on the high-carry ccy) price at `vol_at_strike`. `MarketState.surface` carries the surface downstream.
+- **Scenario MtM** — `price_scenarios(..., surface=<surface>)` and the max-loss helper `_today_package_value_pct`: vanilla legs reprice under a **sticky-delta** smile — the scenario's ATM vol level plus `smile_skew_spread(K, scenario_fwd, tau)`, i.e. each fixed strike is re-deltaed at the scenario forward. Anchoring to the scenario vol keeps the existing term-structure / ±vol-shock plumbing intact.
+- The surface is built once in `conversation/flow.py: _run_engines()` via `build_vol_surface(self.ccy)` (falls back to `None`/flat on an incomplete surface), stored on `MarketState.surface`, and reused by `comparator.build_comparator_inputs(..., smile=...)` and `interface/structure_eval.py` (both the variants table and the scenario-evaluation table).
+
+**Still flat by design:** the digital / RKO / european-RKO pricers (and their scenario MtM legs) stay on flat ATM vol — barrier/binary skew consistency is out of scope. Guards: `tests/test_smile_pricing.py` (entry), `tests/test_vol_surface_refactor.py` (atmfsratio + scenario, flat-byte-identical and smile-moves-vanilla / digital-stays-flat).
+
 ## Logging and observability
 
 - **Langfuse** — one trace per session, one generation per LLM call (step names: `INTAKE_view_extraction`, `INTAKE_validation`, `INTAKE_structure_rec`, `INTAKE_critique`, `DONE`). No-op safe if keys not set.
@@ -143,6 +163,20 @@ Other pairs in snapshot (EURUSD, USDCNH, USDMXN, USDJPY) are not yet wired into 
 - **Vol surface delta labels are always relative to the base currency.**
 - **`target_rr` must be cleared in `reset()`** alongside all other view state.
 - **Scoring tuple type is `float`** — affinity scores use fractional values.
+- **Kelly widget values must be re-read from `st.session_state` after rendering.** This prevents Streamlit `+/-` edits from updating the visible input while leaving charts / edge / Kelly on stale values.
+- **Kelly baseline reseeding must only happen on real context changes.** Re-seed on source-mode switch, pair/tenor change, or Trade Rec selection change; do not re-seed on ordinary reruns.
+
+## Kelly screen
+
+`interface/kelly_v2/` now supports two user entry modes:
+
+- `Standalone` — choose a supported pair and tenor from the live snapshot, then elicit a subjective distribution for a single vanilla option.
+- `From Trade Rec` — if the current session already has a live `Trade View` recommendation, surface up to 10 concrete recommended variants in a dropdown and size the selected trade.
+
+Implementation notes:
+
+- The Trade Rec linkage must stay variant-level, not family-level, because Kelly needs a fully specified payoff.
+- The payoff bridge in `interface/kelly_v2/pricing.py` should stay consistent with the structure pricer’s base-ccy payoff conventions, especially for digitals, seagulls, and zero-cost structures.
 
 ## Config system
 

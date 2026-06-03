@@ -354,6 +354,15 @@ class ConversationFlow:
         atm_vol = interpolate_atm_vol(self.ccy, self.view.horizon_days)
         target = target_from_reference(rate_ctx.forward, self.view.direction, self.view.magnitude_pct)
         carry_regime_cuts = load_affinity_scores()["thresholds"]["carry_regime"]
+        # Build the vol surface once and reuse it everywhere a vanilla is priced
+        # (atmfsratio, entry pricing, scenario MtM). Falls back to flat ATM vol
+        # on a thin/incomplete surface so the pipeline never breaks.
+        surface = None
+        try:
+            from analytics.vol_surface import build_vol_surface
+            surface = build_vol_surface(self.ccy)
+        except Exception:
+            surface = None
         self.market_state = compute_market_state(
             spot=rate_ctx.spot,
             fwd=rate_ctx.forward,
@@ -364,6 +373,7 @@ class ConversationFlow:
             target=target,
             direction=self.view.direction,
             carry_regime_cuts=carry_regime_cuts,
+            surface=surface,
         )
         self.selector_result = score_structures(
             self.market_state,
@@ -442,14 +452,9 @@ class ConversationFlow:
                 trade_management=self.trade_management,
                 structure_constraint=self.structure_constraint,
             )
-            smile = None
-            if self.ccy is not None:
-                try:
-                    from analytics.vol_surface import SmileInterpolator
-
-                    smile = SmileInterpolator(self.ccy)
-                except Exception:
-                    smile = None
+            # Reuse the surface the market state was priced against, so entry
+            # pricing and scenario MtM use the identical surface.
+            smile = getattr(self.market_state, "surface", None)
             comparator_inputs = build_comparator_inputs(
                 self.market_state,
                 self.selector_result,
