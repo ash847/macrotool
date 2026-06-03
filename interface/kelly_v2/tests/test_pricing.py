@@ -122,6 +122,24 @@ def test_atm_call_equals_put_at_forward_strike():
     assert c == pytest.approx(p, abs=1e-9)
 
 
+def test_put_price_rises_when_distribution_shifts_lower():
+    strike = 5.0
+    lower_dist = standard_dist(p_min=3.8, p_max=5.8)
+    higher_dist = standard_dist(p_min=4.2, p_max=6.2)
+    lower_put = price_vanilla(lower_dist, strike, is_call=False)
+    higher_put = price_vanilla(higher_dist, strike, is_call=False)
+    assert lower_put > higher_put
+
+
+def test_call_price_rises_when_distribution_shifts_higher():
+    strike = 5.0
+    lower_dist = standard_dist(p_min=3.8, p_max=5.8)
+    higher_dist = standard_dist(p_min=4.2, p_max=6.2)
+    lower_call = price_vanilla(lower_dist, strike, is_call=True)
+    higher_call = price_vanilla(higher_dist, strike, is_call=True)
+    assert higher_call > lower_call
+
+
 def test_trade_rec_call_spread_payoff_in_base_ccy():
     payoff = base_ccy_payoff_for_trade_rec(
         "1x1_spread",

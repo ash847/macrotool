@@ -157,6 +157,23 @@ def _standalone_is_call() -> bool:
     return st.session_state.get("option_type", "Call") == "Call"
 
 
+def _pair_direction_caption(pair: str) -> str:
+    base = pair[:3]
+    quote = pair[3:]
+    return (
+        f"Call = {base} up / {quote} down (pair higher). "
+        f"Put = {base} down / {quote} up (pair lower)."
+    )
+
+
+def _option_type_label(pair: str, kind: str) -> str:
+    base = pair[:3]
+    quote = pair[3:]
+    if kind == "Call":
+        return f"{base} up / {quote} down"
+    return f"{base} down / {quote} up"
+
+
 def _standalone_market_context() -> dict:
     snapshot = _effective_snapshot()
     pair_options = list(snapshot.currencies.keys())
@@ -506,7 +523,9 @@ def _renormalise_buckets(n_buckets: int) -> None:
 
 
 def render_vanilla_inputs() -> tuple[float, bool]:
+    pair = st.session_state.get("kelly_pair", "FX pair")
     st.markdown("##### Vanilla option to price")
+    st.caption(_pair_direction_caption(pair))
     col_k, col_t = st.columns([3, 2])
     with col_k:
         strike = st.number_input(
@@ -515,7 +534,11 @@ def render_vanilla_inputs() -> tuple[float, bool]:
         )
     with col_t:
         kind = st.radio(
-            "Type", options=["Call", "Put"], horizontal=True, key="option_type",
+            "Type",
+            options=["Call", "Put"],
+            format_func=lambda choice: _option_type_label(pair, choice),
+            horizontal=True,
+            key="option_type",
             label_visibility="collapsed",
         )
         is_call = kind == "Call"
