@@ -101,6 +101,7 @@ def init_state() -> None:
         "sigma": 0.10,
         "tenor_years": 0.25,
         "strike": 5.00,
+        "option_type": "Call",
         "is_call": True,
         "kelly_multiplier": 50,
         "kelly_trade_rec_choice": None,
@@ -152,6 +153,10 @@ def _current_baseline() -> Distribution:
     )
 
 
+def _standalone_is_call() -> bool:
+    return st.session_state.get("option_type", "Call") == "Call"
+
+
 def _standalone_market_context() -> dict:
     snapshot = _effective_snapshot()
     pair_options = list(snapshot.currencies.keys())
@@ -173,7 +178,6 @@ def _standalone_market_context() -> dict:
         sigma=sigma,
         tenor_years=tenor_years,
         strike=forward,
-        is_call=st.session_state.get("is_call", True),
     )
     return {
         "pair_options": pair_options,
@@ -510,8 +514,6 @@ def render_vanilla_inputs() -> tuple[float, bool]:
             label_visibility="collapsed",
         )
     with col_t:
-        if "option_type" not in st.session_state:
-            st.session_state.option_type = "Call" if st.session_state.is_call else "Put"
         kind = st.radio(
             "Type", options=["Call", "Put"], horizontal=True, key="option_type",
             label_visibility="collapsed",
