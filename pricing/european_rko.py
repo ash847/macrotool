@@ -13,6 +13,8 @@ This is a terminal-state truncation, not a barrier-touch product.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pricing.black_scholes import call_value, put_value
 from pricing.digital import digital_call, digital_put
 
@@ -26,13 +28,24 @@ def european_rko_call(
     r_d: float,
     r_f: float,
     notional: float = 1.0,
+    vol_fn: Callable[[float], float] | None = None,
 ) -> float:
-    """Expiry-only reverse knock-out call."""
+    """Expiry-only reverse knock-out call.
+
+    The static decomposition is ``call(K) − call(H) − (H−K)·digital_call(H)``,
+    all quote-currency legs. When ``vol_fn`` (the smile seam) is supplied each
+    leg prices at its own strike vol; ``None`` keeps every leg on the scalar
+    ``sigma``, reproducing the legacy flat price byte-for-byte.
+    """
     if barrier <= strike:
         return 0.0
-    vanilla_k = call_value(spot, strike, T, sigma, r_d, r_f, notional)
-    vanilla_h = call_value(spot, barrier, T, sigma, r_d, r_f, notional)
-    strip = (barrier - strike) * digital_call(spot, barrier, T, sigma, r_d, r_f, payout=1.0, notional=notional)
+    vol_k = sigma if vol_fn is None else vol_fn(strike)
+    vol_h = sigma if vol_fn is None else vol_fn(barrier)
+    vanilla_k = call_value(spot, strike, T, vol_k, r_d, r_f, notional)
+    vanilla_h = call_value(spot, barrier, T, vol_h, r_d, r_f, notional)
+    strip = (barrier - strike) * digital_call(
+        spot, barrier, T, sigma, r_d, r_f, payout=1.0, notional=notional, vol_fn=vol_fn
+    )
     return max(vanilla_k - vanilla_h - strip, 0.0)
 
 
@@ -45,13 +58,19 @@ def european_rko_put(
     r_d: float,
     r_f: float,
     notional: float = 1.0,
+    vol_fn: Callable[[float], float] | None = None,
 ) -> float:
-    """Expiry-only reverse knock-out put."""
+    """Expiry-only reverse knock-out put. See ``european_rko_call`` for the
+    decomposition and the ``vol_fn`` smile seam."""
     if barrier >= strike:
         return 0.0
-    vanilla_k = put_value(spot, strike, T, sigma, r_d, r_f, notional)
-    vanilla_h = put_value(spot, barrier, T, sigma, r_d, r_f, notional)
-    strip = (strike - barrier) * digital_put(spot, barrier, T, sigma, r_d, r_f, payout=1.0, notional=notional)
+    vol_k = sigma if vol_fn is None else vol_fn(strike)
+    vol_h = sigma if vol_fn is None else vol_fn(barrier)
+    vanilla_k = put_value(spot, strike, T, vol_k, r_d, r_f, notional)
+    vanilla_h = put_value(spot, barrier, T, vol_h, r_d, r_f, notional)
+    strip = (strike - barrier) * digital_put(
+        spot, barrier, T, sigma, r_d, r_f, payout=1.0, notional=notional, vol_fn=vol_fn
+    )
     return max(vanilla_k - vanilla_h - strip, 0.0)
 
 

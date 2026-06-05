@@ -306,6 +306,82 @@ class TestDigital:
         dc_5 = digital_call(S, K, T, sig, r_d, r_f, payout=0.05)
         assert dc_5 == pytest.approx(5 * dc_1, rel=1e-6)
 
+    def test_digital_call_smile_matches_route2_formula(self):
+        """vol_fn digital = payout·n·[DF·N(d2(σ(K))) − vega·σ′(K)].
+
+        A linear smile makes the pricer's central-difference slope exactly σ′,
+        so the route-2 formula must reproduce to machine precision.
+        """
+        from math import log, sqrt, exp
+        from scipy.stats import norm
+        from pricing.black_scholes import black76_vega
+
+        F = S * exp((r_d - r_f) * T)
+        DF = exp(-r_d * T)
+        strike = F * 1.05
+        slope = 0.10
+        vol_fn = lambda k: 0.20 + slope * (k - F)   # linear → exact central-diff slope
+
+        sigK = vol_fn(strike)
+        d2 = (log(F / strike) - 0.5 * sigK ** 2 * T) / (sigK * sqrt(T))
+        vega = black76_vega(F, strike, T, sigK, DF)
+        payout, notional = 0.05, 3.0
+        expected = payout * notional * (DF * norm.cdf(d2) - vega * slope)
+
+        got = digital_call(S, strike, T, sig, r_d, r_f, payout=payout, notional=notional, vol_fn=vol_fn)
+        assert got == pytest.approx(expected, rel=1e-9, abs=1e-12)
+
+    def test_digital_put_smile_flips_slope_sign(self):
+        """Put parity flips the skew-slope term: DF·N(−d2) + vega·σ′."""
+        from math import log, sqrt, exp
+        from scipy.stats import norm
+        from pricing.black_scholes import black76_vega
+
+        F = S * exp((r_d - r_f) * T)
+        DF = exp(-r_d * T)
+        strike = F * 0.95
+        slope = 0.10
+        vol_fn = lambda k: 0.20 + slope * (k - F)
+
+        sigK = vol_fn(strike)
+        d2 = (log(F / strike) - 0.5 * sigK ** 2 * T) / (sigK * sqrt(T))
+        vega = black76_vega(F, strike, T, sigK, DF)
+        expected = DF * norm.cdf(-d2) + vega * slope
+
+        got = digital_put(S, strike, T, sig, r_d, r_f, vol_fn=vol_fn)
+        assert got == pytest.approx(expected, rel=1e-9, abs=1e-12)
+
+    def test_digital_smile_parity_holds(self):
+        """Call + put smile digitals still sum to DF (the slope terms cancel)."""
+        from math import exp
+        F = S * exp((r_d - r_f) * T)
+        DF = exp(-r_d * T)
+        strike = F * 1.03
+        vol_fn = lambda k: 0.20 + 0.10 * (k - F)
+        dc = digital_call(S, strike, T, sig, r_d, r_f, vol_fn=vol_fn)
+        dp = digital_put(S, strike, T, sig, r_d, r_f, vol_fn=vol_fn)
+        assert dc + dp == pytest.approx(DF, rel=1e-9)
+
+    def test_digital_call_smile_arbitrage_raises(self):
+        """A skew steeper than the no-arb bound drives the digital < 0 → raises."""
+        from math import exp
+        from pricing.digital import SmileArbitrageError
+        F = S * exp((r_d - r_f) * T)
+        strike = F * 1.10
+        vol_fn = lambda k: 0.20 + 2.0 * (k - F)   # very steep positive skew
+        with pytest.raises(SmileArbitrageError):
+            digital_call(S, strike, T, sig, r_d, r_f, vol_fn=vol_fn)
+
+    def test_digital_mild_smile_does_not_raise(self):
+        """A realistic gentle skew stays inside [0, DF] — no false positive."""
+        from math import exp
+        F = S * exp((r_d - r_f) * T)
+        vol_fn = lambda k: 0.20 + 0.05 * (k - F)
+        # spans ITM → OTM strikes; none should trip the guard
+        for mult in (0.90, 0.97, 1.0, 1.03, 1.10):
+            digital_call(S, F * mult, T, sig, r_d, r_f, vol_fn=vol_fn)
+            digital_put(S, F * mult, T, sig, r_d, r_f, vol_fn=vol_fn)
+
 
 # ---------------------------------------------------------------------------
 # Digital + RKO
@@ -384,19 +460,26 @@ class TestEuropeanRKO:
         assert abs(vanilla - erko_far) < abs(vanilla - erko_near)
         assert erko_far == pytest.approx(vanilla, rel=0.10)
 
-    def test_price_variants_builds_erko_with_barrier_as_second_strike(self):
+    def test_price_variants_builds_erko_with_delta_barrier_as_second_strike(self):
         from analytics.structure_pricer import price_variants
         from analytics.market_state import compute_market_state
+        from analytics.strike_resolver import otm_call_strike
         ms = compute_market_state(
             spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
             target=5.30, direction="base_higher",
         )
         variants = price_variants(ms, "european_rko", target=5.30, is_call=True)
         assert variants
+        # ATMF / 25Δ variant: barrier is the delta-resolved 25Δ call strike,
+        # which sits above the long (ATMF) strike — no longer the target.
+        atmf = next(pv for pv in variants if pv.variant_label == "ATMF / 25Δ")
+        expected_barrier = otm_call_strike(ms.fwd, ms.vol, ms.T, 0.25)
         for pv in variants:
             assert len(pv.strikes) == 2
-            assert pv.barrier == pytest.approx(5.30)
-            assert pv.strikes[1] == pytest.approx(5.30)
+            assert pv.strikes[1] == pytest.approx(pv.barrier)
+            assert pv.barrier > pv.strikes[0]  # KO barrier above the long strike
+        assert atmf.barrier == pytest.approx(expected_barrier)
+        assert atmf.barrier != pytest.approx(5.30)
 
     def test_price_variants_erko_includes_one_by_one_delta_variants_for_puts(self):
         from analytics.structure_pricer import price_variants
@@ -408,17 +491,19 @@ class TestEuropeanRKO:
         variants = price_variants(ms, "european_rko", target=0.95, is_call=False)
         labels = {pv.variant_label for pv in variants}
 
-        assert "ATMF / 2× target" in labels
-        assert "½σ toward target / 2× target" in labels
         assert "ATMF / 25Δ" in labels
         assert "25Δ / 10Δ" in labels
         assert "25Δ / 15Δ" in labels
         assert "40Δ / 20Δ" in labels
         assert "30Δ / 10Δ" in labels
         assert "20Δ / 10Δ" in labels
+        # Old target/sigma-anchored variants are gone.
+        assert "ATMF / 2× target" not in labels
+        assert "½σ toward target / 2× target" not in labels
         for pv in variants:
-            assert pv.barrier == pytest.approx(0.95)
-            assert pv.strikes[1] == pytest.approx(0.95)
+            # Put KO barrier sits below the long strike (further OTM).
+            assert pv.strikes[1] == pytest.approx(pv.barrier)
+            assert pv.barrier < pv.strikes[0]
 
 
 # ---------------------------------------------------------------------------

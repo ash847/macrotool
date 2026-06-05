@@ -208,11 +208,26 @@ def render_structure_variants(
     _primary_items = flow.selector_result.shortlist
     _smile = _build_smile(flow)
 
-    _any_variants = any(
-        _price_variants(ms, s.structure_id, target=target, is_call=is_call, stop_price=stop_price, loss_budget=loss_budget, smile=_smile)
-        for s in _primary_items
-    )
-    if not _any_variants:
+    # Single pricing pass: collect priced variants and any structures whose
+    # digital legs hit a smile arbitrage (dropped rather than mis-marked).
+    _priced: list = []          # (item, pvs)
+    _unpriced: list[str] = []   # display names with one or more dropped variants
+    for _item in _primary_items:
+        _warns: list[str] = []
+        try:
+            _pvs = _price_variants(
+                ms, _item.structure_id, target=target, is_call=is_call,
+                stop_price=stop_price, loss_budget=loss_budget, smile=_smile, warnings=_warns,
+            )
+        except Exception as _e:
+            st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
+            continue
+        if _warns:
+            _unpriced.append(_item.display_name)
+        if _pvs:
+            _priced.append((_item, _pvs))
+
+    if not _priced and not _unpriced:
         return
 
     st.subheader("Structure variants")
@@ -224,14 +239,16 @@ def render_structure_variants(
         "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
     )
 
-    for _i, _item in enumerate(_primary_items):
-        try:
-            _pvs = _price_variants(ms, _item.structure_id, target=target, is_call=is_call, stop_price=stop_price, loss_budget=loss_budget, smile=_smile)
-        except Exception as _e:
-            st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
-            continue
-        if not _pvs:
-            continue
+    if _unpriced:
+        st.warning(
+            "⚠️ **Not priced: " + ", ".join(_unpriced) + ".** "
+            "One or more variants fall in a region where the interpolated vol smile implies "
+            "a local arbitrage (negative risk-neutral density — typically far-OTM spline "
+            "overshoot), so no reliable digital price is available. These are omitted rather "
+            "than shown with an unreliable mark."
+        )
+
+    for _i, (_item, _pvs) in enumerate(_priced):
         _title = _item.display_name
         with st.expander(_title, expanded=(_i == 0)):
             _rows = []
