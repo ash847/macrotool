@@ -265,9 +265,14 @@ def _value_variant(
         return spread - wing_ratio * wing
 
     if structure_id == "european_digital":
+        # Base-ccy (USD) cash-or-nothing: pays a fixed 1 unit of base ccy if ITM.
+        # Asset-or-nothing identity (flat scenario vol, per design):
+        #   AON_call = call_mtm(K) + K·digital_call_mtm(K, payout=1)
+        #   AON_put  = K·digital_put_mtm(K, payout=1) − put_mtm(K)
+        # price_scenarios divides by scenario_spot → at expiry ITM this is exactly 1.0.
         if is_call:
-            return digital_call_mtm(sspot, K[0], tau, svol, r_d, r_f, payout=entry_spot)
-        return digital_put_mtm(sspot, K[0], tau, svol, r_d, r_f, payout=entry_spot)
+            return call_mtm(sspot, K[0], tau, svol, r_d, r_f) + K[0] * digital_call_mtm(sspot, K[0], tau, svol, r_d, r_f, payout=1.0)
+        return K[0] * digital_put_mtm(sspot, K[0], tau, svol, r_d, r_f, payout=1.0) - put_mtm(sspot, K[0], tau, svol, r_d, r_f)
 
     if structure_id == "european_digital_rko":
         if is_call:

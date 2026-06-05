@@ -5,8 +5,9 @@ Prices the concrete instances defined in structure_variants.json.
 Premiums (inception cashflows) are expressed as a fraction of entry spot.
 Payoff-at-target is base-ccy and converted at the PREVAILING spot at that scenario
 — i.e. divided by `target` (spot equals target in that scenario), matching the
-scenario grid's prevailing-spot convention. Digital payout is a fixed quote-ccy
-amount of entry spot, so its base-ccy payoff at target is spot / target.
+scenario grid's prevailing-spot convention. The European digital is recommended
+as a base-ccy cash-or-nothing trade (fixed 1-unit-of-base payout), so its premium
+is a base-ccy % and its payoff at target is exactly 100% — see `_digital`.
 
 Smile vols
 ----------
@@ -39,7 +40,7 @@ from typing import TYPE_CHECKING
 
 from analytics.market_state import MarketState
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
-from pricing.black_scholes import black76_call, black76_put, call_mtm, put_mtm
+from pricing.black_scholes import black76_call, black76_put, call_mtm, call_value, put_mtm, put_value
 from pricing.digital import SmileArbitrageError, digital_call, digital_put
 from pricing.digital_rko import digital_rko_call, digital_rko_put
 from pricing.european_rko import european_rko_call, european_rko_put
@@ -650,51 +651,68 @@ def _seagull(
 
 
 # ---------------------------------------------------------------------------
-# European digital  (bisect for target premium; payout normalised to spot)
+# European digital — recommended as a BASE-CCY (e.g. USD) cash-or-nothing trade
 # ---------------------------------------------------------------------------
 
 def _digital(
     variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings=None
 ) -> list[PricedVariant]:
+    """European digital as a base-ccy cash-or-nothing structure.
+
+    As a recommended trade the digital pays a FIXED 1 unit of base ccy (e.g. USD)
+    if it finishes in the money, so the premium is a base-ccy % and the payoff at
+    target is exactly **100%** — not spot/target. (The pricing module's quote-cash
+    `digital_call/put` are unchanged; only this structure-level treatment differs.)
+
+    Built from the asset-or-nothing identity, so it reprices in base-ccy terms and
+    inherits the smile + SmileArbitrageError guard from the quote-cash digital leg:
+        AON_call = call(K) + K·digital_call(payout=1 quote)   → /spot = USD digital call
+        AON_put  = K·digital_put(payout=1 quote) − put(K)     → /spot = USD digital put
+    Flat surface → vol_fn is None and every leg collapses to the scalar `vol`.
+    """
     result = []
-    fn_price = digital_call if is_call else digital_put
-    # Smile seam: the bisection target and final premium price the digital at
-    # its own strike vol plus the skew-slope correction (inside digital_call/put).
-    # Flat surface → vol_fn is None and the digital collapses to the legacy
-    # flat-vol value, reproducing the old strike/premium byte-for-byte.
     vol_fn = vm.at_strike if vm.surface is not None else None
 
-    for v in variants:
-        tgt_pct = v["target_prem_pct"]
-        target_prem = tgt_pct * spot  # absolute premium in domestic per unit
-
-        # Bisect: find K such that digital ≈ target_prem
-        # K_lo near spot (high premium) → K_hi far OTM (near-zero premium)
+    def premium_usd(K: float) -> float:
+        """Base-ccy (USD) cash-or-nothing premium as a fraction of base notional."""
+        sig = vol_fn(K) if vol_fn is not None else vol
         if is_call:
-            K_lo = spot * 1.001
-            K_hi = F * math.exp(3.0 * vol_sqrtT)
+            aon = (call_value(spot, K, T, sig, r_d, r_f)
+                   + K * digital_call(spot, K, T, vol, r_d, r_f, payout=1.0, vol_fn=vol_fn))
         else:
-            K_lo = F * math.exp(-3.0 * vol_sqrtT)
-            K_hi = spot * 0.999
+            aon = (K * digital_put(spot, K, T, vol, r_d, r_f, payout=1.0, vol_fn=vol_fn)
+                   - put_value(spot, K, T, sig, r_d, r_f))
+        return aon / spot
+
+    for v in variants:
+        tgt_pct = v["target_prem_pct"]  # target premium, base-ccy fraction of notional
+
+        # Bisect for K so the base-ccy premium ≈ tgt_pct. Bracket symmetrically
+        # around the FORWARD (the digital's risk-neutral centre), not spot: on a
+        # high-carry pair the forward sits far from spot, so a 10–30% strike can
+        # land between spot and the forward (downside *to the forward*). Spot-
+        # anchored bounds would clip those strikes and rail every variant to the
+        # boundary. The span covers premium ≈ 0 → ≈ DF on either side, and the
+        # (monotonic) bisection finds the strike. Symmetric for calls and puts.
+        span = math.exp(4.0 * vol_sqrtT)
+        K_lo, K_hi = F / span, F * span
 
         # Smile arbitrage anywhere across the strike search makes the digital
         # unreliable — drop the variant rather than emit a bogus mark.
         try:
-            K = _bisect_strike(fn_price, spot, K_lo, K_hi, T, vol, r_d, r_f, target_prem, is_call, vol_fn=vol_fn)
-            prem = fn_price(spot, K, T, vol, r_d, r_f, payout=spot, vol_fn=vol_fn)
+            K = _bisect_digital_usd(premium_usd, K_lo, K_hi, tgt_pct, is_call)
+            prem_pct = premium_usd(K)
         except SmileArbitrageError as e:
             if warnings is not None:
                 warnings.append(f"variant '{v['label']}' not priced — {e}")
             continue
-        prem_pct = prem / spot
 
         payoff_pct, rr = None, None
         if target is not None:
             itm = (target > K) if is_call else (target < K)
             if itm:
-                # Digital pays a fixed quote-ccy amount of entry spot; in base
-                # ccy at the target scenario (spot == target) that is spot/target.
-                payoff_pct = spot / target
+                # Fixed base-ccy payout → payoff at target is exactly 100%.
+                payoff_pct = 1.0
                 rr = payoff_pct / prem_pct if prem_pct > 1e-8 else None
             else:
                 payoff_pct = 0.0
@@ -840,6 +858,31 @@ def _european_rko(
 # ---------------------------------------------------------------------------
 # Bisection helpers
 # ---------------------------------------------------------------------------
+
+def _bisect_digital_usd(premium_fn, K_lo, K_hi, tgt_pct, is_call, tol=1e-6) -> float:
+    """Solve for the strike whose base-ccy digital premium ≈ tgt_pct.
+
+    `premium_fn(K)` returns the base-ccy premium (fraction of notional). For a
+    call it decreases as K rises; for a put it increases as K rises toward spot.
+    May raise SmileArbitrageError (propagated to the caller to drop the variant).
+    """
+    for _ in range(60):
+        K_mid = 0.5 * (K_lo + K_hi)
+        val = premium_fn(K_mid)
+        if abs(val - tgt_pct) < tol:
+            return K_mid
+        if is_call:
+            if val > tgt_pct:
+                K_lo = K_mid   # premium too high → push strike further OTM (higher)
+            else:
+                K_hi = K_mid
+        else:
+            if val > tgt_pct:
+                K_hi = K_mid   # put premium too high → push strike further OTM (lower)
+            else:
+                K_lo = K_mid
+    return 0.5 * (K_lo + K_hi)
+
 
 def _bisect_strike(fn, spot, K_lo, K_hi, T, vol, r_d, r_f, target_prem, is_call, tol=1e-6, vol_fn=None) -> float:
     for _ in range(60):
