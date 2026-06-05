@@ -18,9 +18,15 @@ delta-pillar vol; strike-defined legs at vol_at_strike). The max-loss helper
 ``_today_package_value_pct`` likewise reprices its vanilla legs under a
 sticky-delta smile when a surface is supplied.
 
-The digital / RKO / european-RKO pricers remain on flat ATM vol by design (kept
-flat pending a skew-consistent barrier/binary treatment). Scenario MtM follows
-the same split — see analytics/scenario_pricer.py.
+The European package (european_digital and european_rko) is also smile-aware at
+*entry*: each is threaded a strike→vol seam (``vol_fn``) so the digital prices at
+the skew-consistent value ``DF·N(d2(σ(K))) − vega·σ′(K)`` and the ERKO's two
+vanilla legs price at their own strike vol. A flat/None surface collapses the
+seam to the scalar ATM vol, reproducing the legacy price byte-for-byte.
+
+Still flat by design: the path-dependent RKO and digital+RKO pricers, and *all*
+scenario-MtM legs for the digital / RKO / european-RKO family (barrier/binary
+scenario skew is out of scope) — see analytics/scenario_pricer.py.
 """
 
 from __future__ import annotations
@@ -34,7 +40,7 @@ from typing import TYPE_CHECKING
 from analytics.market_state import MarketState
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
 from pricing.black_scholes import black76_call, black76_put, call_mtm, put_mtm
-from pricing.digital import digital_call, digital_put
+from pricing.digital import SmileArbitrageError, digital_call, digital_put
 from pricing.digital_rko import digital_rko_call, digital_rko_put
 from pricing.european_rko import european_rko_call, european_rko_put
 
@@ -112,6 +118,7 @@ def price_variants(
     stop_price: float | None = None,
     loss_budget: float | None = None,
     smile: "SmileInterpolator | None" = None,
+    warnings: list[str] | None = None,
 ) -> list[PricedVariant]:
     """
     Price all defined variants for a structure. Returns [] if no variants defined.
@@ -124,6 +131,11 @@ def price_variants(
     If a ``smile`` (SmileInterpolator) is supplied, the leg-based structures price
     each leg at its interpolated smile vol; otherwise every leg uses ms.vol (flat
     smile). See module docstring for the Phase 1 scope.
+
+    Digital-bearing variants (``european_digital``, ``european_rko``) whose smile
+    price triggers a ``SmileArbitrageError`` are dropped from the result rather
+    than emitted with an unreliable mark. If a ``warnings`` list is supplied, a
+    human-readable note is appended for each dropped variant.
     """
     cfg = _load_variants()
     if structure_id not in cfg:
@@ -144,11 +156,11 @@ def price_variants(
     elif structure_id == "1x2_spread":
         result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "european_rko":
-        result = _european_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+        result = _european_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings)
     elif structure_id == "seagull":
         result = _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price, vm)
     elif structure_id == "european_digital":
-        result = _digital(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
+        result = _digital(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings)
     elif structure_id == "european_digital_rko":
         result = _digital_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target)
     else:
@@ -264,35 +276,6 @@ def _resolve_ratio_spread_strikes(
         K1 = F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
 
     return K1, target, vm.at_strike(K1), vm.at_strike(target)
-
-
-def _resolve_target_or_delta_long_strike(
-    variant: dict,
-    *,
-    F: float,
-    vol: float,
-    T: float,
-    vol_sqrtT: float,
-    is_call: bool,
-    target: float | None,
-) -> float | None:
-    """Resolve the primary strike for target-based or delta-grid variants."""
-    if "long_delta" in variant:
-        K1, _ = _spread_strikes_from_deltas(
-            F, vol, T, is_call, variant["long_delta"], variant["short_delta"]
-        )
-        return K1
-
-    if target is None:
-        return None
-
-    target_z = abs(math.log(target / F) / vol_sqrtT) if vol_sqrtT > 0 else 0.0
-    if target_z < variant.get("min_target_z", 0.0):
-        return None
-
-    if variant["long_type"] == "atmf":
-        return F
-    return F * math.exp(0.5 * vol_sqrtT) if is_call else F * math.exp(-0.5 * vol_sqrtT)
 
 
 def _today_package_value_pct(
@@ -671,10 +654,15 @@ def _seagull(
 # ---------------------------------------------------------------------------
 
 def _digital(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings=None
 ) -> list[PricedVariant]:
     result = []
     fn_price = digital_call if is_call else digital_put
+    # Smile seam: the bisection target and final premium price the digital at
+    # its own strike vol plus the skew-slope correction (inside digital_call/put).
+    # Flat surface → vol_fn is None and the digital collapses to the legacy
+    # flat-vol value, reproducing the old strike/premium byte-for-byte.
+    vol_fn = vm.at_strike if vm.surface is not None else None
 
     for v in variants:
         tgt_pct = v["target_prem_pct"]
@@ -689,9 +677,15 @@ def _digital(
             K_lo = F * math.exp(-3.0 * vol_sqrtT)
             K_hi = spot * 0.999
 
-        K = _bisect_strike(fn_price, spot, K_lo, K_hi, T, vol, r_d, r_f, target_prem, is_call)
-
-        prem = fn_price(spot, K, T, vol, r_d, r_f, payout=spot)
+        # Smile arbitrage anywhere across the strike search makes the digital
+        # unreliable — drop the variant rather than emit a bogus mark.
+        try:
+            K = _bisect_strike(fn_price, spot, K_lo, K_hi, T, vol, r_d, r_f, target_prem, is_call, vol_fn=vol_fn)
+            prem = fn_price(spot, K, T, vol, r_d, r_f, payout=spot, vol_fn=vol_fn)
+        except SmileArbitrageError as e:
+            if warnings is not None:
+                warnings.append(f"variant '{v['label']}' not priced — {e}")
+            continue
         prem_pct = prem / spot
 
         payoff_pct, rr = None, None
@@ -778,27 +772,40 @@ def _digital_rko(
 
 
 # ---------------------------------------------------------------------------
-# European reverse knock-out  (expiry-only KO at target barrier)
+# European reverse knock-out  (expiry-only KO at delta-defined barrier)
 # ---------------------------------------------------------------------------
 
 def _european_rko(
-    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings=None
 ) -> list[PricedVariant]:
     if target is None:
         return []
 
     fn_price = european_rko_call if is_call else european_rko_put
+    resolve = otm_call_strike if is_call else otm_put_strike
+    # Smile seam: price each leg at its own strike vol. Flat surface → vol_fn is
+    # None and every leg collapses to the scalar `vol`, reproducing the legacy
+    # flat price byte-for-byte.
+    vol_fn = vm.at_strike if vm.surface is not None else None
     result = []
 
     for v in variants:
-        K = _resolve_target_or_delta_long_strike(
-            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target
-        )
-        if K is None:
-            continue
+        # Both legs are delta-defined: the long strike at long_delta and the KO
+        # barrier at the (further-OTM) barrier delta. Each strike is placed at
+        # its own delta-pillar vol (matching the spread family); flat surface →
+        # at_delta returns the scalar vol so placement is unchanged.
+        long_delta = v["long_delta"]
+        barrier_delta = v["barrier"]
+        K = resolve(F, vm.at_delta(long_delta, is_call), T, long_delta)
+        barrier = resolve(F, vm.at_delta(barrier_delta, is_call), T, barrier_delta)
 
-        barrier = target
-        prem = fn_price(spot, K, barrier, T, vol, r_d, r_f)
+        # The digital strip can hit a smile arbitrage → drop the variant.
+        try:
+            prem = fn_price(spot, K, barrier, T, vol, r_d, r_f, vol_fn=vol_fn)
+        except SmileArbitrageError as e:
+            if warnings is not None:
+                warnings.append(f"variant '{v['label']}' not priced — {e}")
+            continue
         prem_pct = prem / spot
 
         breakeven = None
@@ -834,10 +841,10 @@ def _european_rko(
 # Bisection helpers
 # ---------------------------------------------------------------------------
 
-def _bisect_strike(fn, spot, K_lo, K_hi, T, vol, r_d, r_f, target_prem, is_call, tol=1e-6) -> float:
+def _bisect_strike(fn, spot, K_lo, K_hi, T, vol, r_d, r_f, target_prem, is_call, tol=1e-6, vol_fn=None) -> float:
     for _ in range(60):
         K_mid = 0.5 * (K_lo + K_hi)
-        val = fn(spot, K_mid, T, vol, r_d, r_f, payout=spot)
+        val = fn(spot, K_mid, T, vol, r_d, r_f, payout=spot, vol_fn=vol_fn)
         if abs(val - target_prem) < tol * spot:
             return K_mid
         # For calls: price decreases as K increases; for puts: price increases as K decreases

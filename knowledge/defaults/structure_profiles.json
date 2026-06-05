@@ -69,6 +69,7 @@
 
   "rko": {
     "display_name": "Reverse Knock-Out",
+    "enabled": false,
     "premium_profile": "low",
     "payout_type": "barrier_contingent",
     "max_loss": "premium_only",
@@ -134,6 +135,7 @@
 
   "european_digital_rko": {
     "display_name": "European Digital with RKO",
+    "enabled": false,
     "premium_profile": "low",
     "payout_type": "binary",
     "max_loss": "premium_only",

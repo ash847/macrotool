@@ -71,6 +71,11 @@ def score_structures(
             continue
         profile = profiles[struct_id]
 
+        # Hard off-switch (JSON `enabled: false`) — fully gates a structure out
+        # of selection regardless of score. Defaults to enabled.
+        if not profile.get("enabled", True):
+            continue
+
         if not _passes_gates(struct_id, profile, score_cfg.get("gates", {}), market_state, buckets):
             continue
 
@@ -129,6 +134,8 @@ def get_scoring_detail(
         if struct_id not in profiles:
             continue
         profile = profiles[struct_id]
+        if not profile.get("enabled", True):
+            continue
         eligible = _passes_gates(struct_id, profile, score_cfg.get("gates", {}), market_state, buckets)
 
         dims = {}
