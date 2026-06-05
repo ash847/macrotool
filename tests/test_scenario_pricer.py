@@ -273,10 +273,9 @@ class TestDigitalExpiry:
         )
         scenarios = _single_scenario(scenario_spot, remaining_time=0.0)
         rows = price_scenarios(v, "european_digital", scenarios, _TRADE_INPUTS, is_call=True)
-        # ITM digital pays a fixed quote-ccy amount of entry_spot; converted to
-        # base ccy at the prevailing spot that is entry_spot / scenario_spot.
-        expected = _SPOT / scenario_spot
-        assert abs(rows[0]["price_pct"] - expected) < 1e-8
+        # Base-ccy cash-or-nothing: pays a FIXED 1 unit of base ccy if ITM, so the
+        # value as a fraction of (base) notional is exactly 1.0 at any ITM spot.
+        assert abs(rows[0]["price_pct"] - 1.0) < 1e-8
 
     def test_otm_digital_call_returns_zero(self):
         K = 1.12

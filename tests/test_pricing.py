@@ -382,6 +382,57 @@ class TestDigital:
             digital_call(S, F * mult, T, sig, r_d, r_f, vol_fn=vol_fn)
             digital_put(S, F * mult, T, sig, r_d, r_f, vol_fn=vol_fn)
 
+    def test_european_digital_structure_is_base_ccy_cash_or_nothing(self):
+        """The recommended digital pays a FIXED base-ccy amount: payoff@target=100%
+        and premium = DF_f·N(d1) (the base/foreign-cash binary), flat case."""
+        from math import log, sqrt, exp
+        from scipy.stats import norm
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        spot, fwd, vol, T_, r_d_, r_f_, tgt = 5.0, 5.05, 0.15, 0.25, 0.05, 0.04, 5.30
+        ms = compute_market_state(spot, fwd, vol, T_, r_d_, r_f_, target=tgt, direction="base_higher")
+        pvs = price_variants(ms, "european_digital", target=tgt, is_call=True)
+        assert pvs
+        F = spot * exp((r_d_ - r_f_) * T_)
+        DF_f = exp(-r_f_ * T_)
+        for pv in pvs:
+            K = pv.strikes[0]
+            assert pv.payoff_at_target_pct == pytest.approx(1.0 if tgt > K else 0.0)
+            d1 = (log(F / K) + 0.5 * vol * vol * T_) / (vol * sqrt(T_))
+            assert pv.net_premium_pct == pytest.approx(DF_f * norm.cdf(d1), rel=1e-9)
+
+    def test_digital_strikes_anchor_to_forward_deep_carry_put(self):
+        """Deep-carry put digital: 10/20/30% strikes sit between spot and the
+        forward (downside *to the forward*) and must each be found, not railed."""
+        from math import log
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        spot, fwd, vol, T_, r_f_, tgt = 38.45, 44.76, 0.18, 182 / 365, 0.045, 35.0
+        r_d_ = r_f_ + log(fwd / spot) / T_          # CIP-consistent (huge TRY carry)
+        ms = compute_market_state(spot, fwd, vol, T_, r_d_, r_f_, target=tgt, direction="base_lower")
+        pvs = price_variants(ms, "european_digital", target=tgt, is_call=False)
+        assert len(pvs) == 3
+        premia = [pv.net_premium_pct for pv in pvs]
+        strikes = [pv.strikes[0] for pv in pvs]
+        # each variant hits its premium target — not all railed to one boundary
+        assert premia == pytest.approx([0.30, 0.20, 0.10], abs=1e-4)
+        assert len({round(k, 4) for k in strikes}) == 3
+        # the rich (30%) put strike is above spot but below the forward
+        assert spot < strikes[0] < fwd
+
+    def test_digital_strikes_anchor_to_forward_inverted_carry_call(self):
+        """Symmetric case: call digital with fwd < spot (inverted carry)."""
+        from math import log
+        from analytics.structure_pricer import price_variants
+        from analytics.market_state import compute_market_state
+        spot, fwd, vol, T_, r_f_, tgt = 1.27, 1.24, 0.09, 182 / 365, 0.045, 1.40
+        r_d_ = r_f_ + log(fwd / spot) / T_          # fwd < spot → r_d < r_f
+        ms = compute_market_state(spot, fwd, vol, T_, r_d_, r_f_, target=tgt, direction="base_higher")
+        pvs = price_variants(ms, "european_digital", target=tgt, is_call=True)
+        assert len(pvs) == 3
+        assert [pv.net_premium_pct for pv in pvs] == pytest.approx([0.30, 0.20, 0.10], abs=1e-4)
+        assert len({round(pv.strikes[0], 4) for pv in pvs}) == 3
+
 
 # ---------------------------------------------------------------------------
 # Digital + RKO
