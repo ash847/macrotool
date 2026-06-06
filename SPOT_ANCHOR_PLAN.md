@@ -90,11 +90,15 @@ or any `pricing/` code. Those remain forward moneyness.
       `target_z = target_z_spot − c`, and `put_call` still forward-derived. 392 pass (1 pre-existing
       scorer failure carried from main, unrelated).
 
-### Phase 2 — Affinity scoring
-- [ ] Point `target_z_abs` bucket + gate at `target_z_spot` in `structure_scorer.py`.
-- [ ] Re-tune `affinity_scores.json` `target_z_abs` buckets + `target_z_abs_min/max` gates
-      for spot-relative σ (informed by Phase 0). Keep carry dimensions explicit.
-- [ ] Tests: update `test_structure_scorer.py` expectations; new cases on a high-carry pair.
+### Phase 2 — Affinity scoring ✅ (plumbing; JSON re-tune deferred to manual)
+- [x] Point `target_z_abs` bucket + `target_z_abs_min/max` gates at `target_z_spot` in
+      `structure_scorer.py` (`_compute_buckets`, `_passes_gates`). `requires_target` existence
+      check left anchor-neutral. `get_scoring_detail` shares `_compute_buckets` → consistent.
+- [~] `affinity_scores.json` boundaries **left as-is** `[0.5, 1.25, 1.75]` (now spot-σ) +
+      gates unchanged — **re-tune manually** in the Structure Selection editor (decision: build
+      on current JSON, tune later; it's multidimensional).
+- [x] Tests: `_ms` helper gained a `target_z_spot=` param; gate-boundary tests now express the
+      spot σ-distance directly. 392 pass (1 pre-existing scorer failure carried from main).
 
 ### Phase 3 — Scenario grid
 - [ ] Re-anchor `scenario_generator.py` centering to spot (no-move = spot; σ-offsets from spot,
@@ -179,4 +183,6 @@ spot ending at the forward**, empirically validated: USDTRY Expiry/F `scenario_s
   bucket/gate flips (heavy on USDTRY, negligible on GBPUSD) and the +16.4% USDTRY "no-move" grid
   artefact. Findings above. **Gate cleared — approach confirmed.**
 - Phase 1 done: `target_z_spot` on MarketState (forward `target_z`/`put_call` untouched). 392 pass.
-  Next: Phase 2 (point affinity `target_z_abs` at `target_z_spot` + re-tune buckets/gates).
+- Phase 2 done (plumbing): scorer buckets/gates now read `target_z_spot`; JSON boundaries kept as-is
+  for manual re-tune. USDTRY demo shortlist scores shifted vs forward-anchored (expected). 392 pass.
+  Next: Phase 3 (scenario grid → spot-centered; retain F column + per-row roll-down forward).
