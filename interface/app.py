@@ -812,10 +812,11 @@ else:
         regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
         c1.metric("Carry c", f"{ms.c:+.3f}")
         c2.metric("Carry regime", regime_label[ms.carry_regime])
-        if ms.target_z is not None:
-            c3.metric("Target z", f"{ms.target_z:+.2f}σ  ({ms.put_call})")
+        if ms.target_z_spot is not None:
+            c3.metric("Target z (vs spot)", f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})",
+                      help=f"{ms.target_z:+.2f}σ vs forward")
         else:
-            c3.metric("Target z", "—")
+            c3.metric("Target z (vs spot)", "—")
         if ms.atmfsratio is not None:
             c4.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
         else:
@@ -867,7 +868,7 @@ else:
                 return dims[dim]["score"] if eligible else None
             row = {
                 "Structure":      r["display_name"],
-                "Target Z":       _s("target_z_abs"),
+                "Target Z (spot)": _s("target_z_abs"),
                 "Carry regime":   _s("carry_regime"),
                 "ATM/FS ratio":   _s("atmfsratio"),
                 "Carry align":    _s("carry_alignment"),
