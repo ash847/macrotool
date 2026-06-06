@@ -83,10 +83,12 @@ or any `pricing/` code. Those remain forward moneyness.
       coverage change? Where would affinity buckets reclassify? (put_call unchanged.)
 - [ ] Output a short findings note → confirm approach + size the re-tune. **Gate to Phase 1.**
 
-### Phase 1 — MarketState
-- [ ] Add `target_z_spot` field to `MarketState`; compute in `compute_market_state`.
-- [ ] Keep `target_z` (forward), `put_call`, `c`, `with_carry`, `atmfsratio` unchanged.
-- [ ] Tests: pin both σ-distances; assert `put_call` still forward-derived.
+### Phase 1 — MarketState ✅
+- [x] Add `target_z_spot` field to `MarketState` (default None); compute in `compute_market_state`.
+- [x] Keep `target_z` (forward), `put_call`, `c`, `with_carry`, `atmfsratio` unchanged.
+- [x] Tests (`tests/test_market_state.py::TestTargetZSpot`): both σ-distances, identity
+      `target_z = target_z_spot − c`, and `put_call` still forward-derived. 392 pass (1 pre-existing
+      scorer failure carried from main, unrelated).
 
 ### Phase 2 — Affinity scoring
 - [ ] Point `target_z_abs` bucket + gate at `target_z_spot` in `structure_scorer.py`.
@@ -175,4 +177,6 @@ spot ending at the forward**, empirically validated: USDTRY Expiry/F `scenario_s
 - (init) Plan written; codex worktree reset to clean copy of main on `feature/spot-anchored-scoring`.
 - Phase 0 spike done (`spikes/phase0_spot_vs_fwd.py`): confirmed `z_fwd = z_spot − c`; quantified
   bucket/gate flips (heavy on USDTRY, negligible on GBPUSD) and the +16.4% USDTRY "no-move" grid
-  artefact. Findings above. **Gate cleared — approach confirmed.** Next: Phase 1 (MarketState).
+  artefact. Findings above. **Gate cleared — approach confirmed.**
+- Phase 1 done: `target_z_spot` on MarketState (forward `target_z`/`put_call` untouched). 392 pass.
+  Next: Phase 2 (point affinity `target_z_abs` at `target_z_spot` + re-tune buckets/gates).

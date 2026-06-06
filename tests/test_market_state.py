@@ -123,6 +123,50 @@ class TestTargetZ:
         assert ms.target_z == pytest.approx(0.0, abs=1e-9)
 
 
+class TestTargetZSpot:
+    """Spot-anchored σ-distance (scoring). target_z stays forward-anchored."""
+
+    def test_none_when_omitted(self):
+        assert _make(_FWD_REGIME_1).target_z_spot is None
+
+    def test_equals_log_target_over_spot(self):
+        fwd = _FWD_REGIME_2          # high carry → spot and fwd far apart
+        target = fwd * 1.05
+        ms = _make(fwd, target=target)
+        expected = math.log(target / _SPOT) / (_VOL * math.sqrt(_T))
+        assert ms.target_z_spot == pytest.approx(expected, rel=1e-9)
+
+    def test_identity_target_z_equals_spot_minus_c(self):
+        # Core identity from the Phase 0 spike: target_z(fwd) = target_z_spot - c.
+        fwd = _FWD_REGIME_2
+        target = fwd * 0.97
+        ms = _make(fwd, target=target)
+        assert ms.target_z == pytest.approx(ms.target_z_spot - ms.c, rel=1e-9)
+
+    def test_diverges_from_forward_z_by_the_carry(self):
+        # On a high-carry forward the two anchors must differ materially.
+        fwd = _FWD_REGIME_2
+        ms = _make(fwd, target=fwd)   # target AT forward → target_z == 0
+        assert ms.target_z == pytest.approx(0.0, abs=1e-9)
+        assert ms.target_z_spot == pytest.approx(ms.c, rel=1e-9)   # = +1.0 here
+        assert abs(ms.target_z_spot - ms.target_z) > 0.5
+
+    def test_target_at_spot_gives_zero_spot_z(self):
+        fwd = _FWD_REGIME_2
+        ms = _make(fwd, target=_SPOT)
+        assert ms.target_z_spot == pytest.approx(0.0, abs=1e-9)
+
+    def test_put_call_still_forward_derived(self):
+        # A target above spot but below the forward is a forward PUT, unchanged
+        # by the spot-anchoring — construction stays forward moneyness.
+        fwd = _FWD_REGIME_2
+        target = _SPOT * 1.01         # above spot, well below the (high-carry) fwd
+        ms = _make(fwd, target=target)
+        assert target < fwd
+        assert ms.put_call == "Put"
+        assert ms.target_z_spot > 0   # but a positive move from spot
+
+
 class TestPutCall:
     def test_call_when_target_above_fwd(self):
         fwd = _FWD_REGIME_1
