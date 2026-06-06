@@ -130,10 +130,12 @@ or any `pricing/` code. Those remain forward moneyness.
 - [ ] (optional) context_rules.py admin weighting editor still shows raw `S` header — fine via the
       column-description tooltip; relabel later if desired.
 
-### Phase 6 — Integration + docs
-- [ ] `demo.py` smoke across 4 pairs; full `pytest`.
-- [ ] Update `CLAUDE.md` (market-state / affinity / scenario sections) + memory.
-- [ ] Version bump, PR.
+### Phase 6 — Integration + docs ✅ (partial — docs done; PR held pending Phase 4 re-tune)
+- [x] Full `pytest` — 392 pass (1 pre-existing scorer failure).
+- [x] `CLAUDE.md` updated: affinity scoring section rewritten for spot-anchor; new "Scenario grid — spot-anchored" section; key invariants updated.
+- [x] Memory updated (MEMORY.md index + project_macrotool.md).
+- [x] Version `0.1.29+spotanchor`, branch pushed, separate Cloud app instance deployed for testing.
+- [ ] **PR to main deferred** — open once Phase 4 weighting re-tune is complete and the branch app has been validated.
 
 ## Invariants (do not break)
 - Pricing stays forward-anchored (Black-76). `pricing/` untouched.

@@ -92,17 +92,39 @@ This convention runs through `TradeView`, `MarketState`, `with_carry`, stop leve
 Replaces the old flat rules engine. Two steps per structure:
 
 1. **Gates** — hard filters. Fail a gate → structure is ineligible regardless of score.
-   - `target_z_abs_min/max` — minimum/maximum σ distance of target from forward.
+   - `target_z_abs_min/max` — minimum/maximum σ distance of target **from spot** (`target_z_spot`).
 
-2. **Scoring** — sum affinity scores across 4 dimensions:
-   - `target_z_abs` — how far the target is from the forward (no_target / near / moderate / extended / far)
+2. **Scoring** — sum affinity scores across 5 dimensions:
+   - `target_z_abs` — how far the target is from **spot** (no_target / near / moderate / extended / far). Buckets `[0.5, 1.25, 1.75]` are σ-from-spot and manually tunable.
    - `carry_regime` — 0 / 1 / 2 based on |c| vs thresholds in JSON
    - `atmfsratio` — payout ratio of carry-capturing spread (low / medium / high). None when carry_regime=0.
    - `carry_alignment` — compound dimension: `with_{atm_bucket}` or `counter_{atm_bucket}`. Captures the interaction between carry direction and carry magnitude.
+   - `structure_constraint` — PM preference gate/penalty (5th dimension).
+
+**Two `target_z` fields on `MarketState` — distinct anchors for distinct purposes:**
+- `target_z_spot = ln(target/spot)/(σ√T)` — **spot-anchored**, used by the scoring/selection layer. The "how far is the PM's target from where we are now" question.
+- `target_z = ln(target/fwd)/(σ√T)` — **forward-anchored**, used by construction (put/call direction, variant eligibility gates in `structure_pricer`). Identity: `target_z = target_z_spot − c`.
+- `put_call` is always derived from the forward (`"Call" if target > fwd`). **Never use `target_z_spot` for construction or option direction.**
 
 All thresholds and scores are in `knowledge/defaults/affinity_scores.json`. Tunable without Python changes. Carry regime thresholds are also loaded from this file — no hardcoded defaults.
 
 Primary structures (overlay_only=False) are capped at max_primary (default 3). Overlays ranked separately.
+
+## Scenario grid — spot-anchored
+
+`analytics/scenario_generator.py` builds a deterministic grid. The grid is **spot-centred**: the "no-move" column `S` holds spot unchanged, and σ-offset columns (`−½σ`, `−1σ`) are measured from spot. `scenario_fwd` is derived per-cell via CIP (`scenario_spot · e^{(r_d−r_f)·τ}`) and decays toward spot at expiry — it is used for MtM pricing only.
+
+**Two anchors, deliberately separated:**
+- **Spot** anchors the grid geometry (where scenarios sit, what "no move" means).
+- **Forward** anchors pricing and construction (Black-76 MtM, `direction = sign(K/F)`).
+
+Column set: `[S, t%→K, K, K+½σ, −½σ, −1σ, Δvol]`. `S` = spot unchanged (displayed as "No move" in the UI). `K`/`K+½σ` remain target-anchored (unchanged). `t%→K` now tracks progress spot→K (was forward→K).
+
+**Per-row roll-down forward:** the `S` cell's `scenario_fwd` gives the carry-derived forward at each time checkpoint. It decays toward spot at expiry and is surfaced in the UI row headers (`25%T · fwd 41.2`) so the carry tailwind remains visible without being the grid's centre.
+
+**Direction** (`direction = sign(K/F)`) stays forward-relative so up-weighted "favourable" cells align with where the forward-constructed structure actually profits. On a carry-cross target (target between spot and forward), a put structure's adverse cells sit above the forward — this is P&L-correct, not a bug.
+
+Config: `knowledge/defaults/scenario_definitions.json` (`_grid_cols`, `scenario_column_descriptions`, per-cell multipliers). JSON is the re-tune surface; Python handles computation.
 
 ## Rate context and df curves
 
@@ -176,6 +198,8 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
 - **Vol surface delta labels are always relative to the base currency.**
 - **`target_rr` must be cleared in `reset()`** alongside all other view state.
 - **Scoring tuple type is `float`** — affinity scores use fractional values.
+- **`target_z_spot` drives scoring; `target_z` (forward) drives construction.** Never swap them. `put_call` and variant eligibility (`min_target_z` in `structure_pricer`) always use the forward-anchored `target_z`. The scorer's `target_z_abs` bucket and gates read `target_z_spot`.
+- **Scenario grid is spot-centred; pricing is still forward-anchored.** The `S` (no-move) cell = spot unchanged; `scenario_fwd` is derived per-cell for MtM. `direction` is forward-relative (`sign(K/F)`). Do not re-anchor MtM pricing to spot.
 - **Kelly widget values must be re-read from `st.session_state` after rendering.** This prevents Streamlit `+/-` edits from updating the visible input while leaving charts / edge / Kelly on stale values.
 - **Kelly baseline reseeding must only happen on real context changes.** Re-seed on source-mode switch, pair/tenor change, or Trade Rec selection change; do not re-seed on ordinary reruns.
 
