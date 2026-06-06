@@ -63,9 +63,11 @@ or any `pricing/` code. Those remain forward moneyness.
 3. **Carry discipline / don't flatter carry trades.** Forward-anchoring quietly reminded us
    the market already prices the drift. Spot-centered scenarios weight a carry trade by the
    PM's *subjective* "spot stays put" — which can inflate carry trades that are ~zero-EV under
-   risk-neutral. Mitigation: keep carry an explicit scoring dimension (already present:
-   `carry_regime`, `with_carry`, `carry_alignment`) and consider surfacing a visible
-   carry/EV term so the discipline is explicit rather than lost. **Decision pending — flag in spike.**
+   risk-neutral. **Resolved:** (a) keep carry as an explicit *scoring* input (`carry_regime`,
+   `with_carry`, `carry_alignment`) — engine, unchanged; (b) keep the carry *visible* to the PM
+   via the grid's retained `F` reference column **and** the forward shown in each time-horizon
+   row label (`25% T (fwd = X.XX)`). The forward never leaves the screen; it's just no longer the
+   grid's center.
 
 4. **Re-tune, don't reuse, the affinity buckets.** Spot-relative `target_z` values differ from
    forward-relative by ~`c` (large on USDTRY/USDBRL, tiny on GBPUSD). The bucket boundaries
@@ -95,7 +97,12 @@ or any `pricing/` code. Those remain forward moneyness.
 ### Phase 3 — Scenario grid
 - [ ] Re-anchor `scenario_generator.py` centering to spot (no-move = spot; σ-offsets from spot,
       `σ_t` scaling unchanged). Derive `scenario_fwd` per cell via CIP for MtM pricing.
+- [ ] **Retain the `F` column** as a labeled forward-reference (demoted from "no-move center" to a
+      reference, NOT removed) — preserves the carry cue in-grid.
 - [ ] Keep `K`/target columns; keep pricing forward-based in `scenario_pricer.py`.
+- [ ] Define + expose a per-row forward (the remaining-time / roll-down forward at each checkpoint)
+      so the row labels can show it (see Phase 5). Decide exactly which forward: remaining-time
+      outright `spot·e^{(r_d-r_f)·remaining}` (rolls down to spot at expiry).
 - [ ] Tests: update scenario-grid + `test_scenario_pricer.py` for spot-centered levels.
 
 ### Phase 4 — Scenario weighting re-tune
@@ -104,6 +111,9 @@ or any `pricing/` code. Those remain forward moneyness.
 
 ### Phase 5 — UI / display
 - [ ] Surface the spot-relative move (σ-from-spot) in the Trade View market-state caption.
+- [ ] **Time-horizon row labels show the forward at each checkpoint**, e.g. `25% T (fwd = X.XX)` —
+      gives the carry / forward-drift context inline (replaces a separate caption). Forward def
+      from Phase 3 (remaining-time roll-down).
 - [ ] Keep forward-OTM strike labels (construction is still forward moneyness).
 
 ### Phase 6 — Integration + docs
