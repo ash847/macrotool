@@ -1,0 +1,130 @@
+# Spot-Anchored Scoring & Scenarios — Build Plan
+
+**Branch:** `feature/spot-anchored-scoring` (worktree `/Users/ash/Documents/Coding work/codex`, off `main`).
+**Status:** planning. Nothing implemented yet.
+
+## Goal
+
+Make the **evaluation layer** (σ-distance scoring + scenario grids) center on **spot**
+instead of the **forward**, because forward-anchoring is unintuitive on high-carry pairs
+(the forward sits far from spot, so a modest move-from-spot reads as a large/small σ-move
+depending on the carry). PMs think in **moves from where spot is now**.
+
+## Core principle — two anchors, deliberately separated
+
+The forward keeps two jobs; spot takes over one of them:
+
+| Concern | Anchor | Changes? |
+|---|---|---|
+| **Pricing** (Black-76 martingale, premiums, deltas, scenario MtM) | **Forward** | NO — no-arb requires it |
+| **Trade construction** (put vs call, strike OTM-ness, variant eligibility) | **Forward moneyness** | NO — market convention; puts/calls stay forward-relative |
+| **Scoring σ-distance** (`target_z` → affinity buckets/gates) | **Spot** | YES |
+| **Scenario grid centering** (where could spot be at the checkpoints) | **Spot** | YES |
+
+So the forward never disappears — it stays the pricing center and the construction anchor.
+We only re-anchor *how far is the target* and *where do scenarios sit* to spot.
+
+**Explicit non-goal:** do NOT change `put_call`, strike resolution, digital/RKO bounds,
+or any `pricing/` code. Those remain forward moneyness.
+
+## Where the forward is the anchor today (surface to change)
+
+- `analytics/market_state.py`
+  - `target_z = ln(target/fwd)/(σ√T)` → scoring distance, **forward-relative**. ← move to spot.
+  - `put_call = "Call" if target > fwd else "Put"` → **KEEP forward** (construction).
+  - `c = ln(fwd/spot)/(σ√T)` → the carry itself, KEEP.
+  - `atmfsratio`, `with_carry` → inherently fwd-vs-spot, KEEP.
+- `knowledge/defaults/affinity_scores.json`
+  - `target_z_abs` buckets + `target_z_abs_min/max` gates calibrated to **forward-relative** σ.
+    → must be **re-tuned** for spot-relative σ (shift differs by carry regime).
+- `analytics/scenario_generator.py`
+  - Grid built in forward space: columns `F`, `K`, `±σ` offsets from `F`/`K`;
+    `scenario_spot = scenario_fwd · e^{-(r_d-r_f)τ}`. → re-anchor centering to spot.
+- `analytics/structure_pricer.py`
+  - `min_target_z` variant-eligibility checks (½σ / ratio-spread variants) use **forward**
+    σ-distance → KEEP forward (this is construction).
+- `knowledge/defaults/scenario_definitions.json`
+  - Weightings reference `target_z_abs` (and fire conditions). → re-tune against spot σ.
+
+## Key design decisions (to lock before/while building)
+
+1. **Keep BOTH σ-distances on MarketState.** Add `target_z_spot = ln(target/spot)/(σ√T)`
+   as a new field; keep existing `target_z` (forward) for construction/eligibility/`put_call`.
+   Affinity scoring switches to `target_z_spot`. This is the clean separation:
+   *construction stays forward, scoring moves to spot.*
+
+2. **Scenario centering = zero-drift around spot (subjective view), priced at per-cell forward.**
+   The grid's "no-move" column = spot unchanged; σ-offset columns measured from spot with
+   `σ_t = vol·√(elapsed)`. Each cell still derives a forward for MtM pricing via CIP
+   (`scenario_fwd = scenario_spot · e^{(r_d-r_f)τ}`). So the *grid* is spot-centered (where
+   spot could be), each *point* is priced forward-correctly. The `K`/target columns are
+   unchanged (target is target).
+
+3. **Carry discipline / don't flatter carry trades.** Forward-anchoring quietly reminded us
+   the market already prices the drift. Spot-centered scenarios weight a carry trade by the
+   PM's *subjective* "spot stays put" — which can inflate carry trades that are ~zero-EV under
+   risk-neutral. Mitigation: keep carry an explicit scoring dimension (already present:
+   `carry_regime`, `with_carry`, `carry_alignment`) and consider surfacing a visible
+   carry/EV term so the discipline is explicit rather than lost. **Decision pending — flag in spike.**
+
+4. **Re-tune, don't reuse, the affinity buckets.** Spot-relative `target_z` values differ from
+   forward-relative by ~`c` (large on USDTRY/USDBRL, tiny on GBPUSD). The bucket boundaries
+   (`near/moderate/extended/far`) and gates must be re-derived, likely per carry regime.
+
+## Phased plan
+
+### Phase 0 — Non-destructive spike (decide before touching live path)
+- [ ] Compute `target_z_spot` alongside `target_z` (forward) in a throwaway script.
+- [ ] Build a spot-anchored scenario grid alongside the forward grid.
+- [ ] Run both across all 4 pairs (USDBRL, USDTRY, EURPLN, GBPUSD) at a few tenors/targets.
+- [ ] Diff: how much do σ-distances shift per pair? How does the scenario grid's spot
+      coverage change? Where would affinity buckets reclassify? (put_call unchanged.)
+- [ ] Output a short findings note → confirm approach + size the re-tune. **Gate to Phase 1.**
+
+### Phase 1 — MarketState
+- [ ] Add `target_z_spot` field to `MarketState`; compute in `compute_market_state`.
+- [ ] Keep `target_z` (forward), `put_call`, `c`, `with_carry`, `atmfsratio` unchanged.
+- [ ] Tests: pin both σ-distances; assert `put_call` still forward-derived.
+
+### Phase 2 — Affinity scoring
+- [ ] Point `target_z_abs` bucket + gate at `target_z_spot` in `structure_scorer.py`.
+- [ ] Re-tune `affinity_scores.json` `target_z_abs` buckets + `target_z_abs_min/max` gates
+      for spot-relative σ (informed by Phase 0). Keep carry dimensions explicit.
+- [ ] Tests: update `test_structure_scorer.py` expectations; new cases on a high-carry pair.
+
+### Phase 3 — Scenario grid
+- [ ] Re-anchor `scenario_generator.py` centering to spot (no-move = spot; σ-offsets from spot,
+      `σ_t` scaling unchanged). Derive `scenario_fwd` per cell via CIP for MtM pricing.
+- [ ] Keep `K`/target columns; keep pricing forward-based in `scenario_pricer.py`.
+- [ ] Tests: update scenario-grid + `test_scenario_pricer.py` for spot-centered levels.
+
+### Phase 4 — Scenario weighting re-tune
+- [ ] Re-tune `scenario_definitions.json` weightings against spot-centered scenarios + spot σ.
+- [ ] Tests: `test_scenario_weighter.py`.
+
+### Phase 5 — UI / display
+- [ ] Surface the spot-relative move (σ-from-spot) in the Trade View market-state caption.
+- [ ] Keep forward-OTM strike labels (construction is still forward moneyness).
+
+### Phase 6 — Integration + docs
+- [ ] `demo.py` smoke across 4 pairs; full `pytest`.
+- [ ] Update `CLAUDE.md` (market-state / affinity / scenario sections) + memory.
+- [ ] Version bump, PR.
+
+## Invariants (do not break)
+- Pricing stays forward-anchored (Black-76). `pricing/` untouched.
+- `put_call`, strike OTM-ness, variant eligibility (`min_target_z`) stay **forward moneyness**.
+- Flat-vol byte-identical guards still pass.
+- Carry stays an explicit scoring dimension.
+- All three evaluation layers (market state, affinity, scenarios) move together — no half-state.
+
+## Open questions / risks
+- Carry-EV discipline (decision #3) — keep an explicit carry/drift term, or accept spot-centered
+  weighting flatters carry? Resolve in Phase 0.
+- Re-tune scope: are spot-relative buckets carry-regime-dependent? Likely yes.
+- Test surface is large (target_z, scenario levels, affinity ranks). Budget for it.
+- Backward-compat of saved Supabase configs (affinity_scores / scenario_definitions) tuned to
+  forward σ — re-tuned values are a config change, not just code.
+
+## Progress log
+- (init) Plan written; codex worktree reset to a clean copy of main on `feature/spot-anchored-scoring`. Phase 0 not started.
