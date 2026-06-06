@@ -126,5 +126,43 @@ or any `pricing/` code. Those remain forward moneyness.
 - Backward-compat of saved Supabase configs (affinity_scores / scenario_definitions) tuned to
   forward σ — re-tuned values are a config change, not just code.
 
+## Phase 0 findings (spike: `spikes/phase0_spot_vs_fwd.py`, 6M)
+
+**The whole shift is exactly the carry `c`.** Identity confirmed: `target_z_fwd = target_z_spot − c`,
+and the evaluation grid is the spot grid scaled by `fwd/spot = e^{c·σ_T}`. So one number — the
+normalised carry — drives every divergence. Per-pair `c` (6M): USDBRL +0.31, **USDTRY +1.20**,
+EURPLN +0.39, GBPUSD −0.05.
+
+**[A] Selection (target_z buckets/gates) — material on carry pairs, negligible on G10.**
+- **USDTRY (c≈1.2):** a target placed **1σ above spot** maps to `z_fwd ≈ −0.2` → bucket `near`
+  AND fails the `1x1_spread` gate (|z|≥0.5), while spot-anchored it's `moderate` and passes. A
+  target **0.5σ above spot** is a forward *put* (below fwd). Buckets/gates flip on **6 of 8** sampled
+  targets. This is exactly the unintuitive behaviour.
+- **USDBRL / EURPLN (c≈0.3–0.4):** flips on ~half the rows, mostly one bucket over, near boundaries.
+- **GBPUSD (c≈−0.05):** essentially identical — spot vs fwd agree (one boundary nudge).
+- `put_call` is forward-derived throughout (unchanged by design) — confirmed in the table.
+
+**[B] Evaluation (scenario grid) — the headline.** The forward-centered grid's **"no-move" cell is
+spot ending at the forward**, empirically validated: USDTRY Expiry/F `scenario_spot = 44.76 = fwd =
+**+16.4%** above spot`. So today's "no move" scenario models USDTRY *rising 16%*. Spot-centered
+"no-move" = spot unchanged (0%). The entire grid is shifted up by the carry:
+  - USDTRY no-move +16.4% → 0%; −1σ +2.5% → −11.9%; +1σ +32.2% → +13.6%.
+  - USDBRL/EURPLN shift ~2–4%; GBPUSD ~0.3% (negligible).
+
+**Conclusions / decisions surfaced:**
+1. The change is real and worth it on the carry pairs (USDTRY especially); near-noise on G10 — so
+   nothing breaks for GBPUSD, the carry pairs get the intuition fix.
+2. Re-tune IS carry-regime-dependent (the shift = c, which *is* the regime axis). Bucket boundaries
+   will need re-derivation primarily for regime 1–2.
+3. **Carry-discipline decision (plan §3) is now concrete:** spot-centering makes a with-carry target
+   look like a smaller move (good intuition) AND the "no-move" scenario stops crediting a 16% drift.
+   That removes the implicit double-count — but means the carry tailwind must be visible elsewhere
+   (explicit carry dimension / a drift annotation), else carry trades lose the "it's already moving
+   our way" signal entirely. Recommend: keep `c`/`carry_alignment` weighting, add a visible
+   "forward drift = +X%" annotation in the UI so the PM sees both lenses.
+
 ## Progress log
-- (init) Plan written; codex worktree reset to a clean copy of main on `feature/spot-anchored-scoring`. Phase 0 not started.
+- (init) Plan written; codex worktree reset to clean copy of main on `feature/spot-anchored-scoring`.
+- Phase 0 spike done (`spikes/phase0_spot_vs_fwd.py`): confirmed `z_fwd = z_spot − c`; quantified
+  bucket/gate flips (heavy on USDTRY, negligible on GBPUSD) and the +16.4% USDTRY "no-move" grid
+  artefact. Findings above. **Gate cleared — approach confirmed.** Next: Phase 1 (MarketState).
