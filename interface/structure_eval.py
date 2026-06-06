@@ -451,8 +451,8 @@ def render_structure_evaluation(
     _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
     _dir_lbl = "with-carry" if _ev_ms.with_carry else "counter-carry"
     _tz_lbl = (
-        f"target {abs(_ev_ms.target_z):.2f}σ from forward"
-        if _ev_ms.target_z is not None else "no target"
+        f"target {abs(_ev_ms.target_z_spot):.2f}σ from spot ({abs(_ev_ms.target_z):.2f}σ from fwd)"
+        if _ev_ms.target_z_spot is not None else "no target"
     )
     _tenor_days = int(round(_ev_ms.T * 365))
     _tenor_lbl = f"{_tenor_days}d tenor"
@@ -473,7 +473,7 @@ def render_structure_evaluation(
                     continue
                 _w_rows.append({
                     "Row": _row,
-                    "Scenario": _col,
+                    "Scenario": ("No move" if _col == "S" else _col),
                     "Multiplier": f"{_ev_multipliers[_cid]:.1f}",
                     "Weight": f"{_ev_weights[_cid]:.1%}",
                 })
@@ -594,7 +594,7 @@ def render_structure_evaluation(
                         continue
                     _summary_rows.append({
                         "Row": _row,
-                        "Scenario": _col,
+                        "Scenario": ("No move" if _col == "S" else _col),
                         "P&L": f"{_bd.pnl_pct:+.2%}  ({fmt_ccy(_bd.pnl_ccy, _ev_base)})",
                         "Multiplier": f"{_bd.multiplier:.1f}",
                         "Weight": f"{_bd.normalized_weight:.1%}",
@@ -613,10 +613,14 @@ def render_structure_evaluation(
                 for _row in _valid_grid_rows(_ev_ms.T):
                     if _row not in _ev_by_row:
                         continue
-                    st.markdown(f"**{_row}**")
                     _row_rows = sorted(_ev_by_row[_row], key=lambda x: _SC_GRID_COLS.index(x["col"]))
+                    # Per-row roll-down forward = the no-move (S) cell's scenario forward,
+                    # which decays toward spot as the horizon shrinks (carry reference).
+                    _s_cell = next((x for x in _row_rows if x["col"] == "S"), None)
+                    _fwd_lbl = f"  ·  fwd {_s_cell['scenario_fwd']:.4f}" if _s_cell else ""
+                    st.markdown(f"**{_row}**{_fwd_lbl}")
                     _row_df = pd.DataFrame([{
-                        "Scenario":  r["col"],
+                        "Scenario":  ("No move" if r["col"] == "S" else r["col"]),
                         "T%":        f"{r['time_fraction']:.0%}",
                         "Fwd":       f"{r['scenario_fwd']:.4f}",
                         "Spot":      f"{r['scenario_spot']:.4f}",

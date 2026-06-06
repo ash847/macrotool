@@ -120,12 +120,15 @@ or any `pricing/` code. Those remain forward moneyness.
 - [ ] Re-tune `scenario_definitions.json` weightings against spot-centered scenarios + spot σ.
 - [ ] Tests: `test_scenario_weighter.py`.
 
-### Phase 5 — UI / display
-- [ ] Surface the spot-relative move (σ-from-spot) in the Trade View market-state caption.
-- [ ] **Time-horizon row labels show the forward at each checkpoint**, e.g. `25% T (fwd = X.XX)` —
-      gives the carry / forward-drift context inline (replaces a separate caption). Forward def
-      from Phase 3 (remaining-time roll-down).
-- [ ] Keep forward-OTM strike labels (construction is still forward moneyness).
+### Phase 5 — UI / display ✅
+- [x] Market-state caption shows `target Xσ from spot (Yσ from fwd)` — spot (scoring) primary,
+      forward (construction) secondary.
+- [x] Detailed Scenarios view: each time-row header shows the roll-down forward
+      (`**25%T**  ·  fwd 40.71`), from the no-move (S) cell's `scenario_fwd`.
+- [x] `S` column relabeled **"No move"** in all three scenario tables (weights grid, summary,
+      detail). Forward-OTM strike labels unchanged. UI imports clean; 392 pass.
+- [ ] (optional) context_rules.py admin weighting editor still shows raw `S` header — fine via the
+      column-description tooltip; relabel later if desired.
 
 ### Phase 6 — Integration + docs
 - [ ] `demo.py` smoke across 4 pairs; full `pytest`.
@@ -192,5 +195,7 @@ spot ending at the forward**, empirically validated: USDTRY Expiry/F `scenario_s
   for manual re-tune. USDTRY demo shortlist scores shifted vs forward-anchored (expected). 392 pass.
 - Phase 3 done: scenario grid spot-centered (no-move=spot, F→S rename, σ from spot, decaying per-row
   forward = S-cell scenario_fwd; direction stays forward-relative). Verified on USDTRY: Expiry|S=spot,
-  per-row fwd decays 41.24→38.45. 392 pass. Next: Phase 4 (weighting re-tune — manual) / Phase 5 (UI
-  row labels show the roll-down forward; relabel S column header).
+  per-row fwd decays 41.24→38.45. 392 pass.
+- Phase 5 done: caption shows σ-from-spot (σ-from-fwd secondary); time-row headers show the roll-down
+  forward; S column relabeled "No move". 392 pass. Remaining: Phase 4 (manual weighting re-tune) +
+  Phase 6 (docs/CLAUDE.md+memory, version bump, PR).
