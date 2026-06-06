@@ -552,6 +552,7 @@ def render_structure_evaluation(
         key=lambda x: x["ev_v"]["score"].score_ccy if x["ev_v"]["score"].score_ccy is not None else 0.0,
         reverse=True,
     )
+    st.session_state["kelly_ranked_trade_rec_variants"] = _all_ranked
     for _ranked_entry in _all_ranked:
         _ev_v = _ranked_entry["ev_v"]
         _pv0 = _ev_v["pv"]

@@ -216,7 +216,6 @@ def _live_trade_rec_candidates() -> list[TradeRecCandidate]:
     ):
         return []
 
-    from analytics.structure_pricer import price_variants
     from interface.structure_eval import fmt_ccy, target_price, variant_label_with_strikes
 
     target = target_price(flow)
@@ -224,14 +223,68 @@ def _live_trade_rec_candidates() -> list[TradeRecCandidate]:
         return []
     ms = flow.market_state
     is_call = flow.view.direction == "base_higher"
+    supported_structure_ids = {
+        "vanilla",
+        "1x1_spread",
+        "1x1.5_spread",
+        "1x2_spread",
+        "seagull",
+        "european_digital",
+        "european_digital_rko",
+        "european_rko",
+    }
+
+    candidates: list[TradeRecCandidate] = []
+    pair = flow.view.pair
+    ranked_variants = st.session_state.get("kelly_ranked_trade_rec_variants")
+    if ranked_variants:
+        for rank, ranked_entry in enumerate(ranked_variants, start=1):
+            item = ranked_entry.get("item")
+            ev_v = ranked_entry.get("ev_v", {})
+            pv = ev_v.get("pv")
+            if item is None or pv is None or item.structure_id not in supported_structure_ids:
+                continue
+            variant_label = variant_label_with_strikes(item.structure_id, pv)
+            notional = (
+                f" · Notional {fmt_ccy(pv.structure_notional, pair[:3])}"
+                if pv.structure_notional is not None
+                else ""
+            )
+            display_name = f"{rank}. {variant_label}{notional}"
+            candidates.append(
+                TradeRecCandidate(
+                    id=f"ranked:{item.structure_id}:{rank}",
+                    pair=pair,
+                    horizon_days=flow.view.horizon_days,
+                    structure_id=item.structure_id,
+                    display_name=display_name,
+                    structure_label=item.display_name,
+                    variant_label=variant_label,
+                    strikes=list(pv.strikes),
+                    barrier=pv.barrier,
+                    wing_ratio=pv.wing_ratio,
+                    is_call=is_call,
+                    entry_spot=ms.spot,
+                    forward=ms.fwd,
+                    sigma=ms.vol,
+                    tenor_years=ms.T,
+                    net_premium_pct=pv.net_premium_pct,
+                    max_loss_pct=pv.max_loss_pct,
+                )
+            )
+            if len(candidates) >= 10:
+                return candidates
+
+    from analytics.structure_pricer import price_variants
+
     move_pct = abs(target - ms.fwd) / ms.fwd
     stop_pct = move_pct / flow.target_rr
     stop_price = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
     loss_budget = 100.0 * stop_pct
 
-    candidates: list[TradeRecCandidate] = []
-    pair = flow.view.pair
     for struct_rank, item in enumerate(flow.selector_result.shortlist, start=1):
+        if item.structure_id not in supported_structure_ids:
+            continue
         priced = price_variants(
             ms,
             item.structure_id,
