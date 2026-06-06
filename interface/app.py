@@ -902,9 +902,9 @@ else:
         display_df["Status"] = score_df.apply(
             lambda r: ("overlay" if r["Overlay"] else "") if r["Eligible"] else "gated", axis=1
         )
-        _col_order = ["Structure", "Target Z", "Carry regime", "ATM/FS ratio",
+        _col_order = ["Structure", "Target Z (spot)", "Carry regime", "ATM/FS ratio",
                       "Carry align", "Constraint", "Total", "Status"]
-        _score_cols = ["Target Z", "Carry regime", "ATM/FS ratio", "Carry align",
+        _score_cols = ["Target Z (spot)", "Carry regime", "ATM/FS ratio", "Carry align",
                        "Constraint", "Total"]
 
         display_df = display_df[_col_order]
