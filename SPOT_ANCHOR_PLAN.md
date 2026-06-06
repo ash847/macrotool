@@ -100,16 +100,21 @@ or any `pricing/` code. Those remain forward moneyness.
 - [x] Tests: `_ms` helper gained a `target_z_spot=` param; gate-boundary tests now express the
       spot σ-distance directly. 392 pass (1 pre-existing scorer failure carried from main).
 
-### Phase 3 — Scenario grid
-- [ ] Re-anchor `scenario_generator.py` centering to spot (no-move = spot; σ-offsets from spot,
-      `σ_t` scaling unchanged). Derive `scenario_fwd` per cell via CIP for MtM pricing.
-- [ ] **Retain the `F` column** as a labeled forward-reference (demoted from "no-move center" to a
-      reference, NOT removed) — preserves the carry cue in-grid.
-- [ ] Keep `K`/target columns; keep pricing forward-based in `scenario_pricer.py`.
-- [ ] Define + expose a per-row forward (the remaining-time / roll-down forward at each checkpoint)
-      so the row labels can show it (see Phase 5). Decide exactly which forward: remaining-time
-      outright `spot·e^{(r_d-r_f)·remaining}` (rolls down to spot at expiry).
-- [ ] Tests: update scenario-grid + `test_scenario_pricer.py` for spot-centered levels.
+### Phase 3 — Scenario grid ✅
+- [x] Re-anchored `scenario_generator.py` to spot: builds `scenario_spot` first (no-move centre =
+      spot; `−½σ/−1σ` from spot; `t%→K` progress spot→K), derives `scenario_fwd = scenario_spot ·
+      e^{(r_d−r_f)·remaining}` for MtM (rolls down to spot at expiry).
+- [x] **Decision:** the center column `F` was **renamed `S`** (spot no-move); no separate forward
+      column. The forward reference is delivered via the per-row roll-down forward (Phase 5 labels).
+- [x] `K`/`K+½σ` target-anchored (unchanged); pricing stays forward-based (scenario_fwd derived).
+- [x] **Orientation `direction` stays FORWARD-relative** (`sign(K/F)`) so up-weighted "favourable"
+      cells align with where the forward-constructed structure profits. Carry-cross targets (between
+      spot and fwd) can place the overshoot cell between spot and target — inherent, P&L-correct.
+- [x] Per-row roll-down forward = the `S` cell's derived `scenario_fwd` (already available for P5).
+- [x] Config: `scenario_definitions.json` `_grid_cols` + `scenario_column_descriptions` `F→S`
+      (multipliers ship empty, nothing else to rename).
+- [x] Tests: `test_scenario_generator.py` rewritten for spot levels; `test_scenario_pricer.py`
+      forward-unchanged invariant rebuilt directly (no `F` column). 392 pass (1 pre-existing).
 
 ### Phase 4 — Scenario weighting re-tune
 - [ ] Re-tune `scenario_definitions.json` weightings against spot-centered scenarios + spot σ.
@@ -185,4 +190,7 @@ spot ending at the forward**, empirically validated: USDTRY Expiry/F `scenario_s
 - Phase 1 done: `target_z_spot` on MarketState (forward `target_z`/`put_call` untouched). 392 pass.
 - Phase 2 done (plumbing): scorer buckets/gates now read `target_z_spot`; JSON boundaries kept as-is
   for manual re-tune. USDTRY demo shortlist scores shifted vs forward-anchored (expected). 392 pass.
-  Next: Phase 3 (scenario grid → spot-centered; retain F column + per-row roll-down forward).
+- Phase 3 done: scenario grid spot-centered (no-move=spot, F→S rename, σ from spot, decaying per-row
+  forward = S-cell scenario_fwd; direction stays forward-relative). Verified on USDTRY: Expiry|S=spot,
+  per-row fwd decays 41.24→38.45. 392 pass. Next: Phase 4 (weighting re-tune — manual) / Phase 5 (UI
+  row labels show the roll-down forward; relabel S column header).
