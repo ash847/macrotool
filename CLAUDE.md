@@ -208,7 +208,7 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
 `interface/kelly_v2/` now supports two user entry modes:
 
 - `Standalone` — choose a supported pair and tenor from the live snapshot, then elicit a subjective distribution for a single vanilla option.
-- `From Trade Rec` — if the current session already has a live `Trade View` recommendation, surface up to 10 concrete recommended variants in a dropdown and size the selected trade.
+- `From Trade Rec` — if the current session already has a live `Trade View` recommendation, surface up to 20 concrete recommended variants (the first `TRADE_REC_DROPDOWN_LIMIT` of the Trade View `selector_result.shortlist`, in the same order) in a dropdown and size the selected trade.
 
 Implementation notes:
 
