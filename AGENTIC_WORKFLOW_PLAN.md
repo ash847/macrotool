@@ -280,15 +280,122 @@ built from `canonical`.
 - Pulls `ms`, view direction, target, surface from the session — agent supplies only the
   request string. Hard-validate args; reject/echo on ambiguity.
 
-### Phase 3 — Agent loop (next to `flow.py`, not replacing it)
-- New module (e.g. `conversation/agent_flow.py`) with a tool-calling loop.
-- On new view: call `_run_engines()`, seed context with the (re-rendered, labelled)
-  explanation pack.
-- System prompt carries domain conventions (direction, carry, base-ccy payoff, digital =
-  100%-at-target) and the hard rule: *no number that didn't come from a tool / the pack.*
-- Tools registered: `price_structure` (+ later `evaluate_scenarios`, `size`).
-- Cache keyed as in decision #2; same key → narrate, no recompute.
-- Reuse Langfuse tracing (one generation per tool call / turn).
+### Phase 3 — Agent loop (next to `flow.py`, not replacing it) — DEFINED
+
+The first LLM-touching phase. A tool-calling loop where the LLM routes the PM's turn to
+Tier-1 (rebuild the pack) / Tier-2 (price a structure) / no-tool (narrate), and Python does
+all computation. `flow.py` is left untouched; this is a parallel driver.
+
+#### Grounding constraint (from the code)
+`conversation/client.py: MacroToolClient` is **text-streaming only** (`stream(messages,
+system)` → text chunks). It has **no tool-use path**. So Phase 3 must add a tool-calling
+seam for Anthropic (`tool_use` / `tool_result` content blocks via `messages.create(tools=
+[...])`). Anthropic-only at first; **Gemini tool-use is deferred** (project defaults to
+anthropic). Responses are short → use non-streaming `create` for the tool loop (simpler than
+streaming tool_use assembly); stream only the final text turn if desired.
+
+#### Location (all additive)
+- `agentic/agent_llm.py`     — thin Anthropic tool-use wrapper (mirrors the retry logic in
+                               `AnthropicProviderClient`; reused, not duplicated, if a
+                               `create_with_tools` method is added to the existing client
+                               instead — decide at build time).
+- `agentic/standard_pack.py` — `build_pack(view, snapshot, cfg, prefs) -> StandardPack`,
+                               the deterministic chain. **Light refactor:** factor the body
+                               of `flow._run_engines` into this shared function and have
+                               `flow.py` call it too (DRY; keeps one source of truth). The
+                               pack bundles `market_state`, `selector_result`, `sizing`,
+                               distributions, and the rendered explanation pack.
+- `agentic/tools.py`         — tool JSON schemas + the Python dispatch table.
+- `agentic/session.py`       — `AgentSession`: current view, current `StandardPack`, the
+                               Tier-1 cache, the conversation messages, and the set of
+                               priced structures requested this session.
+- `agentic/agent_flow.py`    — the loop + system-prompt assembly.
+- `tests/test_agent_flow.py`, `tests/test_agent_tools.py`.
+
+#### Scope boundary (what Phase 3 does NOT do)
+- No Streamlit wiring (Phase 4). The loop is drivable headlessly for tests.
+- No `evaluate_scenarios` / `size` tools yet — `run_standard_pack` + `price_structure` only.
+  (Scenario/sizing tools are a fast follow once the loop is trusted.)
+- No Gemini tool-use.
+
+#### Tool schemas (the whole agent-facing surface)
+**Tier 1 — `run_standard_pack`** (coarse; triggers the full deterministic chain):
+- params: `pair`, `direction` (`base_higher`|`base_lower`), `horizon_days`,
+  `magnitude_pct` (optional), `primary_objective`, `structure_constraint`,
+  `trade_management`, `mode` (`recommend`|`critique`).
+- These are exactly the `TradeView` fields — view extraction from NL *is* the LLM populating
+  these args. Python validates them (`TradeView` Pydantic), then runs `build_pack`. The LLM
+  produces the *view*, never numbers — identical in spirit to today's `[VIEW: {…}]` tag.
+- returns: the rendered pack (market context, shortlist + scores, sizing, distributions),
+  labelled so the agent can cite it.
+
+**Tier 2 — `price_structure`** (fine; against the frozen pack):
+- params: `request` (string, e.g. `"34 vs 25 1x1.5"`, `"digital 10%"`).
+- dispatch: pulls `ms` / `is_call` / `target` / `loss_budget` / `smile` from the current
+  pack+view (NOT from the LLM) and calls `agentic.price_structure.price_structure`.
+- **guard:** if no pack exists yet → return a tool error telling the agent to call
+  `run_standard_pack` first (this is how decision #2 — "standard pack first" — is enforced:
+  the agent has no numbers and cannot price until the Python pack exists).
+- returns: `PricedStructure` rendered as labelled text, or the `ClarificationNeeded` /
+  `PricingUnavailable` message for the agent to relay.
+
+#### The loop (`agent_flow.advance(user_message)`)
+1. Append the user turn.
+2. Call the LLM with the tool schemas + system prompt.
+3. If the response has `tool_use` blocks → dispatch each to the Python table, append a
+   `tool_result` block (user-role), go to 2.
+4. If the response is text (`end_turn`) → that's the narration; emit and stop.
+5. Bound iterations (e.g. ≤ 6 tool rounds/turn) to prevent runaway; on overflow, emit a
+   graceful "couldn't complete" and stop.
+
+#### Tier-1 cache (decision #2)
+Key = `(pair, direction, horizon_days, magnitude_pct, structure_constraint,
+primary_objective, trade_management, mode)`. `run_standard_pack` computes the key; cache hit
+→ reuse the pack (zero recompute, the agent narrates from context); miss → `build_pack`,
+store. There is **no** tool that recomputes the pack piecemeal — only `build_pack`, only via
+this one coarse door.
+
+#### System prompt (the hard rules)
+- Domain conventions: direction (`base_higher`/`base_lower` rel. ccy1), carry/`with_carry`,
+  base-ccy payoff, **European digital = 100% at target**.
+- **No number that didn't come from a tool result or the pack in context.** Never compute,
+  never interpolate, never invent a strike/premium/level.
+- Routing: change the view (pair/tenor/direction/**target**/prefs) → `run_standard_pack`;
+  price a specific structure the PM names → `price_structure`; a "why/what/explain" question
+  about numbers already shown → **no tool**, narrate.
+- On `ClarificationNeeded` → ask the PM the returned question; on `PricingUnavailable` →
+  relay the reason (e.g. "needs a target").
+
+#### Rendering for the agent
+- Reuse `render_explanation_pack` for the pack, but add light **labels** so the agent can
+  distinguish "baseline (from the pack)" vs "PM-requested" structures.
+- New `render_priced_structure(pv)` — a compact labelled block for a single `PricedVariant`
+  (strikes, premium %, payoff@target, RR, max loss, and ccy fields when sized).
+
+#### Invariants preserved
+- **Messages end in a user turn before every API call** — satisfied for free: Anthropic
+  `tool_result` blocks are user-role, so `user → assistant(tool_use) → user(tool_result) →
+  …` always ends on user before the next `create`.
+- LLM narrates only; numbers come from Python. Tier-2 danger goes through the Phase-1 grammar.
+
+#### Testing (no API burn)
+- `FakeToolClient` returning a *queued* script of responses (`tool_use` blocks then a final
+  text turn) → drive the loop deterministically, asserting: correct dispatch, cache
+  hit/miss + pack reuse, the `price_structure`-needs-pack guard, the ClarificationNeeded
+  relay, and iteration bounding.
+- `tests/test_agent_tools.py` — dispatch table in isolation (schema validation, view→pack,
+  request→priced structure) without the loop.
+- One **live** smoke test gated on `ANTHROPIC_API_KEY` (skipped if absent): a real "long
+  3m USDBRL, target +6%" → assert a `run_standard_pack` call happens and a coherent pack
+  comes back.
+
+#### Done criteria
+- Loop runs headlessly under the fake client; all unit tests green.
+- `flow._run_engines` and `build_pack` share one implementation (no divergence).
+- `price_structure` refuses before a pack exists; Tier-1 cache demonstrably avoids recompute
+  on identical view inputs.
+- No existing behavior changed except the `_run_engines` → `build_pack` extraction (covered
+  by the existing flow tests, which must stay green).
 
 ### Phase 4 — Wire into Streamlit + validate
 - Add an entry point / toggle in `interface/app.py` to drive `agent_flow` instead of the
