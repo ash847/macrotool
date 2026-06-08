@@ -120,6 +120,7 @@ def price_variants(
     loss_budget: float | None = None,
     smile: "SmileInterpolator | None" = None,
     warnings: list[str] | None = None,
+    variants_override: list[dict] | None = None,
 ) -> list[PricedVariant]:
     """
     Price all defined variants for a structure. Returns [] if no variants defined.
@@ -137,12 +138,21 @@ def price_variants(
     price triggers a ``SmileArbitrageError`` are dropped from the result rather
     than emitted with an unreliable mark. If a ``warnings`` list is supplied, a
     human-readable note is appended for each dropped variant.
-    """
-    cfg = _load_variants()
-    if structure_id not in cfg:
-        return []
 
-    variants = cfg[structure_id]
+    ``variants_override`` lets a caller price a *specific* synthetic variant (or
+    variants) instead of the curated ``structure_variants.json`` menu — used by the
+    agentic ``price_structure`` tool, which builds the variant dict from a parsed
+    PM request. Each override dict must carry the same keys the curated menu uses
+    for that ``structure_id``. When None (default), the curated menu is loaded, so
+    every existing caller is unchanged.
+    """
+    if variants_override is not None:
+        variants = variants_override
+    else:
+        cfg = _load_variants()
+        if structure_id not in cfg:
+            return []
+        variants = cfg[structure_id]
     F, vol, T, r_d, r_f, spot = ms.fwd, ms.vol, ms.T, ms.r_d, ms.r_f, ms.spot
     DF = math.exp(-r_d * T)
     vol_sqrtT = vol * math.sqrt(T)

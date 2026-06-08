@@ -829,15 +829,18 @@ wheels = [
 
 [[package]]
 name = "macrotool"
-version = "0.1.20"
+version = "0.1.28"
 source = { editable = "." }
 dependencies = [
+    { name = "altair" },
     { name = "anthropic" },
     { name = "authlib" },
     { name = "google-genai" },
     { name = "langfuse" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "plotly" },
     { name = "pydantic" },
     { name = "rich" },
@@ -854,11 +857,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "altair", specifier = ">=5.2.0" },
     { name = "anthropic", specifier = ">=0.40.0" },
     { name = "authlib", specifier = "==1.6.5" },
     { name = "google-genai", specifier = ">=1.40.0" },
     { name = "langfuse", specifier = ">=2.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },
+    { name = "pandas", specifier = ">=2.1.0" },
     { name = "plotly", specifier = ">=5.20.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.0" },
