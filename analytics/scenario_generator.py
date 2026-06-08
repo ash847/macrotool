@@ -26,9 +26,17 @@ SIX_WEEKS_YEARS = 42.0 / 365.0
 GRID_ROWS = ["1w", "25%T", "50%T", "Expiry"]
 GRID_COLS = ["S", "t%→K", "K", "K+½σ", "−½σ", "−1σ", "Δvol"]
 
-# Human-readable labels for display. The −½σ/−1σ columns offset from SPOT
-# (not the target K), so spell that out; other columns are shown as-is.
-GRID_COL_LABELS = {"S": "No move", "−½σ": "spot −½σ", "−1σ": "spot −1σ"}
+# Human-readable labels for display. The grid id `K` is the trade *target*, not
+# the option strike — spell that out so it doesn't read as "strike". The −½σ/−1σ
+# columns offset from SPOT (not the target), so spell that out too.
+GRID_COL_LABELS = {
+    "S": "No move",
+    "t%→K": "t%→target",
+    "K": "target",
+    "K+½σ": "target +½σ",
+    "−½σ": "spot −½σ",
+    "−1σ": "spot −1σ",
+}
 
 
 def col_label(col: str) -> str:
