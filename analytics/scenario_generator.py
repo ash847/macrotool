@@ -182,7 +182,11 @@ def _build_cell_scenario(
     if col == "t%→K":
         scenario_spot = _proportional_progress_spot(row, spot, K)
     elif col == "Δvol":
-        scenario_spot = spot if row == "1w" else _proportional_progress_spot(row, spot, K)
+        # Hold spot at no-move at every checkpoint so the Δvol column isolates the
+        # vol shock (a clean vega read). Anchoring interim rows to proportional
+        # progress toward K would bundle a directional spot drift into the cell,
+        # flipping its sign vs the 1w no-move cell for directional structures.
+        scenario_spot = spot
     else:
         scenario_spot = _apply_spot_rule(col, spot, K, sigma_t, direction)
 
