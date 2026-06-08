@@ -312,6 +312,13 @@ def render_structure_evaluation(
         generate_scenarios as _gen_sc,
         valid_grid_rows as _valid_grid_rows,
     )
+
+    # Display labels for the scenario columns. The −½σ/−1σ columns offset from
+    # SPOT (not the target), so spell that out for clarity in the grids.
+    _SC_COL_LABELS = {"S": "No move", "−½σ": "spot −½σ", "−1σ": "spot −1σ"}
+
+    def _sc_col_label(col: str) -> str:
+        return _SC_COL_LABELS.get(col, col)
     from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
     from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
     from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
@@ -473,7 +480,7 @@ def render_structure_evaluation(
                     continue
                 _w_rows.append({
                     "Row": _row,
-                    "Scenario": ("No move" if _col == "S" else _col),
+                    "Scenario": _sc_col_label(_col),
                     "Multiplier": f"{_ev_multipliers[_cid]:.1f}",
                     "Weight": f"{_ev_weights[_cid]:.1%}",
                 })
@@ -594,7 +601,7 @@ def render_structure_evaluation(
                         continue
                     _summary_rows.append({
                         "Row": _row,
-                        "Scenario": ("No move" if _col == "S" else _col),
+                        "Scenario": _sc_col_label(_col),
                         "P&L": f"{_bd.pnl_pct:+.2%}  ({fmt_ccy(_bd.pnl_ccy, _ev_base)})",
                         "Multiplier": f"{_bd.multiplier:.1f}",
                         "Weight": f"{_bd.normalized_weight:.1%}",
@@ -620,7 +627,7 @@ def render_structure_evaluation(
                     _fwd_lbl = f"  ·  fwd {_s_cell['scenario_fwd']:.4f}" if _s_cell else ""
                     st.markdown(f"**{_row}**{_fwd_lbl}")
                     _row_df = pd.DataFrame([{
-                        "Scenario":  ("No move" if r["col"] == "S" else r["col"]),
+                        "Scenario":  _sc_col_label(r["col"]),
                         "T%":        f"{r['time_fraction']:.0%}",
                         "Fwd":       f"{r['scenario_fwd']:.4f}",
                         "Spot":      f"{r['scenario_spot']:.4f}",
