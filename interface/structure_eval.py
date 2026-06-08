@@ -309,16 +309,10 @@ def render_structure_evaluation(
     from analytics.structure_pricer import PricedVariant as _PricedVariant, price_variants as _pv_fn
     from analytics.scenario_generator import (
         GRID_COLS as _SC_GRID_COLS,
+        col_label as _sc_col_label,
         generate_scenarios as _gen_sc,
         valid_grid_rows as _valid_grid_rows,
     )
-
-    # Display labels for the scenario columns. The −½σ/−1σ columns offset from
-    # SPOT (not the target), so spell that out for clarity in the grids.
-    _SC_COL_LABELS = {"S": "No move", "−½σ": "spot −½σ", "−1σ": "spot −1σ"}
-
-    def _sc_col_label(col: str) -> str:
-        return _SC_COL_LABELS.get(col, col)
     from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
     from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
     from knowledge_engine.scenario_scorer  import score_structure       as _score_struct

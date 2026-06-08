@@ -10,7 +10,7 @@ import uuid
 import pandas as pd
 import streamlit as st
 
-from analytics.scenario_generator import GRID_COLS, GRID_ROWS, VALID_GRID_CELLS, cell_id
+from analytics.scenario_generator import GRID_COLS, GRID_ROWS, VALID_GRID_CELLS, cell_id, col_label
 from interface.security import assert_admin, current_user_email, is_admin_user
 from knowledge_engine.scenario_weighter import (
     _FIELD_GETTERS,
@@ -132,7 +132,7 @@ def _grid_df(ctx: dict, baseline: float) -> pd.DataFrame:
         item = {"Row": row}
         for col in GRID_COLS:
             cid = cell_id(row, col)
-            item[col] = multipliers.get(cid, baseline) if col in VALID_GRID_CELLS[row] else None
+            item[col_label(col)] = multipliers.get(cid, baseline) if col in VALID_GRID_CELLS[row] else None
         rows.append(item)
     return pd.DataFrame(rows).set_index("Row")
 
@@ -155,7 +155,7 @@ def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> No
     header_cols = st.columns([1] + [1] * len(GRID_COLS))
     header_cols[0].markdown("**Row**")
     for i, col in enumerate(GRID_COLS, start=1):
-        header_cols[i].markdown(f"**{col}**")
+        header_cols[i].markdown(f"**{col_label(col)}**")
 
     for row in GRID_ROWS:
         cols = st.columns([1] + [1] * len(GRID_COLS))

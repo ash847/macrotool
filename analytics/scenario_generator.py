@@ -26,6 +26,15 @@ SIX_WEEKS_YEARS = 42.0 / 365.0
 GRID_ROWS = ["1w", "25%T", "50%T", "Expiry"]
 GRID_COLS = ["S", "t%→K", "K", "K+½σ", "−½σ", "−1σ", "Δvol"]
 
+# Human-readable labels for display. The −½σ/−1σ columns offset from SPOT
+# (not the target K), so spell that out; other columns are shown as-is.
+GRID_COL_LABELS = {"S": "No move", "−½σ": "spot −½σ", "−1σ": "spot −1σ"}
+
+
+def col_label(col: str) -> str:
+    """Display label for a scenario column. Falls back to the raw id."""
+    return GRID_COL_LABELS.get(col, col)
+
 ROW_TIME_FRACTIONS: dict[str, float | None] = {
     "1w": None,
     "25%T": 0.25,
