@@ -20,7 +20,7 @@ from data.snapshot_loader import load_snapshot
 from pricing.forwards import rate_context_for_snapshot
 
 _SNAP = load_snapshot()
-_PORTED = ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread"]
+_PORTED = ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread", "seagull"]
 
 # (pair, horizon_days, magnitude_pct, direction)
 _MARKETS = [
@@ -67,7 +67,7 @@ def _assert_parity(new, old, ctx):
     for kn, ko in zip(new.strikes, old.strikes):
         assert _close(kn, ko), f"{ctx}: strike {kn} != {ko}"
     for fld in ("net_premium_pct", "payoff_at_target_pct", "rr_at_target",
-                "max_loss_pct", "breakeven"):
+                "max_loss_pct", "breakeven", "wing_ratio"):
         assert _close(getattr(new, fld), getattr(old, fld)), (
             f"{ctx}: {fld} {getattr(new, fld)} != {getattr(old, fld)}"
         )
@@ -82,8 +82,15 @@ def test_parity_ported_families(pair, horizon, mag, direction, flat):
     is_call = direction == "base_higher"
     cfg = _load_variants()
 
+    # Stop price (seagull max-loss) — derived as the engine does (R:R default 3.0).
+    move_pct = abs(target - ms.fwd) / ms.fwd
+    stop_pct = move_pct / 3.0
+    stop_price = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
+
     for family in _PORTED:
-        legacy = price_variants(ms, family, target=target, is_call=is_call, smile=surface)
+        legacy = price_variants(
+            ms, family, target=target, is_call=is_call, stop_price=stop_price, smile=surface
+        )
         by_label = {v.variant_label: v for v in legacy}
         for variant in cfg[family]:
             # Legacy drops variants its eligibility gate rejects (e.g. half_sigma below
@@ -92,6 +99,6 @@ def test_parity_ported_families(pair, horizon, mag, direction, flat):
                 continue
             st = build_structure(family, variant, is_call)
             assert st is not None, f"{family} not built"
-            new = price(st, ms, target=target, smile=surface)
+            new = price(st, ms, target=target, smile=surface, stop_price=stop_price)
             old = by_label[variant["label"]]
             _assert_parity(new, old, f"{pair} {direction} {family} '{variant['label']}' flat={flat}")

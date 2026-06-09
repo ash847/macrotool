@@ -81,6 +81,16 @@ def build_structure(family: str, variant: dict, is_call: bool) -> Structure | No
             return None
         return Structure(family, legs, label)
 
+    if family == "seagull":
+        opp = Right.PUT if is_call else Right.CALL
+        legs = (
+            Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["spread_long"])),
+            Leg(Instrument.VANILLA, right, -1.0, Anchor(AnchorKind.DELTA, variant["spread_short"])),
+            # Wing: opposite side, notional solved to fund zero cost (set at price time).
+            Leg(Instrument.VANILLA, opp, -1.0, Anchor(AnchorKind.DELTA, variant["wing_delta"])),
+        )
+        return Structure(family, legs, label)
+
     return None
 
 
@@ -124,11 +134,13 @@ def price(
     ms: MarketState,
     target: float | None = None,
     smile=None,
+    stop_price: float | None = None,
 ) -> PricedStructure:
     F, vol, T, r_d, r_f, spot = ms.fwd, ms.vol, ms.T, ms.r_d, ms.r_f, ms.spot
     DF = math.exp(-r_d * T)
     vol_sqrtT = vol * math.sqrt(T)
     vm = _VolModel(vol, smile=smile, F=F, horizon_days=round(T * 365))
+    fam = structure.family
 
     priced_legs: list[PricedLeg] = []
     for leg in structure.legs:
@@ -137,13 +149,20 @@ def price(
         unit = black76_call(F, K, T, v, DF) if is_call else black76_put(F, K, T, v, DF)
         priced_legs.append(PricedLeg(leg, K, v, unit))
 
-    # Linear aggregation: net premium = Σ signed_notional × unit.
-    net_prem = sum(pl.leg.signed_notional * pl.unit_premium for pl in priced_legs)
+    # Solved leg notionals: the seagull wing is sized to fund the structure to zero cost.
+    wing_ratio = None
+    if fam == "seagull" and len(priced_legs) == 3:
+        spread_cost = priced_legs[0].unit_premium - priced_legs[1].unit_premium
+        prem_wing = priced_legs[2].unit_premium
+        wing_ratio = (spread_cost / prem_wing) if prem_wing > 1e-8 else 0.0
+        priced_legs[2].effective_notional = -wing_ratio
+
+    # Linear aggregation: net premium = Σ notional × unit (using solved notionals).
+    net_prem = sum(pl.notional * pl.unit_premium for pl in priced_legs)
     prem_pct = net_prem / spot
     is_zero_cost = abs(net_prem) < _ZERO_COST_EPS * spot
 
-    fam = structure.family
-    long_leg = next((pl for pl in priced_legs if pl.leg.signed_notional > 0), None)
+    long_leg = next((pl for pl in priced_legs if pl.notional > 0), None)
     long_is_call = long_leg.leg.right == Right.CALL if long_leg else True
 
     payoff_pct = rr = None
@@ -156,7 +175,7 @@ def price(
             raw = _intrinsic(long_leg.strike, target, long_is_call)
         else:
             raw = sum(
-                pl.leg.signed_notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
+                pl.notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
                 for pl in priced_legs
             )
         payoff_pct = raw / target
@@ -173,15 +192,25 @@ def price(
 
     # Max loss: vanilla / 1x1 = net premium. Ratio spreads = the package's stressed-forward
     # value (open tail beyond target), floored at the premium — reusing the legacy helper.
+    strikes = [pl.strike for pl in priced_legs]
     if fam in _RATIO_FAMILIES:
         from analytics.structure_pricer import _today_package_value_pct
-        strikes = [pl.strike for pl in priced_legs]
         stress_fwd = target if target is not None else strikes[1]
         ml = _today_package_value_pct(
             structure_id=fam, strikes=strikes, fwd_today=stress_fwd, T=T, vol=vol,
             r_d=r_d, r_f=r_f, spot=spot, is_call=long_is_call, surface=vm.surface,
         )
         max_loss_pct = max(ml, abs(prem_pct))
+    elif fam == "seagull":
+        if stop_price is not None:
+            from analytics.structure_pricer import _today_package_value_pct
+            max_loss_pct = _today_package_value_pct(
+                structure_id="seagull", strikes=strikes, fwd_today=stop_price, T=T, vol=vol,
+                r_d=r_d, r_f=r_f, spot=spot, is_call=long_is_call,
+                wing_ratio=wing_ratio, surface=vm.surface,
+            )
+        else:
+            max_loss_pct = 0.0
     else:
         max_loss_pct = abs(prem_pct)
 
@@ -194,4 +223,5 @@ def price(
         max_loss_pct=max_loss_pct,
         breakeven=breakeven,
         is_zero_cost=is_zero_cost,
+        wing_ratio=round(wing_ratio, 2) if wing_ratio is not None else None,
     )

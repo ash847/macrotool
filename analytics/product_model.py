@@ -68,6 +68,11 @@ class PricedLeg:
     strike: float
     vol: float
     unit_premium: float          # Black-76 absolute premium of 1 unit (quote-ccy, discounted)
+    effective_notional: float | None = None   # solved notional (e.g. seagull wing); else leg's
+
+    @property
+    def notional(self) -> float:
+        return self.effective_notional if self.effective_notional is not None else self.leg.signed_notional
 
 
 @dataclass
