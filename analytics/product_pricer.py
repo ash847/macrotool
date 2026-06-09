@@ -60,7 +60,31 @@ def build_structure(family: str, variant: dict, is_call: bool) -> Structure | No
         )
         return Structure(family, legs, label)
 
+    if family in ("1x1.5_spread", "1x2_spread"):
+        ratio = 1.5 if family == "1x1.5_spread" else 2.0
+        if "long_delta" in variant and "short_delta" in variant:
+            legs = (
+                Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["long_delta"])),
+                Leg(Instrument.VANILLA, right, -ratio, Anchor(AnchorKind.DELTA, variant["short_delta"])),
+            )
+        elif variant.get("long_type") == "atmf":
+            legs = (
+                Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.ATMF)),
+                Leg(Instrument.VANILLA, right, -ratio, Anchor(AnchorKind.TARGET)),
+            )
+        elif variant.get("long_type") == "half_sigma":
+            legs = (
+                Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.HALF_SIGMA)),
+                Leg(Instrument.VANILLA, right, -ratio, Anchor(AnchorKind.TARGET)),
+            )
+        else:
+            return None
+        return Structure(family, legs, label)
+
     return None
+
+
+_RATIO_FAMILIES = ("1x1.5_spread", "1x2_spread")
 
 
 # ---------------------------------------------------------------------------
@@ -118,24 +142,48 @@ def price(
     prem_pct = net_prem / spot
     is_zero_cost = abs(net_prem) < _ZERO_COST_EPS * spot
 
+    fam = structure.family
+    long_leg = next((pl for pl in priced_legs if pl.leg.signed_notional > 0), None)
+    long_is_call = long_leg.leg.right == Right.CALL if long_leg else True
+
     payoff_pct = rr = None
     if target is not None:
-        raw = sum(
-            pl.leg.signed_notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
-            for pl in priced_legs
-        )
+        if fam in _RATIO_FAMILIES:
+            # Legacy quirk (preserved for behavior-parity): ratio payoff-at-target counts
+            # the LONG leg intrinsic only (correct when the short sits at the target;
+            # overstates for a deep delta-pair target). Faithful leg-sum is a deliberate
+            # later correctness fix — see PRODUCT_MODEL_PLAN.
+            raw = _intrinsic(long_leg.strike, target, long_is_call)
+        else:
+            raw = sum(
+                pl.leg.signed_notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
+                for pl in priced_legs
+            )
         payoff_pct = raw / target
-        rr = (payoff_pct / prem_pct) if (not is_zero_cost and prem_pct > 1e-8) else None
+        rr = (
+            (payoff_pct / prem_pct)
+            if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
+            else None
+        )
 
-    # Breakeven: long strike ± net premium (debit only). Family-declarative.
-    long_leg = next((pl for pl in priced_legs if pl.leg.signed_notional > 0), None)
+    # Breakeven: long strike ± net premium (debit only; not for a zero-cost package).
     breakeven = None
-    if long_leg is not None and net_prem > 0:
-        is_call = long_leg.leg.right == Right.CALL
-        breakeven = long_leg.strike + (net_prem if is_call else -net_prem)
+    if long_leg is not None and not is_zero_cost and net_prem > 0:
+        breakeven = long_leg.strike + (net_prem if long_is_call else -net_prem)
 
-    # Max loss: for vanilla & 1x1 (fully capped / single long), max loss = net premium.
-    max_loss_pct = abs(prem_pct)
+    # Max loss: vanilla / 1x1 = net premium. Ratio spreads = the package's stressed-forward
+    # value (open tail beyond target), floored at the premium — reusing the legacy helper.
+    if fam in _RATIO_FAMILIES:
+        from analytics.structure_pricer import _today_package_value_pct
+        strikes = [pl.strike for pl in priced_legs]
+        stress_fwd = target if target is not None else strikes[1]
+        ml = _today_package_value_pct(
+            structure_id=fam, strikes=strikes, fwd_today=stress_fwd, T=T, vol=vol,
+            r_d=r_d, r_f=r_f, spot=spot, is_call=long_is_call, surface=vm.surface,
+        )
+        max_loss_pct = max(ml, abs(prem_pct))
+    else:
+        max_loss_pct = abs(prem_pct)
 
     return PricedStructure(
         structure=structure,

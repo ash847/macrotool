@@ -20,7 +20,7 @@ from data.snapshot_loader import load_snapshot
 from pricing.forwards import rate_context_for_snapshot
 
 _SNAP = load_snapshot()
-_PORTED = ["vanilla", "1x1_spread"]
+_PORTED = ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread"]
 
 # (pair, horizon_days, magnitude_pct, direction)
 _MARKETS = [
@@ -86,6 +86,10 @@ def test_parity_ported_families(pair, horizon, mag, direction, flat):
         legacy = price_variants(ms, family, target=target, is_call=is_call, smile=surface)
         by_label = {v.variant_label: v for v in legacy}
         for variant in cfg[family]:
+            # Legacy drops variants its eligibility gate rejects (e.g. half_sigma below
+            # min_target_z); compare only the variants it actually priced.
+            if variant["label"] not in by_label:
+                continue
             st = build_structure(family, variant, is_call)
             assert st is not None, f"{family} not built"
             new = price(st, ms, target=target, smile=surface)
