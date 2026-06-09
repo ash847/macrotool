@@ -9,7 +9,42 @@ from __future__ import annotations
 
 from agentic.price_structure import PricedStructure, PricingUnavailable
 from agentic.standard_pack import StandardPack
+from analytics.product_model import AnchorKind
 from knowledge_engine.models import TradeView
+
+
+def _anchor_label(anchor) -> str:
+    k = anchor.kind
+    if k == AnchorKind.DELTA:
+        return f"{round(anchor.value * 100)}Δ"
+    if k == AnchorKind.ATMF:
+        return "ATMF"
+    if k == AnchorKind.HALF_SIGMA:
+        return "½σ"
+    if k == AnchorKind.TARGET:
+        return "target"
+    if k == AnchorKind.PREMIUM:
+        return f"{round(anchor.value * 100)}% prem"
+    return f"K={anchor.value:.4f}"
+
+
+def _legs_breakdown(ps) -> list[str]:
+    """Explicit per-leg lines from a product-model PricedStructure — so the agent reads
+    each leg's side / notional / anchor / right / strike instead of inferring them."""
+    if ps is None:
+        return []
+    lines = []
+    for pl in ps.priced_legs:
+        side = "long" if pl.notional > 0 else "short"
+        right = pl.leg.right.value.capitalize()
+        instr = "Digital " if pl.leg.instrument.value == "digital" else ""
+        lines.append(
+            f"      {side} {abs(pl.notional):g} × {_anchor_label(pl.leg.anchor)} "
+            f"{instr}{right} @ {pl.strike:.4f}"
+        )
+    if ps.barrier is not None:
+        lines.append(f"      knock-out barrier @ {ps.barrier:.4f}")
+    return lines
 
 
 def render_pack(pack: StandardPack, view: TradeView) -> str:
@@ -63,6 +98,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
                 f"[{r.structure_id}]{score}"
             )
             lines.append("     " + _variant_summary(r.variant))
+            lines.extend(_legs_breakdown(r.priced_structure))
             ccy = _ccy_summary(r.variant)
             if ccy:
                 lines.append("     " + ccy)
@@ -148,6 +184,7 @@ def render_recommended(rec) -> str:
         f"RECOMMENDED {rec.display_name} — {rec.variant.variant_label} [{rec.structure_id}]",
         "  " + _variant_summary(rec.variant),
     ]
+    lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None)))
     ccy = _ccy_summary(rec.variant)
     if ccy:
         lines.append("  " + ccy)

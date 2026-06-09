@@ -44,6 +44,25 @@ def _major_risk(structure_id: str) -> str:
         return ""
 
 
+def _priced_structure_for(family, label, ms, is_call, target, surface, stop_price):
+    """The product-model PricedStructure (legs first-class) for a recommended variant,
+    looked up by family+label. Used so the renderer can show explicit legs (deltas /
+    notionals / call-put) instead of a flat strike list — killing the fabrication class.
+    Best-effort: None if it can't be built."""
+    try:
+        from analytics.product_pricer import build_structure, price
+        from analytics.structure_pricer import _load_variants
+        vd = next((v for v in _load_variants().get(family, []) if v.get("label") == label), None)
+        if vd is None:
+            return None
+        st = build_structure(family, vd, is_call)
+        if st is None:
+            return None
+        return price(st, ms, target=target, smile=surface, stop_price=stop_price)
+    except Exception:
+        return None
+
+
 @dataclass
 class RecommendedStructure:
     """A specific, priced representative construction for a shortlisted family."""
@@ -55,6 +74,7 @@ class RecommendedStructure:
     variant: PricedVariant
     score_ccy: float | None = None   # scenario-weighted P&L the variant was ranked on
     major_risk: str = ""             # engine's canonical primary risk (from profiles)
+    priced_structure: object | None = None   # product-model PricedStructure (legs first-class)
 
 
 @dataclass
@@ -130,6 +150,10 @@ def _recommend_ranked(
                 variant=best.variant,
                 score_ccy=best.pm_score.score_ccy,
                 major_risk=_major_risk(item.structure_id),
+                priced_structure=_priced_structure_for(
+                    item.structure_id, best.variant.variant_label, ms, is_call,
+                    target, surface, stop_price,
+                ),
             ))
     return out, loss_budget
 
@@ -156,6 +180,9 @@ def _price_recommended_fallback(
                 rationale=item.rationale,
                 variant=rep,
                 major_risk=_major_risk(item.structure_id),
+                priced_structure=_priced_structure_for(
+                    item.structure_id, rep.variant_label, ms, is_call, target, surface, None,
+                ),
             ))
     return out
 

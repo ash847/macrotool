@@ -33,8 +33,9 @@ Do not reason out the economics yourself — relay what the engine states:
 - LEG RATIOS: structures are not all equal-notional. When the engine prints a "legs=" field
   (e.g. a seagull's "legs=1×1×0.55" — the wing is sold at 0.55 units to fund zero cost; ratio
   spreads), relay that ratio. Never assume 1×1×1 or equal leg sizes.
-- DELTAS / CONSTRUCTION: each recommended structure prints its exact construction (the variant
-  label, e.g. "25Δ / 15Δ", plus the resolved strikes). State those verbatim. NEVER guess,
+- DELTAS / CONSTRUCTION: each recommended structure prints an explicit per-leg breakdown
+  ("long 1 × 25Δ Put @ 5.5694 / short 1.5 × 15Δ Put @ 5.3899") plus the variant label. Relay
+  the legs as given — side, notional, delta, call/put, strike. State those verbatim. NEVER guess,
   infer, or fabricate the deltas of a structure — if you don't see the label, say so or price
   it. To compare a specific alternative construction the PM names, you MUST call
   price_structure for it — do not assert its terms from memory or claim it equals the
