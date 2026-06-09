@@ -295,10 +295,26 @@ anthropic). Responses are short → use non-streaming `create` for the tool loop
 streaming tool_use assembly); stream only the final text turn if desired.
 
 #### Location (all additive)
-- `agentic/agent_llm.py`     — thin Anthropic tool-use wrapper (mirrors the retry logic in
-                               `AnthropicProviderClient`; reused, not duplicated, if a
-                               `create_with_tools` method is added to the existing client
-                               instead — decide at build time).
+- `agentic/agent_llm.py`     — **provider-neutral tool seam (explicit deliverable).** A
+                               small interface that normalizes, across providers: (a) our
+                               tool schema → the provider's tool-declaration format, (b) the
+                               model's "call tool X(args)" → a normalized `ToolCall`, (c) our
+                               tool result → the provider's result message. `agent_flow.py`
+                               never branches on provider. **Anthropic adapter built + tested
+                               first.** Mirrors/reuses the retry logic in
+                               `AnthropicProviderClient`. The fake-client tests are
+                               provider-agnostic, so they cover any adapter for free.
+                               **Adapter order: OpenAI before Gemini.** OpenAI is the closer
+                               cousin to Anthropic (JSON-Schema tools, `tool_calls` carrying
+                               per-call **IDs**, one-result-per-ID) — only friction is
+                               `arguments` arriving as a JSON *string* (`json.loads` it).
+                               Gemini is the awkward one: **no per-call ID** (calls/results
+                               matched by function *name*), which gets fiddly with parallel
+                               calls. **Seam design constraint:** the normalized `ToolCall`
+                               carries a call ID from day one; Anthropic and OpenAI supply it,
+                               the Gemini adapter must *manufacture* one and map it back to
+                               the function name. Both adapters are later drop-ins (one class,
+                               no loop/dispatch changes).
 - `agentic/standard_pack.py` — `build_pack(view, snapshot, cfg, prefs) -> StandardPack`,
                                the deterministic chain. **Light refactor:** factor the body
                                of `flow._run_engines` into this shared function and have
@@ -316,7 +332,8 @@ streaming tool_use assembly); stream only the final text turn if desired.
 - No Streamlit wiring (Phase 4). The loop is drivable headlessly for tests.
 - No `evaluate_scenarios` / `size` tools yet — `run_standard_pack` + `price_structure` only.
   (Scenario/sizing tools are a fast follow once the loop is trusted.)
-- No Gemini tool-use.
+- The **provider-neutral seam is in scope**; the **Gemini adapter implementation is not**
+  (Anthropic adapter only — Gemini/OpenAI adapters are later drop-ins behind the seam).
 
 #### Tool schemas (the whole agent-facing surface)
 **Tier 1 — `run_standard_pack`** (coarse; triggers the full deterministic chain):
@@ -338,6 +355,23 @@ streaming tool_use assembly); stream only the final text turn if desired.
   the agent has no numbers and cannot price until the Python pack exists).
 - returns: `PricedStructure` rendered as labelled text, or the `ClarificationNeeded` /
   `PricingUnavailable` message for the agent to relay.
+
+#### Model choice (decided)
+- **Workhorse: Sonnet 4.6 (`claude-sonnet-4-6`).** Already the project default in
+  `conversation/client.py`; solid tool-use, 1M context, right cost/quality balance for a
+  low-volume interactive tool ($3 / $15 per 1M in/out).
+- **Fallback one config flag away: Opus 4.8 (`claude-opus-4-8`)** ($5 / $25). Reach for it if
+  testing shows tier mis-routing, direction flips, or drift on the narrate-only rule — Opus
+  has the strongest instruction adherence + tool triggering, and at this volume the price
+  delta is immaterial. Also the better pick if/when the agent *critiques* a PM structure.
+- **Not Haiku for the loop.** Weakest at tool adherence and at honoring "no number that
+  didn't come from a tool" — the one place not to economize, given the safety model rests on
+  reliable tool-calling. (A narrow forced-`tool_choice` view-extraction sub-call on Haiku is a
+  *possible* later micro-optimization — premature until the single-model loop works.)
+- Rationale: the loop's work is routing + arg population + narration — **not** heavy quant
+  reasoning (all numbers are Python). So tool-calling reliability and rule adherence dominate
+  the choice, not raw reasoning depth. Model ID is just an adapter param → Sonnet↔Opus (or a
+  later provider) is a config change, not code.
 
 #### The loop (`agent_flow.advance(user_message)`)
 1. Append the user turn.
