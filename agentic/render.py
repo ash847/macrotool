@@ -33,17 +33,20 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     if ms.target_z is not None:
         lines.append(f"  target_z(fwd)={ms.target_z:+.2f}σ  put_call={ms.put_call}")
 
-    lines.append("\nSTRUCTURE SHORTLIST (scored, baseline):")
-    primaries = [s for s in pack.selector_result.shortlist if not s.is_exotic]
-    overlays = [s for s in pack.selector_result.shortlist if s.is_exotic]
-    for s in primaries:
-        lines.append(f"  {s.rank}. {s.display_name} [{s.structure_id}] — {s.rationale}")
-    if overlays:
-        lines.append("  overlays:")
-        for s in overlays:
-            lines.append(f"    · {s.display_name} [{s.structure_id}] — {s.rationale}")
-    if not pack.selector_result.shortlist:
-        lines.append("  (no eligible structures for this view)")
+    if pack.recommended:
+        lines.append("\nRECOMMENDED STRUCTURES (specific, priced — use these):")
+        for r in pack.recommended:
+            lines.append(f"  {r.rank}. {r.display_name} [{r.structure_id}]")
+            lines.append("     " + _variant_summary(r.variant))
+            lines.append(f"     — {r.rationale}")
+    else:
+        # No representative priced (e.g. no target supplied) — fall back to families.
+        lines.append("\nSTRUCTURE SHORTLIST (scored families):")
+        for s in pack.selector_result.shortlist:
+            tag = " (overlay)" if s.is_exotic else ""
+            lines.append(f"  {s.rank}. {s.display_name} [{s.structure_id}]{tag} — {s.rationale}")
+        if not pack.selector_result.shortlist:
+            lines.append("  (no eligible structures for this view)")
 
     if pack.sizing is not None:
         sz = pack.sizing
@@ -64,20 +67,27 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     return "\n".join(lines)
 
 
+def _variant_summary(v) -> str:
+    """One-line strikes + premium + payoff + RR for a PricedVariant."""
+    strikes = ", ".join(f"{k:.4f}" for k in v.strikes)
+    parts = [f"strikes=[{strikes}]"]
+    if v.barrier:
+        parts.append(f"barrier={v.barrier:.4f}")
+    parts.append(f"premium={v.net_premium_pct:.2%}")
+    if v.payoff_at_target_pct is not None:
+        parts.append(f"payoff@target={v.payoff_at_target_pct:.2%}")
+    if v.rr_at_target is not None:
+        parts.append(f"rr={v.rr_at_target:.2f}")
+    parts.append(f"max_loss={v.max_loss_pct:.2%}")
+    if v.is_zero_cost:
+        parts.append("zero-cost")
+    return "  ".join(parts)
+
+
 def render_priced_structure(ps: PricedStructure) -> str:
     """Render a single PM-requested priced structure (Tier-2 result)."""
     v = ps.variant
-    lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}"]
-    strikes = ", ".join(f"{k:.4f}" for k in v.strikes)
-    lines.append(f"  strikes=[{strikes}]" + (f"  barrier={v.barrier:.4f}" if v.barrier else ""))
-    lines.append(f"  net_premium={v.net_premium_pct:.2%} of base notional")
-    if v.payoff_at_target_pct is not None:
-        lines.append(f"  payoff_at_target={v.payoff_at_target_pct:.2%}")
-    if v.rr_at_target is not None:
-        lines.append(f"  rr_at_target={v.rr_at_target:.2f}")
-    lines.append(f"  max_loss={v.max_loss_pct:.2%}")
-    if v.is_zero_cost:
-        lines.append("  (zero-cost structure)")
+    lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
     if v.structure_notional is not None:
         lines.append(
             f"  sized: notional≈{v.structure_notional:,.0f}, "
@@ -86,6 +96,15 @@ def render_priced_structure(ps: PricedStructure) -> str:
     if ps.warnings:
         lines.append("  warnings: " + "; ".join(ps.warnings))
     return "\n".join(lines)
+
+
+def render_recommended(rec) -> str:
+    """Render a recommended (already-priced) structure pulled from the pack."""
+    return (
+        f"RECOMMENDED {rec.display_name} [{rec.structure_id}]\n  "
+        + _variant_summary(rec.variant)
+        + f"\n  — {rec.rationale}"
+    )
 
 
 def render_unavailable(u: PricingUnavailable) -> str:

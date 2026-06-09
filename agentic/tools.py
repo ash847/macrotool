@@ -19,11 +19,22 @@ from agentic.price_structure import (
     PricingUnavailable,
     price_structure,
 )
-from agentic.render import render_pack, render_priced_structure, render_unavailable
+import re
+
+from agentic.family_registry import resolve_family
+from agentic.render import (
+    render_pack,
+    render_priced_structure,
+    render_recommended,
+    render_unavailable,
+)
 from agentic.session import AgentSession
 from agentic.standard_pack import build_pack
-from agentic.structure_request import StructureRequestError
+from agentic.structure_request import StructureRequestError, _normalize, _strip_direction_words
 from knowledge_engine.models import TradeView
+
+# A leg token is present if the remainder has a digit, %, or a leg keyword.
+_HAS_LEG = re.compile(r"[0-9%]|atmf|atm|sigma|target|tgt")
 
 _DIRECTIONS = ("base_higher", "base_lower")
 _CONVICTIONS = ("high", "medium", "low")
@@ -116,6 +127,18 @@ class _ToolError(Exception):
     pass
 
 
+def _family_only(request: str) -> str | None:
+    """If the request names a family with no leg detail (e.g. "1x1.5 spread"),
+    return its family id; else None. Used to fall back to the pack's recommended
+    construction instead of demanding explicit strikes."""
+    norm = _normalize(request)
+    fam, token = resolve_family(norm)
+    if not fam:
+        return None
+    rest = _strip_direction_words(norm.replace(token, " ", 1))
+    return None if _HAS_LEG.search(rest) else fam
+
+
 def _forward_for(session: AgentSession, pair: str, horizon_days: int) -> float:
     """The outright forward for pair/tenor — used to infer direction from a target
     level. Python computes it; the LLM never sees or guesses the forward."""
@@ -185,6 +208,15 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
         )
 
     request = args.get("request", "")
+
+    # Family-only request (e.g. "1x1.5 spread", "the digital") → return the
+    # already-priced recommended construction from the pack, don't demand strikes.
+    fam_only = _family_only(request)
+    if fam_only is not None:
+        rec = next((r for r in session.pack.recommended if r.structure_id == fam_only), None)
+        if rec is not None:
+            return render_recommended(rec), False
+
     ms = session.pack.market_state
     try:
         result = price_structure(

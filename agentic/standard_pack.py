@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from analytics.market_state import MarketState
 from analytics.models import MaturityHistogram, PriceDistribution
+from analytics.structure_pricer import PricedVariant, price_variants
 from knowledge_engine.models import SizingOutput, StructureSelectionResult, TradeView
 
 
@@ -32,6 +33,17 @@ def target_from_reference(
 
 
 @dataclass
+class RecommendedStructure:
+    """A specific, priced representative construction for a shortlisted family."""
+
+    structure_id: str
+    display_name: str
+    rank: int
+    rationale: str
+    variant: PricedVariant
+
+
+@dataclass
 class StandardPack:
     """The deterministic engine output for one view — the agent's Tier-1 result."""
 
@@ -43,6 +55,37 @@ class StandardPack:
     maturity_histogram: MaturityHistogram | None
     target: float | None        # target spot (from forward + magnitude), or None
     is_call: bool               # direction → call/put, for downstream Tier-2 pricing
+    recommended: list[RecommendedStructure]   # specific priced structures per family
+
+
+def _price_recommended(
+    ms: MarketState, selector_result, target, is_call, surface, cap: int = 6
+) -> list[RecommendedStructure]:
+    """Price a representative variant for each shortlisted family.
+
+    Picks the first curated variant that prices (the curated menu lists the most
+    canonical construction first — e.g. ATMF-vs-target for ratio spreads). Gives
+    the agent concrete structures to recommend, not just family names.
+    """
+    out: list[RecommendedStructure] = []
+    for item in selector_result.shortlist[:cap]:
+        try:
+            variants = price_variants(
+                ms, item.structure_id, target=target, is_call=is_call,
+                smile=surface, warnings=[],
+            )
+        except Exception:
+            variants = []
+        rep = next((v for v in variants if v.net_premium_pct is not None), None)
+        if rep is not None:
+            out.append(RecommendedStructure(
+                structure_id=item.structure_id,
+                display_name=item.display_name,
+                rank=item.rank,
+                rationale=item.rationale,
+                variant=rep,
+            ))
+    return out
 
 
 def build_pack(
@@ -114,6 +157,11 @@ def build_pack(
     except Exception:
         pass  # distributions are enrichment; never break the pack
 
+    is_call = view.direction == "base_higher"
+    recommended = _price_recommended(
+        market_state, selector_result, target, is_call, surface
+    )
+
     return StandardPack(
         market_state=market_state,
         selector_result=selector_result,
@@ -122,5 +170,6 @@ def build_pack(
         smile_distribution=smile_distribution,
         maturity_histogram=maturity_histogram,
         target=target,
-        is_call=view.direction == "base_higher",
+        is_call=is_call,
+        recommended=recommended,
     )

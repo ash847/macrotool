@@ -18,8 +18,20 @@ def test_run_standard_pack_builds_and_sets_state():
     s = _session()
     content, is_error = dispatch(s, "run_standard_pack", dict(_VIEW))
     assert not is_error
-    assert "STRUCTURE SHORTLIST" in content
+    assert "RECOMMENDED STRUCTURES" in content
     assert s.pack is not None and s.view is not None
+    # specific priced structures, not just family names
+    assert len(s.pack.recommended) >= 1
+    assert s.pack.recommended[0].variant.net_premium_pct is not None
+
+
+def test_family_only_request_returns_recommended():
+    s = _session()
+    dispatch(s, "run_standard_pack", dict(_VIEW))
+    fam = s.pack.recommended[0].structure_id
+    content, is_error = dispatch(s, "price_structure", {"request": fam.replace("_", " ")})
+    assert not is_error
+    assert "RECOMMENDED" in content      # answered from the pack, no strikes demanded
 
 
 def test_target_level_infers_direction_below_forward():
