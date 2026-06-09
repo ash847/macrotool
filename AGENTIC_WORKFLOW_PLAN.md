@@ -413,6 +413,30 @@ this one coarse door.
 3. **Cost / latency** — multi-turn tool loops are more calls than the fixed 3. Mitigated by
    the cache (most follow-ups are zero-tool narration).
 
+## Known limitations (revisit when needed)
+
+### Grammar ↔ delta-resolver range mismatch
+The Phase 1 grammar accepts **free deltas in `(0, 1)`**, but the strike resolver
+(`analytics/strike_resolver.py`) only supports **`[0.10, 0.50]`** — a σ-approximation that
+looks up `z = N⁻¹(Δ)` over the standard broker pillars (10/15/25/50Δ) and interpolates
+between them. Consequences and rationale:
+- A request like `60Δ` or `5Δ` **parses cleanly** but would **raise `ValueError` at pricing
+  time**, not at parse time. The two layers disagree on the valid band.
+- The `[0.10, 0.50]` cap is intentional, not arbitrary: `0.50` = ATM-forward (above it is
+  ITM → express from the other side via `is_call`/`otm_put_strike`); below `0.10` the
+  approximation degrades and quotes are thin. It was scoped to exactly cover the curated
+  `structure_variants.json` menu (which only uses 10–50Δ).
+- Resolution logic is **separable** (one small module, stable signature `fwd, vol, T, delta
+  → strike`) but wired by **direct import**, not an injection seam like the vol surface
+  (`build_vol_surface`). So "improve the math" is a drop-in edit; "swap resolvers at
+  runtime" would need a small `StrikeResolver` Protocol + factory.
+- **When we come back to it** — two clean fixes: (a) tighten the grammar to reject deltas
+  outside the supported band at *parse* time (cheap, immediate), or (b) replace the
+  σ-approximation with a continuous, exact `N⁻¹`-based (premium-adjusted where appropriate)
+  inversion so any delta in `(0, 0.50]` resolves — which also makes the grammar's free-delta
+  promise real. (b) is the "add complexity to delta resolution" upgrade; both close the gap.
+- Not urgent: every curated structure and every realistic PM request sits in 10–50Δ today.
+
 ## Invariants to preserve (from CLAUDE.md)
 - LLM narrates only; all numbers pre-computed by the engine.
 - Messages must end in a user turn before any API call.
