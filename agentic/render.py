@@ -51,17 +51,18 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
             "scenario-weighted P&L; use these):"
         )
-        sized = pack.risk_budget_usd is not None
-        if sized:
-            lines.append(f"  (sized to a max-loss budget of {pack.risk_budget_usd:,.0f} base ccy)")
+        if pack.loss_budget is not None:
+            lines.append(
+                f"  (each variant sized so its max loss = the loss budget "
+                f"{pack.loss_budget:,.2f} base ccy, on a 100-unit linear notional, R:R-derived)"
+            )
         for r in pack.recommended:
             score = f"  score(wPnL)={r.score_ccy:+.2f}" if r.score_ccy is not None else ""
             lines.append(f"  {r.rank}. {r.display_name} [{r.structure_id}]{score}")
             lines.append("     " + _variant_summary(r.variant))
-            if sized:
-                ccy = _ccy_from_budget(r.variant, pack.risk_budget_usd)
-                if ccy:
-                    lines.append("     " + ccy)
+            ccy = _ccy_summary(r.variant)
+            if ccy:
+                lines.append("     " + ccy)
             if r.major_risk:
                 lines.append(f"     risk (engine): {r.major_risk}")
             lines.append(f"     — {r.rationale}")
@@ -93,18 +94,15 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     return "\n".join(lines)
 
 
-def _ccy_from_budget(v, budget: float) -> str | None:
-    """Real base-ccy figures by sizing the structure so its max loss == the PM's
-    budget: notional = budget / max_loss%, premium = net_premium% × notional. Derived
-    here (not from the pricer) to avoid the per-structure notional cap."""
-    mlp = v.max_loss_pct
-    if mlp is None or mlp < 1e-9:
+def _ccy_summary(v) -> str | None:
+    """Base-ccy notional/premium/max-loss on the standard linear-notional basis
+    (sized so max loss = the R:R-derived loss budget — same as the Trade View
+    variants table). None when the variant wasn't dollar-sized."""
+    if v.structure_notional is None:
         return None
-    notional = budget / mlp
-    premium = (v.net_premium_pct or 0.0) * notional
     return (
-        f"sized: notional≈{notional:,.0f}  premium≈{premium:,.0f}  "
-        f"max_loss≈{budget:,.0f} (base ccy)"
+        f"sized: notional≈{v.structure_notional:,.0f}  premium≈{v.net_premium_ccy:,.0f}  "
+        f"max_loss≈{v.max_loss_ccy:,.0f} (base ccy, linear-notional basis)"
     )
 
 
@@ -125,29 +123,27 @@ def _variant_summary(v) -> str:
     return "  ".join(parts)
 
 
-def render_priced_structure(ps: PricedStructure, budget: float | None = None) -> str:
+def render_priced_structure(ps: PricedStructure) -> str:
     """Render a single PM-requested priced structure (Tier-2 result)."""
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
-    if budget:
-        ccy = _ccy_from_budget(v, budget)
-        if ccy:
-            lines.append("  " + ccy)
+    ccy = _ccy_summary(v)
+    if ccy:
+        lines.append("  " + ccy)
     if ps.warnings:
         lines.append("  warnings: " + "; ".join(ps.warnings))
     return "\n".join(lines)
 
 
-def render_recommended(rec, budget: float | None = None) -> str:
+def render_recommended(rec) -> str:
     """Render a recommended (already-priced) structure pulled from the pack."""
     lines = [
         f"RECOMMENDED {rec.display_name} [{rec.structure_id}]",
         "  " + _variant_summary(rec.variant),
     ]
-    if budget:
-        ccy = _ccy_from_budget(rec.variant, budget)
-        if ccy:
-            lines.append("  " + ccy)
+    ccy = _ccy_summary(rec.variant)
+    if ccy:
+        lines.append("  " + ccy)
     if rec.major_risk:
         lines.append(f"  risk (engine): {rec.major_risk}")
     lines.append(f"  — {rec.rationale}")

@@ -798,9 +798,13 @@ def _render_agent() -> None:
             structure_constraint=st.session_state.pref_structure_constraint,
             primary_objective=st.session_state.pref_primary_objective,
             trade_management=st.session_state.pref_trade_management,
+            target_rr=st.session_state.target_rr,
         )
         st.session_state.agent_flow = AgentFlow(llm, session)
         st.session_state.agent_chat = []
+
+    # Keep the agent's R:R (loss-budget driver) live with the sidebar slider.
+    st.session_state.agent_flow.session.target_rr = st.session_state.target_rr
 
     cols = st.columns([1, 4])
     if cols[0].button("New conversation", use_container_width=True):

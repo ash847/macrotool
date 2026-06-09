@@ -82,10 +82,6 @@ TOOL_SCHEMAS = [
                     "type": "number",
                     "description": "percentage move size, e.g. 6.0; use only when the PM gave a %, with direction",
                 },
-                "max_loss_usd": {
-                    "type": "number",
-                    "description": "the PM's risk budget / max acceptable loss in base ccy (e.g. USD). Pass it when the PM gives one — the recommended structures are then sized to it (real notionals).",
-                },
                 "direction_conviction": {"type": "string", "enum": list(_CONVICTIONS)},
                 "mode": {"type": "string", "enum": list(_MODES)},
             },
@@ -188,7 +184,6 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         direction_conviction=args.get("direction_conviction", "medium"),
         horizon_days=horizon_days,
         magnitude_pct=magnitude_pct,
-        max_loss_usd=args.get("max_loss_usd"),
         mode=args.get("mode", "recommend"),
     )
 
@@ -203,7 +198,7 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         structure_constraint=session.structure_constraint,
         primary_objective=session.primary_objective,
         trade_management=session.trade_management,
-        risk_budget_usd=view.max_loss_usd,
+        target_rr=session.target_rr,
     )
     session.store(view, pack)
     session.view, session.pack = view, pack
@@ -226,7 +221,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
     if fam_only is not None:
         rec = next((r for r in session.pack.recommended if r.structure_id == fam_only), None)
         if rec is not None:
-            return render_recommended(rec, budget=session.pack.risk_budget_usd), False
+            return render_recommended(rec), False
 
     ms = session.pack.market_state
     try:
@@ -235,6 +230,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             ms,
             is_call=session.pack.is_call,
             target=session.pack.target,
+            loss_budget=session.pack.loss_budget,
             smile=getattr(ms, "surface", None),
         )
     except StructureRequestError as e:
@@ -246,5 +242,5 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
         return render_unavailable(result), False
     if isinstance(result, PricedStructure):
         session.priced.append(result)
-        return render_priced_structure(result, budget=session.pack.risk_budget_usd), False
+        return render_priced_structure(result), False
     return "Unexpected pricing result.", True

@@ -70,7 +70,8 @@ class StandardPack:
     target: float | None        # target spot (from forward + magnitude), or None
     is_call: bool               # direction → call/put, for downstream Tier-2 pricing
     recommended: list[RecommendedStructure]   # specific priced structures per family
-    risk_budget_usd: float | None = None      # base-ccy max-loss the trades are sized to
+    loss_budget: float | None = None          # base-ccy max-loss budget the trades are sized to
+                                              # (= LINEAR_NOTIONAL × stop%, R:R-derived)
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -95,9 +96,9 @@ def _recommend_ranked(
         raise ValueError("no usable move for comparator")
     stop_pct = move_pct / max(target_rr, 1e-6)
     stop_price = fwd * (1 - stop_pct) if is_call else fwd * (1 + stop_pct)
-    # Normalized 100-unit budget — for ranking only. Real ccy notionals are derived
-    # in the renderer from the PM's risk budget + the variant's max-loss %, which
-    # avoids the pricer's per-structure notional cap (_MAX_STRUCTURE_NOTIONAL).
+    # Loss budget computed on the fly, identical to the Trade View screen:
+    # LINEAR_NOTIONAL × stop% (stop% = move/R:R). Each variant is sized so its max
+    # loss equals this; the displayed notionals are on this standard 100-unit basis.
     loss_budget = _COMPARATOR_LINEAR_NOTIONAL * stop_pct
 
     inputs = build_comparator_inputs(
@@ -130,7 +131,7 @@ def _recommend_ranked(
                 score_ccy=best.pm_score.score_ccy,
                 major_risk=_major_risk(item.structure_id),
             ))
-    return out
+    return out, loss_budget
 
 
 def _price_recommended_fallback(
@@ -167,7 +168,6 @@ def build_pack(
     primary_objective: str = "Balanced",
     trade_management: str = "Standard hold",
     target_rr: float = 3.0,
-    risk_budget_usd: float | None = None,
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -234,14 +234,15 @@ def build_pack(
 
     is_call = view.direction == "base_higher"
     recommended: list[RecommendedStructure] = []
+    loss_budget: float | None = None
     if target is not None:
         try:
-            recommended = _recommend_ranked(
+            recommended, loss_budget = _recommend_ranked(
                 market_state, selector_result, target, is_call, surface,
                 primary_objective, trade_management, structure_constraint, target_rr,
             )
         except Exception:
-            recommended = []
+            recommended, loss_budget = [], None
     if not recommended:
         recommended = _price_recommended_fallback(
             market_state, selector_result, target, is_call, surface
@@ -257,5 +258,5 @@ def build_pack(
         target=target,
         is_call=is_call,
         recommended=recommended,
-        risk_budget_usd=risk_budget_usd,
+        loss_budget=loss_budget,
     )
