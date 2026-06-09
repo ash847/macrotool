@@ -500,5 +500,17 @@ between them. Consequences and rationale:
       `PricedStructure` / `ClarificationNeeded` / `PricingUnavailable`; hard-malformed
       requests still raise `StructureRequestError`. Full suite: 423 pass, 1 fail
       (pre-existing scorer-tuning failure, unrelated). Phase 1+2 = 37 tests green.
-- [ ] Phase 3 — agent loop.
+- [x] Phase 3 — agent loop. `agentic/standard_pack.py` (build_pack, refactored out of
+      flow._run_engines), `agentic/session.py` (AgentSession + Tier-1 cache),
+      `agentic/render.py` (labelled pack / priced-structure renderers), `agentic/tools.py`
+      (run_standard_pack + price_structure schemas + dispatch, with the needs-pack guard and
+      SUPPORTED_PAIRS validation), `agentic/agent_llm.py` (provider-neutral `ToolLLM` seam +
+      `AnthropicToolLLM` + `FakeToolLLM`), `agentic/agent_flow.py` (the loop + system prompt).
+      Tests: `tests/test_agent_tools.py` (7) + `tests/test_agent_flow.py` (6, fake-LLM
+      driven: pack→narrate, price-within-pack, needs-pack guard, cache reuse, clarification
+      relay, iteration bound) + `tests/test_agent_live.py` (skipped without ANTHROPIC_API_KEY).
+      Full suite: 436 pass, 1 pre-existing scorer fail. Model default Sonnet 4.6.
+      **Not yet built (deferred to Phase 3.5 / Phase 4):** evaluate_scenarios + size tools;
+      OpenAI/Gemini adapters; richer render via the comparator explanation pack (current
+      render is a self-contained labelled summary); Streamlit wiring.
 - [ ] Phase 4 — Streamlit wiring + validation.
