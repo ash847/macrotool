@@ -110,6 +110,10 @@ def _variant_summary(v) -> str:
     """One-line strikes + premium + payoff + RR for a PricedVariant."""
     strikes = ", ".join(f"{k:.4f}" for k in v.strikes)
     parts = [f"strikes=[{strikes}]"]
+    if v.wing_ratio is not None:
+        # Seagull: long 1 / short 1 / wing sold at wing_ratio units (sized to fund
+        # the structure to zero cost — NOT 1x1x1).
+        parts.append(f"legs=1×1×{v.wing_ratio:g} (long/short/wing)")
     if v.barrier:
         parts.append(f"barrier={v.barrier:.4f}")
     parts.append(f"premium={v.net_premium_pct:.2%}")
