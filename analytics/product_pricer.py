@@ -91,10 +91,24 @@ def build_structure(family: str, variant: dict, is_call: bool) -> Structure | No
         )
         return Structure(family, legs, label)
 
+    if family == "european_digital":
+        # Binary, base-ccy cash-or-nothing; strike solved for the target premium.
+        legs = (Leg(Instrument.DIGITAL, right, +1.0, Anchor(AnchorKind.PREMIUM, variant["target_prem_pct"])),)
+        return Structure(family, legs, label)
+
+    if family == "european_rko":
+        # Long vanilla + an expiry-only knock-out barrier (structure-level).
+        legs = (Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["long_delta"])),)
+        return Structure(family, legs, label, barrier_anchor=Anchor(AnchorKind.DELTA, variant["barrier"]))
+
     return None
 
 
 _RATIO_FAMILIES = ("1x1.5_spread", "1x2_spread")
+# Binary/barrier families: the leg model is least natural (binary payoff, barrier), so these
+# are priced by their own pricer via the legacy seam — wrapped into a PricedStructure for a
+# uniform consumer interface. Parity is exact (same code path).
+_WRAPPED_FAMILIES = ("european_digital", "european_rko")
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +139,51 @@ def _intrinsic(strike: float, target: float, is_call: bool) -> float:
     return max(target - strike, 0.0) if is_call else max(strike - target, 0.0)
 
 
+def _variant_dict_from(structure: Structure) -> dict:
+    """Reconstruct the legacy variant dict for a wrapped (binary/barrier) family."""
+    legs = structure.legs
+    if structure.family == "european_digital":
+        return {"label": structure.label, "target_prem_pct": legs[0].anchor.value}
+    if structure.family == "european_rko":
+        return {
+            "label": structure.label,
+            "long_delta": legs[0].anchor.value,
+            "barrier": structure.barrier_anchor.value,
+        }
+    raise ValueError(f"no wrapped variant dict for {structure.family}")
+
+
+def _price_wrapped(structure, ms, target, smile, stop_price) -> PricedStructure | None:
+    """Price a binary/barrier family via the legacy seam, wrapped into a PricedStructure.
+    Parity is exact (same code path). Returns None if the legacy pricer drops the variant
+    (e.g. a smile-arbitrage digital)."""
+    from analytics.structure_pricer import price_variants
+
+    is_call = structure.legs[0].right == Right.CALL
+    warnings: list[str] = []
+    pvs = price_variants(
+        ms, structure.family, target=target, is_call=is_call, stop_price=stop_price,
+        smile=smile, warnings=warnings, variants_override=[_variant_dict_from(structure)],
+    )
+    if not pvs:
+        return None
+    pv = pvs[0]
+    priced_legs = [PricedLeg(structure.legs[0], pv.strikes[0], 0.0, 0.0)]
+    return PricedStructure(
+        structure=structure,
+        priced_legs=priced_legs,
+        net_premium_pct=pv.net_premium_pct,
+        payoff_at_target_pct=pv.payoff_at_target_pct,
+        rr_at_target=pv.rr_at_target,
+        max_loss_pct=pv.max_loss_pct,
+        breakeven=pv.breakeven,
+        is_zero_cost=pv.is_zero_cost,
+        barrier=pv.barrier,
+        strikes_override=list(pv.strikes),
+        warnings=warnings,
+    )
+
+
 # ---------------------------------------------------------------------------
 # price
 # ---------------------------------------------------------------------------
@@ -136,11 +195,14 @@ def price(
     smile=None,
     stop_price: float | None = None,
 ) -> PricedStructure:
+    fam = structure.family
+    if fam in _WRAPPED_FAMILIES:
+        return _price_wrapped(structure, ms, target, smile, stop_price)
+
     F, vol, T, r_d, r_f, spot = ms.fwd, ms.vol, ms.T, ms.r_d, ms.r_f, ms.spot
     DF = math.exp(-r_d * T)
     vol_sqrtT = vol * math.sqrt(T)
     vm = _VolModel(vol, smile=smile, F=F, horizon_days=round(T * 365))
-    fam = structure.family
 
     priced_legs: list[PricedLeg] = []
     for leg in structure.legs:

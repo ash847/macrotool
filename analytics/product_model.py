@@ -89,10 +89,13 @@ class PricedStructure:
     barrier: float | None = None
     wing_ratio: float | None = None      # derived (|wing leg notional|) for display/back-compat
     warnings: list[str] = field(default_factory=list)
+    strikes_override: list[float] | None = None   # binary/barrier families priced via wrapper
 
     # --- back-compat shim (lets PricedStructure stand in for PricedVariant) ---
     @property
     def strikes(self) -> list[float]:
+        if self.strikes_override is not None:
+            return self.strikes_override
         return [pl.strike for pl in self.priced_legs]
 
     @property
