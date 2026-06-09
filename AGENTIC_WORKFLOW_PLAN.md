@@ -498,6 +498,60 @@ between them. Consequences and rationale:
   promise real. (b) is the "add complexity to delta resolution" upgrade; both close the gap.
 - Not urgent: every curated structure and every realistic PM request sits in 10–50Δ today.
 
+## Candidate refactor: generic `Leg` model (deferred — high-leverage)
+
+**Current state.** There is no generic leg/package data model. The package is a *flat*
+`PricedVariant` (`analytics/structure_pricer.py`): a positional `strikes: list[float]` plus a
+few special-case scalars (`barrier`, `wing_ratio`). Leg semantics — which strike is long vs
+short, the weights (`1.5×`, `2×`), call vs put, the opposite-side seagull wing — are **not in
+the data**; they live in per-family pricer functions (`_vanilla`, `_spread`, `_1x1p5`,
+`_1x2`, `_seagull`, `_digital`, `_european_rko`) dispatched by `structure_id`, and in
+per-family JSON schemas in `structure_variants.json` (`long_delta`/`short_delta` vs
+`spread_long`/`spread_short`/`wing_delta` vs `target_prem_pct`). (`SpreadLeg` /
+`RiskReversalLeg` in `pricing/` are local pricing helpers, not a shared model.)
+
+**Why it matters.** Because there is no first-class leg with its own notional, everything
+notional/weight-related is a bolt-on: the seagull wing is a scalar `wing_ratio` (the render
+dropped it → the 1×1×1 bug); the ratio-spread `1.5`/`2` are hardcoded in the pricer (not
+readable off the package); the wing's call-on-a-put-view is hidden inside `_seagull`. Every
+leg-ratio issue so far has been a *display* gap patched one line at a time — symptoms of the
+missing abstraction, not engine errors (the numbers are correct).
+
+**The refactor.** A generic leg:
+```python
+@dataclass
+class Leg:
+    strike: float        # or delta / anchor
+    notional: float      # the weight/ratio — 1, 1.5, 2, 0.55 wing
+    is_call: bool
+    is_long: bool
+# PricedVariant.legs: list[Leg]  — the package = an explicit list of legs
+```
+Makes vanillas / spreads / ratios / seagulls / digitals **uniform**: notionals round-trip for
+free (rendering, Kelly, scenario sizing), and the special-case scalars + hardcoded weights
+disappear.
+
+**The bigger unlock (the reason to do it).** With legs as first-class data, the agent is no
+longer limited to the curated family grammar — it can **compose arbitrary leg combinations
+on the fly from PM input** ("buy the 30Δ, sell 2× the 15Δ, sell a 10Δ wing"), have the engine
+price + scenario-score that bespoke package **uniformly, and rank it against the standard
+pack**. This generalizes Tier-2 `price_structure` from "pick a known family + variant" to
+"construct any package and evaluate it like a first-class candidate." That is the natural
+ceiling of the agentic design — flexible structuring, not menu selection — and the `Leg`
+model is the data prerequisite for it.
+
+**Cost / scope.** Touches the pricer (all `_family` fns → leg-based), the `structure_variants`
+JSON schemas, the scenario pricer, Kelly's payoff bridge, and the Phase-1 grammar (which would
+gain an arbitrary-leg construction path alongside the curated families). A real project, not a
+patch — and it interacts with the deferred `PricingContext` seam in CLAUDE.md (the `Leg` model
+is the data half of that).
+
+**Decision (this session): deferred.** The flat `PricedVariant` + per-family pricers work and
+are fully tested (440 green); leg-ratio issues are one-line render fixes. Do this as a
+deliberate piece **when bespoke-package composition / notional round-tripping becomes a
+recurring need** (agent-composed structures, Kelly on arbitrary legs) rather than an occasional
+display miss. When taken on, sequence it before/with the arbitrary-leg grammar extension.
+
 ## Invariants to preserve (from CLAUDE.md)
 - LLM narrates only; all numbers pre-computed by the engine.
 - Messages must end in a user turn before any API call.
@@ -540,6 +594,9 @@ between them. Consequences and rationale:
       **Not yet built (deferred to Phase 3.5 / Phase 4):** evaluate_scenarios + size tools;
       OpenAI/Gemini adapters; richer render via the comparator explanation pack (current
       render is a self-contained labelled summary); Streamlit wiring.
+- [ ] Generic `Leg` model (deferred, high-leverage) — unlocks agent-composed bespoke packages
+      priced/scored on the fly vs the standard pack; data prerequisite for flexible structuring
+      beyond the curated menu. See "Candidate refactor: generic Leg model" below.
 - [ ] Phase 5 — Langfuse observability for the agent loop (NEXT). Instrument agent_flow/tools
       with `conversation.tracing` (one trace/turn, one span/tool call); then optional
       REST-API direct-query path (egress OK, no MCP, needs keys in Claude's shell). See the
