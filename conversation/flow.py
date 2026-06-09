@@ -57,6 +57,7 @@ from analytics.models import PriceDistribution, MaturityHistogram
 from conversation.client import MacroToolClient
 import conversation.tracing as _tracing
 from conversation import context_builder
+from agentic.standard_pack import build_pack, target_from_reference
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
 
@@ -72,13 +73,6 @@ class Step(str, Enum):
 
 
 _VIEW_TAG = re.compile(r'\[VIEW:\s*(\{.*?\})\]', re.DOTALL)
-
-
-def target_from_reference(reference: float, direction: str, magnitude_pct: float | None) -> float | None:
-    if magnitude_pct is None:
-        return None
-    sign = 1 if direction == "base_higher" else -1
-    return reference * (1 + sign * magnitude_pct / 100)
 
 
 class ConversationFlow:
@@ -346,56 +340,23 @@ class ConversationFlow:
             self.cfg = resolve_config(self.cfg, None, self.session_overrides)
 
     def _run_engines(self) -> None:
-        """Compute MarketState, run structure scorer, sizing, distributions, and (if critique) critique engine."""
-        from pricing.forwards import rate_context_for_snapshot
-        from knowledge_engine.loader import load_affinity_scores
-        T = self.view.horizon_years
-        rate_ctx = rate_context_for_snapshot(self.ccy, T)
-        atm_vol = interpolate_atm_vol(self.ccy, self.view.horizon_days)
-        target = target_from_reference(rate_ctx.forward, self.view.direction, self.view.magnitude_pct)
-        carry_regime_cuts = load_affinity_scores()["thresholds"]["carry_regime"]
-        # Build the vol surface once and reuse it everywhere a vanilla is priced
-        # (atmfsratio, entry pricing, scenario MtM). Falls back to flat ATM vol
-        # on a thin/incomplete surface so the pipeline never breaks.
-        surface = None
-        try:
-            from analytics.vol_surface import build_vol_surface
-            surface = build_vol_surface(self.ccy)
-        except Exception:
-            surface = None
-        self.market_state = compute_market_state(
-            spot=rate_ctx.spot,
-            fwd=rate_ctx.forward,
-            vol=atm_vol,
-            T=T,
-            r_d=rate_ctx.r_d,
-            r_f=rate_ctx.r_f,
-            target=target,
-            direction=self.view.direction,
-            carry_regime_cuts=carry_regime_cuts,
-            surface=surface,
-        )
-        self.selector_result = score_structures(
-            self.market_state,
+        """Compute MarketState, run structure scorer, sizing, distributions, and (if critique) critique engine.
+
+        The core deterministic chain is delegated to ``agentic.standard_pack.build_pack``
+        so the agent loop and this state machine share one implementation.
+        """
+        pack = build_pack(
+            self.view,
+            self.ccy,
+            self.cfg,
             structure_constraint=self.structure_constraint,
         )
-        top_structure = self.selector_result.shortlist[0] if self.selector_result.shortlist else None
-        if top_structure:
-            self.sizing = compute_sizing(self.view, self.ccy, top_structure, self.cfg)
-
-        # Pre-compute price distributions (best-effort; non-fatal if they fail)
-        try:
-            self.flat_distribution = compute_flat_vol_distribution(
-                self.ccy, self.view.horizon_days
-            )
-            self.smile_distribution = compute_smile_distribution(
-                self.ccy, self.view.horizon_days
-            )
-            self.maturity_histogram = compute_maturity_histogram(
-                self.flat_distribution, self.smile_distribution
-            )
-        except Exception:
-            pass  # distributions are enrichment; don't break the conversation flow
+        self.market_state = pack.market_state
+        self.selector_result = pack.selector_result
+        self.sizing = pack.sizing
+        self.flat_distribution = pack.flat_distribution
+        self.smile_distribution = pack.smile_distribution
+        self.maturity_histogram = pack.maturity_histogram
 
         if self.view.mode == "critique" and self.view.pm_structure_description:
             self.critique = evaluate_structure(
