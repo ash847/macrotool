@@ -3,9 +3,22 @@
 Engine refactor (not agent work) — replaces the flat `PricedVariant` with a first-class
 product model. Standalone build doc; execute against this when green-lit.
 
-**Status: deferred, pattern finalized.** The flat `PricedVariant` + per-family pricers work and
-are fully tested (~440 green, 1 pre-existing scorer fail). Take this on when bespoke-package
-composition / notional round-tripping / Kelly-on-arbitrary-legs becomes a recurring need.
+**Status: Phases A–B DONE (parity-locked); Phases C–E pending.**
+- **Phase A + B complete.** `analytics/product_model.py` (Leg/Structure/PricedStructure,
+  signed-notional legs, solved-notional via `PricedLeg.effective_notional`, back-compat
+  `.strikes`/`.variant_label`/`strikes_override`) + `analytics/product_pricer.py`
+  (`build_structure` + `price()`). All 7 enabled families ported: vanilla / 1x1 / 1x1.5 / 1x2 /
+  seagull priced by the native leg model (per-leg resolution + uniform linear aggregation);
+  european_digital / european_rko wrapped via the legacy seam into a PricedStructure (binary/
+  barrier — least leg-natural). Guarded by `tests/test_product_model_parity.py` — 12 cases
+  (6 markets × flat+smile) byte-for-byte vs legacy `price_variants` (rel 1e-12 / abs 1e-9).
+  Purely additive; full suite 452 pass (+12), 1 pre-existing scorer fail. Commits f742317,
+  72167fb, 22b4f57, d80a23b.
+- **One preserved legacy quirk (flagged):** ratio payoff-at-target counts the long leg only
+  (overstates a deep delta-pair target). Reproduced for behavior-parity; faithful leg-sum is a
+  deliberate later correctness fix (it only moves the displayed payoff@target / RR, not the
+  scenario scoring).
+- **Phases C–E pending** (consumer migration, grammar→Structure, JSON migration) — see below.
 
 See also: `AGENTIC_WORKFLOW_PLAN.md` → "Candidate refactor: the Structure / Leg product model"
 for the *why* (the recurring LLM-fabrication bugs: deltas, wing ratio, leg notionals, strikes —

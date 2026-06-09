@@ -650,7 +650,11 @@ per-consumer migration checklist.
       **Not yet built (deferred to Phase 3.5 / Phase 4):** evaluate_scenarios + size tools;
       OpenAI/Gemini adapters; richer render via the comparator explanation pack (current
       render is a self-contained labelled summary); Streamlit wiring.
-- [ ] `Structure`/`Leg` product model (deferred, high-leverage, **pattern finalized**) —
+- [~] `Structure`/`Leg` product model — **Phases A–B DONE** (parity-locked engine: all 7
+      families port to `analytics/product_model.py` + `product_pricer.py`, byte-for-byte vs
+      legacy, 12-case harness, +12 tests). Phases C–E (consumer migration / grammar→Structure /
+      JSON) pending. See `PRODUCT_MODEL_PLAN.md`.
+- [ ] (orig) `Structure`/`Leg` product model (high-leverage, **pattern finalized**) —
       three-object split (definition / MarketState / PricedStructure), signed-notional legs,
       leg-level model polymorphism + uniform linear aggregation. Kills Class-A fabrications by
       construction and makes `Structure` the shared currency for re-price / scenarios / Kelly /
