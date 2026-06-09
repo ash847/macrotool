@@ -603,6 +603,11 @@ one-line render fixes for now. Take this on as a deliberate project **when bespo
 composition / notional round-tripping / Kelly-on-arbitrary-legs becomes a recurring need**.
 When started, build to the pattern above.
 
+**Implementation plan:** see `PRODUCT_MODEL_PLAN.md` — the staged strangler-fig build
+(parity-harness-guarded), the touched-vs-insulated map (the scoring intelligence barely moves —
+affinity selection untouched, scenario scoring is a seam-only input-type change), and the
+per-consumer migration checklist.
+
 ## Invariants to preserve (from CLAUDE.md)
 - LLM narrates only; all numbers pre-computed by the engine.
 - Messages must end in a user turn before any API call.
