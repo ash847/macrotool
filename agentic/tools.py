@@ -38,26 +38,43 @@ TOOL_SCHEMAS = [
         "description": (
             "Establish or change the trade VIEW and run the full deterministic engine "
             "(market state, structure scoring, sizing, distributions). Call this whenever "
-            "the PM states or changes the pair, direction, tenor, target/magnitude, or mode. "
-            "Returns the labelled standard pack. You must call this before pricing any "
-            "structure. Direction is relative to the base currency: 'base_higher' = base "
-            "appreciates, 'base_lower' = base depreciates. You provide the view only — never "
-            "compute any number yourself."
+            "the PM states or changes the pair, tenor, target, or mode. Returns the labelled "
+            "standard pack. You must call this before pricing any structure.\n"
+            "How to express the target — pick ONE:\n"
+            "  • TARGET LEVEL: the PM names an absolute spot level (e.g. 'USDBRL to 5.60', "
+            "'targets 30'). Pass target_level=5.60 and DO NOT pass direction or "
+            "magnitude_pct — the engine infers direction from the forward (you don't know "
+            "the forward yet, so never guess direction from a price level).\n"
+            "  • MAGNITUDE: the PM gives a percentage move (e.g. '6% higher', 'down 4%'). "
+            "Pass magnitude_pct AND an explicit direction — the PM must have said higher/"
+            "lower/up/down. Never invent the direction.\n"
+            "  • PURE DIRECTIONAL (no target): pass direction only.\n"
+            "Direction is relative to the base currency: 'base_higher' = base appreciates, "
+            "'base_lower' = base depreciates. You provide the view only — never compute a "
+            "number yourself."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "pair": {"type": "string", "description": "e.g. USDBRL, USDTRY, EURPLN, GBPUSD"},
-                "direction": {"type": "string", "enum": list(_DIRECTIONS)},
                 "horizon_days": {"type": "integer", "description": "tenor in days"},
+                "target_level": {
+                    "type": "number",
+                    "description": "absolute spot level the PM named, e.g. 5.60. Engine infers direction.",
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": list(_DIRECTIONS),
+                    "description": "required with magnitude_pct or for a pure directional view; omit with target_level",
+                },
                 "magnitude_pct": {
                     "type": "number",
-                    "description": "expected move size in %, e.g. 6.0; omit if no target",
+                    "description": "percentage move size, e.g. 6.0; use only when the PM gave a %, with direction",
                 },
                 "direction_conviction": {"type": "string", "enum": list(_CONVICTIONS)},
                 "mode": {"type": "string", "enum": list(_MODES)},
             },
-            "required": ["pair", "direction", "horizon_days"],
+            "required": ["pair", "horizon_days"],
         },
     },
     {
@@ -99,26 +116,51 @@ class _ToolError(Exception):
     pass
 
 
+def _forward_for(session: AgentSession, pair: str, horizon_days: int) -> float:
+    """The outright forward for pair/tenor — used to infer direction from a target
+    level. Python computes it; the LLM never sees or guesses the forward."""
+    from pricing.forwards import rate_context_for_snapshot
+
+    ccy = session.snapshot.get(pair)
+    return rate_context_for_snapshot(ccy, horizon_days / 365.0).forward
+
+
 def _run_standard_pack(session: AgentSession, args: dict) -> str:
     pair = args.get("pair")
-    direction = args.get("direction")
     horizon_days = args.get("horizon_days")
+    direction = args.get("direction")
+    magnitude_pct = args.get("magnitude_pct")
+    target_level = args.get("target_level")
 
     if pair not in SUPPORTED_PAIRS:
         raise _ToolError(
             f"Unsupported pair '{pair}'. Supported: {', '.join(SUPPORTED_PAIRS)}."
         )
-    if direction not in _DIRECTIONS:
-        raise _ToolError(f"direction must be one of {_DIRECTIONS}, got '{direction}'.")
-    if not isinstance(horizon_days, int) or horizon_days <= 0:
+    if not isinstance(horizon_days, (int, float)) or horizon_days <= 0:
         raise _ToolError("horizon_days must be a positive integer.")
+    horizon_days = int(horizon_days)
+
+    if target_level is not None:
+        # An absolute level: infer direction + magnitude from the FORWARD (the
+        # engine knows it; the LLM does not). target>fwd → base appreciates (call);
+        # target<fwd → base depreciates (put). magnitude is measured off the forward
+        # so target_from_reference(fwd, dir, mag) reconstructs target_level exactly.
+        fwd = _forward_for(session, pair, horizon_days)
+        direction = "base_higher" if target_level >= fwd else "base_lower"
+        magnitude_pct = abs(target_level / fwd - 1.0) * 100.0
+    elif direction not in _DIRECTIONS:
+        raise _ToolError(
+            "Provide either a target_level (absolute spot level), or a direction "
+            f"(one of {_DIRECTIONS}) — with magnitude_pct for a % move, or alone for a "
+            "pure directional view."
+        )
 
     view = TradeView(
         pair=pair,
         direction=direction,
         direction_conviction=args.get("direction_conviction", "medium"),
         horizon_days=horizon_days,
-        magnitude_pct=args.get("magnitude_pct"),
+        magnitude_pct=magnitude_pct,
         mode=args.get("mode", "recommend"),
     )
 

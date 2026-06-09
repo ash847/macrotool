@@ -22,6 +22,34 @@ def test_run_standard_pack_builds_and_sets_state():
     assert s.pack is not None and s.view is not None
 
 
+def test_target_level_infers_direction_below_forward():
+    # "USDBRL to 5.60" — 5.60 is below the forward, so direction must be base_lower
+    # (a put), NOT base_higher, and the target must be ~5.60 (not a 5.6% move).
+    s = _session()
+    content, is_error = dispatch(
+        s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": 5.60}
+    )
+    assert not is_error
+    assert s.view.direction == "base_lower"
+    assert abs(s.pack.target - 5.60) < 1e-6
+
+
+def test_target_level_infers_direction_above_forward():
+    s = _session()
+    dispatch(s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": 6.50})
+    assert s.view.direction == "base_higher"
+    assert abs(s.pack.target - 6.50) < 1e-6
+
+
+def test_magnitude_requires_direction():
+    s = _session()
+    content, is_error = dispatch(
+        s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "magnitude_pct": 6.0}
+    )
+    assert is_error
+    assert "direction" in content.lower()
+
+
 def test_cache_reuse_no_recompute():
     s = _session()
     dispatch(s, "run_standard_pack", dict(_VIEW))
