@@ -498,59 +498,110 @@ between them. Consequences and rationale:
   promise real. (b) is the "add complexity to delta resolution" upgrade; both close the gap.
 - Not urgent: every curated structure and every realistic PM request sits in 10–50Δ today.
 
-## Candidate refactor: generic `Leg` model (deferred — high-leverage)
+## Candidate refactor: the `Structure` / `Leg` product model (deferred — high-leverage, finalized pattern)
 
-**Current state.** There is no generic leg/package data model. The package is a *flat*
-`PricedVariant` (`analytics/structure_pricer.py`): a positional `strikes: list[float]` plus a
-few special-case scalars (`barrier`, `wing_ratio`). Leg semantics — which strike is long vs
-short, the weights (`1.5×`, `2×`), call vs put, the opposite-side seagull wing — are **not in
-the data**; they live in per-family pricer functions (`_vanilla`, `_spread`, `_1x1p5`,
-`_1x2`, `_seagull`, `_digital`, `_european_rko`) dispatched by `structure_id`, and in
-per-family JSON schemas in `structure_variants.json` (`long_delta`/`short_delta` vs
-`spread_long`/`spread_short`/`wing_delta` vs `target_prem_pct`). (`SpreadLeg` /
-`RiskReversalLeg` in `pricing/` are local pricing helpers, not a shared model.)
+The systemic cure for the recurring fabrication bugs (deltas, wing ratio, leg notionals,
+strikes) and the data prerequisite for agent-composed bespoke structures. The *pattern* below
+is finalized; specific field names are build-time detail.
 
-**Why it matters.** Because there is no first-class leg with its own notional, everything
-notional/weight-related is a bolt-on: the seagull wing is a scalar `wing_ratio` (the render
-dropped it → the 1×1×1 bug); the ratio-spread `1.5`/`2` are hardcoded in the pricer (not
-readable off the package); the wing's call-on-a-put-view is hidden inside `_seagull`. Every
-leg-ratio issue so far has been a *display* gap patched one line at a time — symptoms of the
-missing abstraction, not engine errors (the numbers are correct).
+### Why (the root cause)
+There is no first-class product model. The package is a *flat* `PricedVariant`
+(`analytics/structure_pricer.py`): a positional `strikes: list[float]` plus special-case
+scalars (`barrier`, `wing_ratio`). Leg semantics — long/short, weights (`1.5×`, `2×`),
+call/put, the opposite-side seagull wing — live in per-family pricer functions
+(`_vanilla`/`_spread`/`_1x1p5`/`_1x2`/`_seagull`/`_digital`/`_european_rko`) and per-family
+JSON schemas, **not in the data**. So everything notional/weight-related is a bolt-on, and
+every render gap becomes an LLM fabrication. The four bugs we hit (carry, risk side, wing
+ratio, deltas) are all *render couldn't see it → model invented it*. The reliable fix is a
+**complete object + a total renderer**, not prompting (a soft prior can't guarantee it; see
+"the rendered pack must be complete").
 
-**The refactor.** A generic leg:
-```python
-@dataclass
-class Leg:
-    strike: float        # or delta / anchor
-    notional: float      # the weight/ratio — 1, 1.5, 2, 0.55 wing
-    is_call: bool
-    is_long: bool
-# PricedVariant.legs: list[Leg]  — the package = an explicit list of legs
-```
-Makes vanillas / spreads / ratios / seagulls / digitals **uniform**: notionals round-trip for
-free (rendering, Kelly, scenario sizing), and the special-case scalars + hardcoded weights
-disappear.
+### The three-object pattern (definition / context / valuation)
+Separate the **product definition** from the **valuation output** and from the **context**:
 
-**The bigger unlock (the reason to do it).** With legs as first-class data, the agent is no
-longer limited to the curated family grammar — it can **compose arbitrary leg combinations
-on the fly from PM input** ("buy the 30Δ, sell 2× the 15Δ, sell a 10Δ wing"), have the engine
-price + scenario-score that bespoke package **uniformly, and rank it against the standard
-pack**. This generalizes Tier-2 `price_structure` from "pick a known family + variant" to
-"construct any package and evaluate it like a first-class candidate." That is the natural
-ceiling of the agentic design — flexible structuring, not menu selection — and the `Leg`
-model is the data prerequisite for it.
+- **`Leg`** — definition of one instrument, market-independent:
+  - `instrument` (enum): `Vanilla | Digital | …(future Barrier)` — selects the leg's pricing
+    model + payoff shape.
+  - `right` (enum): `Call | Put` (for vanilla/digital). Orthogonal to position direction.
+  - `signed_notional` (float): **+ long / − short**; magnitude is the weight. **Decision:
+    signed notionals** (not a separate weights array) so any package value/risk is a literal
+    weighted sum `Σ signed_notionalᵢ × unitᵢ`. This subsumes `wing_ratio` (the wing is just a
+    leg at −0.55) and the ratio-spread `1.5`/`2` (a leg at −1.5 / −2). `call/put` stays a
+    separate field — it is orthogonal to long/short.
+  - `spec` (anchor): how the strike is named — `Delta(x) | ATMF | Sigma(±x) | Strike(K) |
+    PremiumTarget(pct)` (the last for digitals). The **spec is authoritative on the
+    definition**; the resolved strike is an *output*, not stored here. The product knows how
+    to resolve spec→strike given a `MarketState` (resolution happens at price time).
+  - (future) `expiry` — single tenor today; per-leg enables calendars/diagonals later.
+- **`Structure`** — definition of the package: `family` tag (for display/provenance) +
+  `legs: list[Leg]` + any **structure-level definitional** fields (e.g. a `barrier` for the
+  RKO family; binary payout sits on the digital leg). Market-independent, **serializable,
+  immutable**. This is what the Phase-1 grammar resolves a request *into*.
+- **`MarketState`** — the context (spot/fwd/vols/carry/regime). **Not** part of the product
+  object — the Class-B framing (carry direction, regime) lives here / on a context view-model,
+  deliberately separate.
+- **`PricedStructure`** — the valuation/risk output of `price(structure, ms)`: per-leg
+  *resolved* data (resolved strike, realized delta, unit price base/term, greeks) + linearly
+  aggregated package metrics (net premium, max loss, payoff@target, RR, breakeven, greeks),
+  common currency, with provenance (which `Structure` + which `MarketState`).
 
-**Cost / scope.** Touches the pricer (all `_family` fns → leg-based), the `structure_variants`
-JSON schemas, the scenario pricer, Kelly's payoff bridge, and the Phase-1 grammar (which would
-gain an arbitrary-leg construction path alongside the curated families). A real project, not a
-patch — and it interacts with the deferred `PricingContext` seam in CLAUDE.md (the `Leg` model
-is the data half of that).
+### The pricing pattern (corrected — leg-level model polymorphism, linear aggregation)
+`price(structure, marketstate) -> PricedStructure`:
+1. For each leg: resolve strike from its spec (needs `ms`), then **price it with the model
+   appropriate to *that leg*** — vanilla on BS + smile (`vol_at_strike`), digital on the
+   digital primitive (skew-corrected), a future barrier leg on local-vol/Dupire/PDE. Produce
+   unit price + greeks.
+2. **Aggregate uniformly linearly.** Portfolio value and greeks are linear: `Σ signed_notional
+   × unit`. Structure-level nonlinear metrics (max loss, breakeven) are *operations on the
+   linearly-aggregated payoff curve* (`payoff(S) = Σ signed_notionalᵢ × leg_payoffᵢ(S)` is
+   linear in legs at each `S`; then take the extremum). **No structure-type dispatch in the
+   aggregator** — polymorphism is at the *leg* (which model prices it), aggregation is always
+   the weighted sum. (Some legs may be *replicated* into sub-instruments for pricing — e.g.
+   `european_rko` = vanillas + a digital strip — but that is internal to that leg's pricer;
+   the result is still a per-leg price summed linearly.)
 
-**Decision (this session): deferred.** The flat `PricedVariant` + per-family pricers work and
-are fully tested (440 green); leg-ratio issues are one-line render fixes. Do this as a
-deliberate piece **when bespoke-package composition / notional round-tripping becomes a
-recurring need** (agent-composed structures, Kelly on arbitrary legs) rather than an occasional
-display miss. When taken on, sequence it before/with the arbitrary-leg grammar extension.
+**The one fenced corner:** *continuously-monitored* path dependence represented at *expiry
+scenarios* — a continuous knock-out's expiry value depends on the path, not terminal spot, so
+it isn't a function of terminal `S`. This complicates that leg's *scenario* valuation, not the
+aggregation, and is **already out of scope** (CLAUDE.md keeps path-dependent RKO scenario legs
+flat; `european_rko` is expiry-only → fully decomposable). Everything currently priced fits
+the per-leg-model + linear-aggregation pattern.
+
+### The payoffs
+1. **Kills Class-A fabrications by construction** — deltas, strikes, leg notionals, wing
+   ratio, ratio weights are all first-class leg fields; a *total* renderer over
+   `PricedStructure` leaves nothing for the LLM to invent. (Class-B carry/risk handled on the
+   context view-model; misinterpretation residual handled by phrasing — both unchanged.)
+2. **`Structure` becomes the shared currency of the engine** — the real prize:
+   - **Re-price under a new `MarketState`** = the Tier-1 rebuild *and* the "agent composes a
+     combo and re-runs it vs the standard pack" capability, for free (same `Structure`, new
+     context).
+   - **Scenarios** = `price(structure, ms_scenarioᵢ)` across the grid — uniform.
+   - **Kelly** takes a `Structure` + subjective distribution — no per-family payoff bridge.
+3. **Generalizes Tier-2** from "pick a known family + variant" to "construct any package and
+   evaluate it as a first-class candidate" — flexible structuring, not menu selection. The
+   natural ceiling of the agentic design.
+
+### Agent boundary (preserved)
+The agent **never authors** `Structure`/`Leg`. It requests via the Phase-1 grammar; the engine
+resolves the request into a `Structure` and hands back a `PricedStructure` for narration. So
+the spec-vs-resolved split is enforced (agent sets spec only; engine resolves strikes / realized
+deltas / premiums / call-put), and the Phase-1 safety property holds — no regression.
+
+### Cost / scope
+Real multi-day project, not a patch. Touches: the pricer (per-family fns → per-leg model +
+linear aggregator), `structure_variants.json` schemas (→ leg lists + migration),
+`PricedVariant → Structure`/`PricedStructure`, the scenario pricer (= `price` over the grid),
+the comparator's variant evaluation, Kelly's payoff bridge, the Phase-1 grammar (emit
+`Structure`), the renderer (make it *total*), and a large share of the ~440 tests (assert on
+`.strikes`/`PricedVariant`). It is the data half of CLAUDE.md's deferred `PricingContext` seam.
+Sequence with the arbitrary-leg grammar extension. Build with a green-test bridge at each step.
+
+### Decision (this session): deferred, pattern finalized
+The flat `PricedVariant` + per-family pricers work and are fully tested; leg-ratio issues are
+one-line render fixes for now. Take this on as a deliberate project **when bespoke-package
+composition / notional round-tripping / Kelly-on-arbitrary-legs becomes a recurring need**.
+When started, build to the pattern above.
 
 ## Invariants to preserve (from CLAUDE.md)
 - LLM narrates only; all numbers pre-computed by the engine.
@@ -594,9 +645,11 @@ display miss. When taken on, sequence it before/with the arbitrary-leg grammar e
       **Not yet built (deferred to Phase 3.5 / Phase 4):** evaluate_scenarios + size tools;
       OpenAI/Gemini adapters; richer render via the comparator explanation pack (current
       render is a self-contained labelled summary); Streamlit wiring.
-- [ ] Generic `Leg` model (deferred, high-leverage) — unlocks agent-composed bespoke packages
-      priced/scored on the fly vs the standard pack; data prerequisite for flexible structuring
-      beyond the curated menu. See "Candidate refactor: generic Leg model" below.
+- [ ] `Structure`/`Leg` product model (deferred, high-leverage, **pattern finalized**) —
+      three-object split (definition / MarketState / PricedStructure), signed-notional legs,
+      leg-level model polymorphism + uniform linear aggregation. Kills Class-A fabrications by
+      construction and makes `Structure` the shared currency for re-price / scenarios / Kelly /
+      agent-composed combos. See "Candidate refactor: the Structure / Leg product model" below.
 - [ ] Phase 5 — Langfuse observability for the agent loop (NEXT). Instrument agent_flow/tools
       with `conversation.tracing` (one trace/turn, one span/tool call); then optional
       REST-API direct-query path (egress OK, no MCP, needs keys in Claude's shell). See the
