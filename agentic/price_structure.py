@@ -43,6 +43,9 @@ class PricedStructure:
     request: StructureRequest
     variant: PricedVariant
     warnings: tuple[str, ...] = ()
+    # Product-model PricedStructure (analytics.product_model) — legs first-class, for the
+    # explicit per-leg render. Metrics/ccy still come from `variant` (sized to loss_budget).
+    priced_structure: object | None = None
 
 
 @dataclass(frozen=True)
@@ -105,7 +108,22 @@ def price_structure(
             warnings=tuple(warnings),
         )
 
-    return PricedStructure(request=parsed, variant=priced[0], warnings=tuple(warnings))
+    # Product-model structure for the explicit per-leg breakdown (legs first-class).
+    # Best-effort; metrics/ccy still come from `variant`. stop_price omitted — only the
+    # legs are consumed here, not the product-model max-loss.
+    legs_struct = None
+    try:
+        from analytics.product_pricer import build_structure, price as _price_product
+        st = build_structure(parsed.family, variant_dict, is_call)
+        if st is not None:
+            legs_struct = _price_product(st, ms, target=target, smile=surface)
+    except Exception:
+        legs_struct = None
+
+    return PricedStructure(
+        request=parsed, variant=priced[0], warnings=tuple(warnings),
+        priced_structure=legs_struct,
+    )
 
 
 def _unavailable_detail(family: str, target: float | None, warnings: list[str]) -> str:

@@ -170,6 +170,7 @@ def render_priced_structure(ps: PricedStructure) -> str:
     """Render a single PM-requested priced structure (Tier-2 result)."""
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
+    lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None)))
     ccy = _ccy_summary(v)
     if ccy:
         lines.append("  " + ccy)

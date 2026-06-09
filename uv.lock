@@ -829,7 +829,7 @@ wheels = [
 
 [[package]]
 name = "macrotool"
-version = "0.1.38+agent"
+version = "0.1.39+agent"
 source = { editable = "." }
 dependencies = [
     { name = "altair" },
