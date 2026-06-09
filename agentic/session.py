@@ -39,6 +39,7 @@ class AgentSession:
             view.direction,
             view.horizon_days,
             view.magnitude_pct,
+            view.max_loss_usd,
             view.mode,
             self.structure_constraint,
             self.primary_objective,

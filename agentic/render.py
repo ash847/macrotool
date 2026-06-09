@@ -25,11 +25,24 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
 
     lines.append("\nMARKET CONTEXT (computed):")
     lines.append(f"  spot={ms.spot:.4f}  fwd={ms.fwd:.4f}  atm_vol={ms.vol:.4%}")
-    lines.append(
-        f"  carry c={ms.c:+.3f}  regime={ms.carry_regime}  with_carry={ms.with_carry}"
-    )
+    if ms.with_carry:
+        carry = (
+            "WITH the carry — long the higher-yielding currency, so the forward drift is in "
+            "your favour (you effectively sell forward at a premium to spot). Carry SUPPORTS "
+            "this view."
+        )
+    else:
+        carry = (
+            "COUNTER to the carry — long the lower-yielding currency; the forward drift works "
+            "against this view."
+        )
+    lines.append(f"  CARRY: this view is {carry} (c={ms.c:+.3f}, regime={ms.carry_regime})")
     if ms.atmfsratio is not None:
-        lines.append(f"  atmfsratio={ms.atmfsratio:.2f}")
+        lines.append(
+            f"  carry-capture payout ratio={ms.atmfsratio:.2f} (payout of the carry-capturing "
+            "spread; higher → carry capture is better rewarded. This is NOT a measure of "
+            "whether carry helps or hurts your view.)"
+        )
     if ms.target_z is not None:
         lines.append(f"  target_z(fwd)={ms.target_z:+.2f}σ  put_call={ms.put_call}")
 
@@ -38,10 +51,19 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
             "scenario-weighted P&L; use these):"
         )
+        sized = pack.risk_budget_usd is not None
+        if sized:
+            lines.append(f"  (sized to a max-loss budget of {pack.risk_budget_usd:,.0f} base ccy)")
         for r in pack.recommended:
             score = f"  score(wPnL)={r.score_ccy:+.2f}" if r.score_ccy is not None else ""
             lines.append(f"  {r.rank}. {r.display_name} [{r.structure_id}]{score}")
             lines.append("     " + _variant_summary(r.variant))
+            if sized:
+                ccy = _ccy_from_budget(r.variant, pack.risk_budget_usd)
+                if ccy:
+                    lines.append("     " + ccy)
+            if r.major_risk:
+                lines.append(f"     risk (engine): {r.major_risk}")
             lines.append(f"     — {r.rationale}")
     else:
         # No representative priced (e.g. no target supplied) — fall back to families.
@@ -71,6 +93,21 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     return "\n".join(lines)
 
 
+def _ccy_from_budget(v, budget: float) -> str | None:
+    """Real base-ccy figures by sizing the structure so its max loss == the PM's
+    budget: notional = budget / max_loss%, premium = net_premium% × notional. Derived
+    here (not from the pricer) to avoid the per-structure notional cap."""
+    mlp = v.max_loss_pct
+    if mlp is None or mlp < 1e-9:
+        return None
+    notional = budget / mlp
+    premium = (v.net_premium_pct or 0.0) * notional
+    return (
+        f"sized: notional≈{notional:,.0f}  premium≈{premium:,.0f}  "
+        f"max_loss≈{budget:,.0f} (base ccy)"
+    )
+
+
 def _variant_summary(v) -> str:
     """One-line strikes + premium + payoff + RR for a PricedVariant."""
     strikes = ", ".join(f"{k:.4f}" for k in v.strikes)
@@ -88,27 +125,33 @@ def _variant_summary(v) -> str:
     return "  ".join(parts)
 
 
-def render_priced_structure(ps: PricedStructure) -> str:
+def render_priced_structure(ps: PricedStructure, budget: float | None = None) -> str:
     """Render a single PM-requested priced structure (Tier-2 result)."""
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
-    if v.structure_notional is not None:
-        lines.append(
-            f"  sized: notional≈{v.structure_notional:,.0f}, "
-            f"premium≈{v.net_premium_ccy:,.0f}, max_loss≈{v.max_loss_ccy:,.0f} (base ccy)"
-        )
+    if budget:
+        ccy = _ccy_from_budget(v, budget)
+        if ccy:
+            lines.append("  " + ccy)
     if ps.warnings:
         lines.append("  warnings: " + "; ".join(ps.warnings))
     return "\n".join(lines)
 
 
-def render_recommended(rec) -> str:
+def render_recommended(rec, budget: float | None = None) -> str:
     """Render a recommended (already-priced) structure pulled from the pack."""
-    return (
-        f"RECOMMENDED {rec.display_name} [{rec.structure_id}]\n  "
-        + _variant_summary(rec.variant)
-        + f"\n  — {rec.rationale}"
-    )
+    lines = [
+        f"RECOMMENDED {rec.display_name} [{rec.structure_id}]",
+        "  " + _variant_summary(rec.variant),
+    ]
+    if budget:
+        ccy = _ccy_from_budget(rec.variant, budget)
+        if ccy:
+            lines.append("  " + ccy)
+    if rec.major_risk:
+        lines.append(f"  risk (engine): {rec.major_risk}")
+    lines.append(f"  — {rec.rationale}")
+    return "\n".join(lines)
 
 
 def render_unavailable(u: PricingUnavailable) -> str:

@@ -32,6 +32,18 @@ def target_from_reference(
     return reference * (1 + sign * magnitude_pct / 100)
 
 
+def _major_risk(structure_id: str) -> str:
+    """The engine's canonical primary-risk text for a structure (from profiles).
+
+    Used so the LLM relays the correct risk instead of inventing payoff geometry.
+    """
+    try:
+        from knowledge_engine.loader import load_structure_profiles
+        return load_structure_profiles().get(structure_id, {}).get("major_risk", "") or ""
+    except Exception:
+        return ""
+
+
 @dataclass
 class RecommendedStructure:
     """A specific, priced representative construction for a shortlisted family."""
@@ -42,6 +54,7 @@ class RecommendedStructure:
     rationale: str
     variant: PricedVariant
     score_ccy: float | None = None   # scenario-weighted P&L the variant was ranked on
+    major_risk: str = ""             # engine's canonical primary risk (from profiles)
 
 
 @dataclass
@@ -57,6 +70,7 @@ class StandardPack:
     target: float | None        # target spot (from forward + magnitude), or None
     is_call: bool               # direction → call/put, for downstream Tier-2 pricing
     recommended: list[RecommendedStructure]   # specific priced structures per family
+    risk_budget_usd: float | None = None      # base-ccy max-loss the trades are sized to
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -81,6 +95,9 @@ def _recommend_ranked(
         raise ValueError("no usable move for comparator")
     stop_pct = move_pct / max(target_rr, 1e-6)
     stop_price = fwd * (1 - stop_pct) if is_call else fwd * (1 + stop_pct)
+    # Normalized 100-unit budget — for ranking only. Real ccy notionals are derived
+    # in the renderer from the PM's risk budget + the variant's max-loss %, which
+    # avoids the pricer's per-structure notional cap (_MAX_STRUCTURE_NOTIONAL).
     loss_budget = _COMPARATOR_LINEAR_NOTIONAL * stop_pct
 
     inputs = build_comparator_inputs(
@@ -111,6 +128,7 @@ def _recommend_ranked(
                 rationale=item.rationale,
                 variant=best.variant,
                 score_ccy=best.pm_score.score_ccy,
+                major_risk=_major_risk(item.structure_id),
             ))
     return out
 
@@ -136,6 +154,7 @@ def _price_recommended_fallback(
                 rank=item.rank,
                 rationale=item.rationale,
                 variant=rep,
+                major_risk=_major_risk(item.structure_id),
             ))
     return out
 
@@ -148,6 +167,7 @@ def build_pack(
     primary_objective: str = "Balanced",
     trade_management: str = "Standard hold",
     target_rr: float = 3.0,
+    risk_budget_usd: float | None = None,
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -237,4 +257,5 @@ def build_pack(
         target=target,
         is_call=is_call,
         recommended=recommended,
+        risk_budget_usd=risk_budget_usd,
     )
