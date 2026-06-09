@@ -193,7 +193,12 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         return render_pack(cached, view) + "\n\n(reused cached pack — view unchanged)"
 
     ccy = session.snapshot.get(view.pair)
-    pack = build_pack(view, ccy, session.cfg, structure_constraint=session.structure_constraint)
+    pack = build_pack(
+        view, ccy, session.cfg,
+        structure_constraint=session.structure_constraint,
+        primary_objective=session.primary_objective,
+        trade_management=session.trade_management,
+    )
     session.store(view, pack)
     session.view, session.pack = view, pack
     return render_pack(pack, view)

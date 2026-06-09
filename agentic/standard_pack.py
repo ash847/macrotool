@@ -41,6 +41,7 @@ class RecommendedStructure:
     rank: int
     rationale: str
     variant: PricedVariant
+    score_ccy: float | None = None   # scenario-weighted P&L the variant was ranked on
 
 
 @dataclass
@@ -58,15 +59,66 @@ class StandardPack:
     recommended: list[RecommendedStructure]   # specific priced structures per family
 
 
-def _price_recommended(
+_COMPARATOR_LINEAR_NOTIONAL = 100.0
+
+
+def _recommend_ranked(
+    ms: MarketState, selector_result, target, is_call, surface,
+    primary_objective, trade_management, structure_constraint, target_rr,
+) -> list[RecommendedStructure]:
+    """Per shortlisted family, pick the variant the scoring ranks best.
+
+    Uses the comparator's scenario evaluation (pm_score.score_ccy — PM-overlay
+    weighted P&L in base ccy, the same metric the Trade View variants table and
+    Kelly's Trade-Rec ranking use). Requires a target (the scenario grid is target-
+    centred); callers fall back to the first-curated representative without one.
+    """
+    from knowledge_engine.comparator import PMPreferences, build_comparator_inputs
+
+    fwd = ms.fwd
+    move_pct = abs(target - fwd) / fwd if fwd else 0.0
+    if move_pct <= 0:
+        raise ValueError("no usable move for comparator")
+    stop_pct = move_pct / max(target_rr, 1e-6)
+    stop_price = fwd * (1 - stop_pct) if is_call else fwd * (1 + stop_pct)
+    loss_budget = _COMPARATOR_LINEAR_NOTIONAL * stop_pct
+
+    inputs = build_comparator_inputs(
+        ms, selector_result,
+        target=target, is_call=is_call,
+        stop_price=stop_price, loss_budget=loss_budget,
+        preferences=PMPreferences(
+            primary_objective=primary_objective,
+            trade_management=trade_management,
+            structure_constraint=structure_constraint,
+        ),
+        smile=surface,
+    )
+
+    out: list[RecommendedStructure] = []
+    for item in selector_result.shortlist:
+        evals = inputs.variant_evaluations_by_structure.get(item.structure_id) or []
+        scored = [e for e in evals if e.pm_score.score_ccy is not None]
+        best = (
+            max(scored, key=lambda e: e.pm_score.score_ccy) if scored
+            else (evals[0] if evals else None)
+        )
+        if best is not None:
+            out.append(RecommendedStructure(
+                structure_id=item.structure_id,
+                display_name=item.display_name,
+                rank=item.rank,
+                rationale=item.rationale,
+                variant=best.variant,
+                score_ccy=best.pm_score.score_ccy,
+            ))
+    return out
+
+
+def _price_recommended_fallback(
     ms: MarketState, selector_result, target, is_call, surface, cap: int = 6
 ) -> list[RecommendedStructure]:
-    """Price a representative variant for each shortlisted family.
-
-    Picks the first curated variant that prices (the curated menu lists the most
-    canonical construction first — e.g. ATMF-vs-target for ratio spreads). Gives
-    the agent concrete structures to recommend, not just family names.
-    """
+    """Fallback when no target: first curated variant that prices, per family."""
     out: list[RecommendedStructure] = []
     for item in selector_result.shortlist[:cap]:
         try:
@@ -93,6 +145,9 @@ def build_pack(
     ccy,                                # CurrencySnapshot
     cfg,                                # ResolvedConfig
     structure_constraint: str = "No restriction",
+    primary_objective: str = "Balanced",
+    trade_management: str = "Standard hold",
+    target_rr: float = 3.0,
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -158,9 +213,19 @@ def build_pack(
         pass  # distributions are enrichment; never break the pack
 
     is_call = view.direction == "base_higher"
-    recommended = _price_recommended(
-        market_state, selector_result, target, is_call, surface
-    )
+    recommended: list[RecommendedStructure] = []
+    if target is not None:
+        try:
+            recommended = _recommend_ranked(
+                market_state, selector_result, target, is_call, surface,
+                primary_objective, trade_management, structure_constraint, target_rr,
+            )
+        except Exception:
+            recommended = []
+    if not recommended:
+        recommended = _price_recommended_fallback(
+            market_state, selector_result, target, is_call, surface
+        )
 
     return StandardPack(
         market_state=market_state,

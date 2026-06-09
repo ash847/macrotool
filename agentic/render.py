@@ -34,9 +34,13 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         lines.append(f"  target_z(fwd)={ms.target_z:+.2f}σ  put_call={ms.put_call}")
 
     if pack.recommended:
-        lines.append("\nRECOMMENDED STRUCTURES (specific, priced — use these):")
+        lines.append(
+            "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
+            "scenario-weighted P&L; use these):"
+        )
         for r in pack.recommended:
-            lines.append(f"  {r.rank}. {r.display_name} [{r.structure_id}]")
+            score = f"  score(wPnL)={r.score_ccy:+.2f}" if r.score_ccy is not None else ""
+            lines.append(f"  {r.rank}. {r.display_name} [{r.structure_id}]{score}")
             lines.append("     " + _variant_summary(r.variant))
             lines.append(f"     — {r.rationale}")
     else:
