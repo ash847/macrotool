@@ -3,6 +3,52 @@
 Branch: `agentic-workflow` (off `main` @ c4d3697). Worktree:
 `/Users/ash/Documents/Coding work/agentic-workflow`. Entry point: `interface/app.py`.
 
+## Product north star & priority-ranked roadmap (standing reference)
+
+**North star (PM intent).** The product is the **scoring and the comparative power it gives
+us.** The agent is a **conversational lens onto that** — it discusses, explains, and explores
+the engine's comparative output. It is **not** a conversational pricing tool. The order of
+ambition is deliberate: (1) converse about the results reliably, to a very high standard;
+(2) then reprice/explore *other structures the engine already considered* and *small strike
+tweaks*; (3) only much later, if ever, anything approaching bespoke on-the-fly pricing. Stay
+close to the scoring; resist drift toward free-form pricing.
+
+**Priorities (in order):**
+
+1. **Make the agent conversant in the COMPARISON, not just the list.** *(Highest leverage —
+   directly on the anchor.)* The comparator already computes the comparative intelligence
+   (per-scenario P&L, scenario-fit reasons — "better weighted P&L", "holds up if the path is
+   slow/noisy", "loses more wrong-way" — premium/path tradeoffs, pairwise "why A beats B").
+   The agent currently sees `score(wPnL)` + a rationale but **not the reasoning behind the
+   ranking**, so it can state *that* the 1×1.5 scores 0.70 but not *why it beats the 1×1 in
+   scenario terms*. That "why" is the product. This is a **plumbing/render job, not new
+   modelling**: surface `variant_evaluations` / scenario rows / the reason catalog into the
+   agent pack (`agentic/render.py` + `standard_pack`). NB: this is the comparator's *reasoning*
+   half — currently used only by the old `flow.py`; the agent should consume it too.
+
+2. **Reliability hardening + observability.** *(Required to hit/hold "very high standard.")*
+   Wire **Langfuse into the agent loop** (Phase 5) + a lightweight **numbers-must-trace
+   verification** backstop (flag any figure in the narration absent from a tool result). The
+   on-screen Engine trace is fine for spot checks, not for a standing quality bar.
+
+3. **Explore within the *considered set* + small strike tweaks.** *(PM's stated #2.)* Let the
+   PM ask "what are the *other* 1×1.5 variants you considered?", "show the 25Δ/10Δ instead",
+   "nudge the long strike to 30Δ". All inside the curated/grammar space the engine already
+   evaluated — "others considered" is *surfacing* (the comparator priced every variant per
+   family), tweaks route through the existing `price_structure`. Comparison-anchored; **not**
+   bespoke.
+
+4. **Consolidation once the agent is the primary interface.** *(Cleanliness, no behavior
+   change.)* De-dupe the comparator reasoning between agent and old flow; resolve the
+   `PricedStructure` name collision (`agentic.price_structure` vs `analytics.product_model`);
+   finish the optional Phase-C internal migrations (comparator/scenario/Kelly type); decide
+   whether to retire `flow.py`'s explanation layer.
+
+5. **(Deferred, fenced) Bespoke / arbitrary-leg composition (product-model Phase D).** Only
+   after 1–3 are at a very high standard. The product model makes it *possible*; the PM has
+   explicitly fenced it off — it pulls toward "conversational pricing tool", away from the
+   anchor.
+
 ## Motivation
 
 The current conversational path (`conversation/flow.py`) is a fixed state machine
