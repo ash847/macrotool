@@ -437,6 +437,33 @@ this one coarse door.
 - Validate: baseline first-response matches the deterministic output; topic-drift questions
   price correctly; "why" questions make zero tool calls.
 
+### Phase 5 — Langfuse observability for the agent loop (NEXT — not started)
+
+Goal: durable, searchable traces for the Agent page, and ideally a "paste a trace ID here →
+Claude reads it directly" debug loop (replaces copy-pasting the on-screen Engine trace).
+
+Current state: the Agent page emits **no** Langfuse traces — `agent_flow` was never
+instrumented (only the legacy `conversation.flow` traces). The on-screen "🔍 Engine trace"
+expander is the only observability today, and it's ephemeral (`st.session_state`).
+
+Steps:
+1. **Instrument the loop (prerequisite, do first).** Reuse `conversation.tracing`: one
+   trace/generation per `llm.create()` turn and one span per tool dispatch in `agent_flow` /
+   `tools.dispatch` (record tool name, args, result text, is_error). Useful on its own — you
+   get the Langfuse UI even without sharing keys.
+2. **Direct-query path (optional, to stop copy-pasting to Claude).** Feasibility already
+   checked this session: **network egress to `cloud.langfuse.com` works (HTTP 200)**; **no
+   Langfuse MCP connector exists** in the registry; my shell has **no** Langfuse keys (they
+   live in Streamlit secrets). So the path is the **Langfuse REST API** (`GET
+   /api/public/traces`, `/traces/{id}`) from Bash — needs `LANGFUSE_PUBLIC_KEY` /
+   `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` dropped into Claude's shell env (confirm
+   cloud vs self-hosted; only cloud host was reachability-tested). Then: user pastes a trace
+   ID/URL → Claude fetches + analyzes it.
+   - **Security note:** the secret key is a real project-scoped credential; if shared, rotate
+     it afterwards or use a read-only/scoped key if the plan supports one.
+3. Workflow once both done: PM pastes a Langfuse trace ID/URL in chat → Claude pulls the
+   tool calls / inputs / outputs / latency and diagnoses, no manual paste of contents.
+
 ## Costs / risks to keep in view
 1. **Determinism of *which* numbers appear** — agent may call tools in different orders or
    stop early. Mitigation: deterministic standard pack first; retain a "show full standard
@@ -513,6 +540,10 @@ between them. Consequences and rationale:
       **Not yet built (deferred to Phase 3.5 / Phase 4):** evaluate_scenarios + size tools;
       OpenAI/Gemini adapters; richer render via the comparator explanation pack (current
       render is a self-contained labelled summary); Streamlit wiring.
+- [ ] Phase 5 — Langfuse observability for the agent loop (NEXT). Instrument agent_flow/tools
+      with `conversation.tracing` (one trace/turn, one span/tool call); then optional
+      REST-API direct-query path (egress OK, no MCP, needs keys in Claude's shell). See the
+      Phase 5 section above for the full plan + security note.
 - [~] Phase 4 — Streamlit wiring. `interface/app.py`: new **Agent** nav page (user-accessible)
       driving `AgentFlow` over `AnthropicToolLLM`, with `st.chat_input` chat UI, a "New
       conversation" reset, a live-view caption, and error capture via `log_error`. Agent
