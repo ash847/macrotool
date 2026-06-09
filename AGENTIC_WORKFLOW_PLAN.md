@@ -513,4 +513,10 @@ between them. Consequences and rationale:
       **Not yet built (deferred to Phase 3.5 / Phase 4):** evaluate_scenarios + size tools;
       OpenAI/Gemini adapters; richer render via the comparator explanation pack (current
       render is a self-contained labelled summary); Streamlit wiring.
-- [ ] Phase 4 — Streamlit wiring + validation.
+- [~] Phase 4 — Streamlit wiring. `interface/app.py`: new **Agent** nav page (user-accessible)
+      driving `AgentFlow` over `AnthropicToolLLM`, with `st.chat_input` chat UI, a "New
+      conversation" reset, a live-view caption, and error capture via `log_error`. Agent
+      session/flow cached in `st.session_state`; prefs seeded from the sidebar pref widgets.
+      pyproject bumped 0.1.28 → 0.1.29+agent (+ uv.lock) for Streamlit Cloud reinstall.
+      **Pending: live validation on Streamlit** (does the model route well end-to-end) and
+      the deterministic-first-response parity check.

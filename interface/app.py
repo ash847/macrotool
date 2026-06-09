@@ -186,7 +186,7 @@ with st.sidebar:
     st.button("Sign out", on_click=st.logout, use_container_width=True)
     st.divider()
 
-    user_nav_labels = ("Trade View", "Kelly Sizing")
+    user_nav_labels = ("Trade View", "Agent", "Kelly Sizing")
     nav_labels = (
         user_nav_labels + ("Market Data", "Structure Selection", "Scenario Weightings", "Query log")
         if IS_ADMIN
@@ -711,15 +711,87 @@ def _render_market_data() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Agent page (conversational structuring — agentic loop)
+# ---------------------------------------------------------------------------
+
+def _render_agent() -> None:
+    from agentic.agent_flow import AgentFlow
+    from agentic.agent_llm import AnthropicToolLLM, DEFAULT_MODEL
+    from agentic.session import AgentSession
+    from config.loader import load_config
+
+    st.subheader("Conversational structuring")
+    st.caption(
+        "Describe your view in plain English. The agent routes to the deterministic "
+        "engine — every number is computed in Python; the LLM only narrates."
+    )
+
+    provider = get_llm_provider()
+    if provider != "anthropic":
+        st.warning(
+            f"The agent loop currently supports Anthropic only (active provider: "
+            f"{provider_label(provider)}). Set LLM_PROVIDER=anthropic to use it."
+        )
+
+    if "agent_flow" not in st.session_state:
+        llm = AnthropicToolLLM(
+            api_key=get_provider_api_key("anthropic"),
+            model=get_provider_model("anthropic") or DEFAULT_MODEL,
+        )
+        session = AgentSession(
+            snapshot=_get_effective_snapshot(),
+            cfg=load_config(),
+            structure_constraint=st.session_state.pref_structure_constraint,
+            primary_objective=st.session_state.pref_primary_objective,
+            trade_management=st.session_state.pref_trade_management,
+        )
+        st.session_state.agent_flow = AgentFlow(llm, session)
+        st.session_state.agent_chat = []
+
+    cols = st.columns([1, 4])
+    if cols[0].button("New conversation", use_container_width=True):
+        st.session_state.pop("agent_flow", None)
+        st.session_state.agent_chat = []
+        st.rerun()
+    sess = st.session_state.agent_flow.session
+    if sess.view is not None:
+        cols[1].caption(
+            f"Live view: {sess.view.pair} · {sess.view.direction} · {sess.view.horizon_days}d"
+            + (f" · target {sess.pack.target:.4f}" if sess.pack and sess.pack.target else "")
+        )
+
+    for role, text in st.session_state.agent_chat:
+        with st.chat_message(role):
+            st.markdown(text)
+
+    if prompt := st.chat_input("e.g. long USDBRL 3m, target +6% — what should I trade?"):
+        st.session_state.agent_chat.append(("user", prompt))
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                try:
+                    reply = st.session_state.agent_flow.advance(prompt)
+                except Exception as e:
+                    log_error("agent_advance", e)
+                    reply = f"⚠️ {type(e).__name__}: {e}"
+            st.markdown(reply)
+        st.session_state.agent_chat.append(("assistant", reply))
+
+
+# ---------------------------------------------------------------------------
 # Page routing
 # ---------------------------------------------------------------------------
 
-if st.session_state.page not in ("Trade View", "Kelly Sizing") and not IS_ADMIN:
+if st.session_state.page not in ("Trade View", "Agent", "Kelly Sizing") and not IS_ADMIN:
     st.session_state.page = "Trade View"
     st.rerun()
 
 if st.session_state.page == "Market Data":
     _render_market_data()
+
+elif st.session_state.page == "Agent":
+    _render_agent()
 
 elif st.session_state.page == "Query log":
     _render_query_log()
