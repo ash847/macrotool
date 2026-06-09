@@ -220,7 +220,20 @@ def _compute_buckets(
     else:
         atm_bucket = "high"
 
-    carry_alignment = f"with_{atm_bucket}" if ms.with_carry else f"counter_{atm_bucket}"
+    # carry_alignment s/m/l is delimited by the carry-to-vol ratio |c|
+    # (ln(fwd/spot)/(σ√T)) — NOT the atmfsratio payout ratio. |c| is always
+    # defined, so there is no None case. Falls back to the carry_regime cuts
+    # if a remote/legacy config omits the dedicated threshold.
+    ca_cuts = thresholds.get("carry_alignment", thresholds["carry_regime"])
+    cv = abs(ms.c)
+    if cv < ca_cuts[0]:
+        ca_bucket = "low"
+    elif cv < ca_cuts[1]:
+        ca_bucket = "medium"
+    else:
+        ca_bucket = "high"
+
+    carry_alignment = f"with_{ca_bucket}" if ms.with_carry else f"counter_{ca_bucket}"
 
     return {
         "target_z_abs":       tz_bucket,

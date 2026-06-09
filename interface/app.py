@@ -808,19 +808,22 @@ else:
         c3.metric("ATM Vol", f"{ms.vol:.1%}")
         c4.metric("Horizon", f"{h}d")
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
         c1.metric("Carry c", f"{ms.c:+.3f}")
         c2.metric("Carry regime", regime_label[ms.carry_regime])
         if ms.target_z_spot is not None:
-            c3.metric("Target z (vs spot)", f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})",
-                      help=f"{ms.target_z:+.2f}σ vs forward")
+            c3.metric("Target z (vs spot)", f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})")
         else:
             c3.metric("Target z (vs spot)", "—")
-        if ms.atmfsratio is not None:
-            c4.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
+        if ms.target_z is not None:
+            c4.metric("Target z (vs fwd)", f"{ms.target_z:+.2f}σ  ({ms.put_call})")
         else:
-            c4.metric("ATM fwd ratio", "—")
+            c4.metric("Target z (vs fwd)", "—")
+        if ms.atmfsratio is not None:
+            c5.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
+        else:
+            c5.metric("ATM fwd ratio", "—")
 
         _pair = flow.view.pair
         _base, _quote = _pair[:3], _pair[3:]
