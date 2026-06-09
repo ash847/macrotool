@@ -714,6 +714,60 @@ def _render_market_data() -> None:
 # Agent page (conversational structuring — agentic loop)
 # ---------------------------------------------------------------------------
 
+def _bget(block, key):
+    """Read a field from a content block that may be an SDK object or a dict."""
+    if isinstance(block, dict):
+        return block.get(key)
+    return getattr(block, key, None)
+
+
+def _agent_tool_trace(session) -> list[dict]:
+    """Reconstruct (tool name, args, result, is_error) from the message history.
+
+    Matches each assistant tool_use block to its tool_result by id. This is the
+    ground truth the model received — read the narration against it.
+    """
+    pending: dict[str, dict] = {}
+    trace: list[dict] = []
+    for m in session.messages:
+        role, content = m.get("role"), m.get("content")
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            btype = _bget(b, "type")
+            if role == "assistant" and btype == "tool_use":
+                bid = _bget(b, "id")
+                pending[bid] = {"name": _bget(b, "name"), "args": _bget(b, "input")}
+            elif role == "user" and btype == "tool_result":
+                tid = _bget(b, "tool_use_id")
+                call = pending.pop(tid, {"name": "?", "args": None})
+                trace.append({
+                    "name": call["name"],
+                    "args": call["args"],
+                    "result": _bget(b, "content"),
+                    "is_error": bool(_bget(b, "is_error")),
+                })
+    return trace
+
+
+def _render_agent_diagnostic(session) -> None:
+    trace = _agent_tool_trace(session)
+    label = f"🔍 Engine trace — {len(trace)} tool call(s)"
+    with st.expander(label, expanded=False):
+        if session.pack is not None:
+            st.caption(
+                f"cache entries: {len(session._cache)} · structures priced: {len(session.priced)}"
+            )
+        if not trace:
+            st.caption("No tool calls yet. A 'why/what' question should make zero calls.")
+            return
+        for i, t in enumerate(trace, 1):
+            flag = " ❌" if t["is_error"] else ""
+            st.markdown(f"**{i}. `{t['name']}`{flag}**")
+            st.code(json.dumps(t["args"], indent=2, default=str), language="json")
+            st.text(t["result"] or "")
+
+
 def _render_agent() -> None:
     from agentic.agent_flow import AgentFlow
     from agentic.agent_llm import AnthropicToolLLM, DEFAULT_MODEL
@@ -777,6 +831,8 @@ def _render_agent() -> None:
                     reply = f"⚠️ {type(e).__name__}: {e}"
             st.markdown(reply)
         st.session_state.agent_chat.append(("assistant", reply))
+
+    _render_agent_diagnostic(st.session_state.agent_flow.session)
 
 
 # ---------------------------------------------------------------------------
