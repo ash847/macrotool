@@ -58,7 +58,10 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             )
         for r in pack.recommended:
             score = f"  score(wPnL)={r.score_ccy:+.2f}" if r.score_ccy is not None else ""
-            lines.append(f"  {r.rank}. {r.display_name} [{r.structure_id}]{score}")
+            lines.append(
+                f"  {r.rank}. {r.display_name} — {r.variant.variant_label} "
+                f"[{r.structure_id}]{score}"
+            )
             lines.append("     " + _variant_summary(r.variant))
             ccy = _ccy_summary(r.variant)
             if ccy:
@@ -142,7 +145,7 @@ def render_priced_structure(ps: PricedStructure) -> str:
 def render_recommended(rec) -> str:
     """Render a recommended (already-priced) structure pulled from the pack."""
     lines = [
-        f"RECOMMENDED {rec.display_name} [{rec.structure_id}]",
+        f"RECOMMENDED {rec.display_name} — {rec.variant.variant_label} [{rec.structure_id}]",
         "  " + _variant_summary(rec.variant),
     ]
     ccy = _ccy_summary(rec.variant)
