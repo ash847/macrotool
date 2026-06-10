@@ -104,8 +104,9 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             ccy = _ccy_summary(r.variant)
             if ccy:
                 lines.append("     " + ccy)
-            if r.major_risk:
-                lines.append(f"     risk (engine): {r.major_risk}")
+            # major_risk is intentionally NOT surfaced by default — it's a generic
+            # family-level caveat the PM rarely wants unprompted. It stays in the
+            # data and is rendered on request via render_recommended (price_structure).
             lines.append(f"     — {r.rationale}")
         extra = len(pack.recommended) - len(top)
         if extra > 0:
