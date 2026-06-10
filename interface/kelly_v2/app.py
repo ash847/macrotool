@@ -353,6 +353,10 @@ def reset_anchors_to_baseline() -> None:
     seed = anchors_from_baseline(_current_baseline(), list(quantiles))
     for i, p in enumerate(seed):
         st.session_state[f"anchor_{i}"] = float(p)
+    st.session_state["_kelly_anchor_widget_signature"] = (
+        st.session_state.get("_kelly_baseline_signature"),
+        st.session_state.n_anchors,
+    )
 
 
 def _largest_remainder_round(values: np.ndarray, target_sum: int) -> np.ndarray:
@@ -382,6 +386,10 @@ def reset_buckets_to_uniform() -> None:
     remainder = 100 - base_value * n
     for i in range(n):
         st.session_state[f"bucket_{i}"] = base_value + (1 if i < remainder else 0)
+    st.session_state["_kelly_bucket_widget_signature"] = (
+        st.session_state.get("_kelly_baseline_signature"),
+        st.session_state.n_anchors,
+    )
 
 
 def reset_buckets_to_baseline() -> None:
@@ -404,6 +412,33 @@ def reset_buckets_to_baseline() -> None:
     rounded = _largest_remainder_round(masses, 100)
     for i, m in enumerate(rounded):
         st.session_state[f"bucket_{i}"] = int(m)
+    st.session_state["_kelly_bucket_widget_signature"] = (
+        st.session_state.get("_kelly_baseline_signature"),
+        st.session_state.n_anchors,
+    )
+
+
+def _ensure_anchor_widget_state(quantiles: tuple[float, ...]) -> None:
+    expected = (
+        st.session_state.get("_kelly_baseline_signature"),
+        len(quantiles),
+    )
+    current = st.session_state.get("_kelly_anchor_widget_signature")
+    missing = any(f"anchor_{i}" not in st.session_state for i in range(len(quantiles)))
+    if current != expected or missing:
+        reset_anchors_to_baseline()
+
+
+def _ensure_bucket_widget_state(n_buckets: int) -> None:
+    expected = (
+        st.session_state.get("_kelly_baseline_signature"),
+        n_buckets,
+    )
+    current = st.session_state.get("_kelly_bucket_widget_signature")
+    missing = any(f"bucket_{i}" not in st.session_state for i in range(n_buckets))
+    total = sum(int(st.session_state.get(f"bucket_{i}", 0)) for i in range(n_buckets))
+    if current != expected or missing or total <= 0:
+        reset_buckets_to_baseline()
 
 
 def sync_on_n_change() -> None:
@@ -483,8 +518,7 @@ def render_sidebar() -> None:
 def render_option1_inputs(quantiles: tuple[float, ...]) -> np.ndarray:
     st.markdown("##### Your view — price at each quantile (must strictly increase)")
 
-    if "anchor_0" not in st.session_state:
-        reset_anchors_to_baseline()
+    _ensure_anchor_widget_state(quantiles)
 
     cols = st.columns(len(quantiles))
     for i, (q, col) in enumerate(zip(quantiles, cols)):
@@ -514,8 +548,7 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
 
     st.markdown("##### Your view — probability (%) per bucket (sum to 100)")
 
-    if "bucket_0" not in st.session_state:
-        reset_buckets_to_baseline()
+    _ensure_bucket_widget_state(n_buckets)
 
     # Offset the input columns by a narrow spacer to visually align them with
     # the bars in the chart below (which has a y-axis of roughly 35 px).
