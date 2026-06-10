@@ -12,6 +12,8 @@ from agentic.standard_pack import StandardPack
 from analytics.product_model import AnchorKind
 from knowledge_engine.models import TradeView
 
+_TOP_N = 3   # recommended structures shown by default; rest surfaced only on request
+
 
 def _anchor_label(anchor) -> str:
     k = anchor.kind
@@ -28,9 +30,10 @@ def _anchor_label(anchor) -> str:
     return f"K={anchor.value:.4f}"
 
 
-def _legs_breakdown(ps) -> list[str]:
-    """Explicit per-leg lines from a product-model PricedStructure — so the agent reads
-    each leg's side / notional / anchor / right / strike instead of inferring them."""
+def _legs_breakdown(ps, base_notional: float | None = None) -> list[str]:
+    """Explicit per-leg lines from a product-model PricedStructure — each leg's side /
+    anchor / right / strike + the ACTUAL sized notional (leg ratio × the structure's sized
+    base notional). The leg ratio (1, 1.5, …) is the structure name, not the notional."""
     if ps is None:
         return []
     lines = []
@@ -38,10 +41,10 @@ def _legs_breakdown(ps) -> list[str]:
         side = "long" if pl.notional > 0 else "short"
         right = pl.leg.right.value.capitalize()
         instr = "Digital " if pl.leg.instrument.value == "digital" else ""
-        lines.append(
-            f"      {side} {abs(pl.notional):g} × {_anchor_label(pl.leg.anchor)} "
-            f"{instr}{right} @ {pl.strike:.4f}"
-        )
+        head = f"      {side} {_anchor_label(pl.leg.anchor)} {instr}{right} @ {pl.strike:.4f}"
+        if base_notional is not None:
+            head += f"  · notional ≈{abs(pl.notional) * base_notional:,.0f}"
+        lines.append(head)
     if ps.barrier is not None:
         lines.append(f"      knock-out barrier @ {ps.barrier:.4f}")
     return lines
@@ -91,20 +94,24 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
                 f"  (each variant sized so its max loss = the loss budget "
                 f"{pack.loss_budget:,.2f} base ccy, on a 100-unit linear notional, R:R-derived)"
             )
-        for r in pack.recommended:
-            score = f"  score(wPnL)={r.score_ccy:+.2f}" if r.score_ccy is not None else ""
+        top = pack.recommended[:_TOP_N]
+        for r in top:
             lines.append(
-                f"  {r.rank}. {r.display_name} — {r.variant.variant_label} "
-                f"[{r.structure_id}]{score}"
+                f"  {r.rank}. {r.display_name} — {r.variant.variant_label} [{r.structure_id}]"
             )
             lines.append("     " + _variant_summary(r.variant))
-            lines.extend(_legs_breakdown(r.priced_structure))
+            lines.extend(_legs_breakdown(r.priced_structure, r.variant.structure_notional))
             ccy = _ccy_summary(r.variant)
             if ccy:
                 lines.append("     " + ccy)
             if r.major_risk:
                 lines.append(f"     risk (engine): {r.major_risk}")
             lines.append(f"     — {r.rationale}")
+        extra = len(pack.recommended) - len(top)
+        if extra > 0:
+            lines.append(
+                f"  (+{extra} more structures considered — list them only if the PM asks.)"
+            )
     else:
         # No representative priced (e.g. no target supplied) — fall back to families.
         lines.append("\nSTRUCTURE SHORTLIST (scored families):")
@@ -170,7 +177,7 @@ def render_priced_structure(ps: PricedStructure) -> str:
     """Render a single PM-requested priced structure (Tier-2 result)."""
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
-    lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None)))
+    lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None), v.structure_notional))
     ccy = _ccy_summary(v)
     if ccy:
         lines.append("  " + ccy)
@@ -185,7 +192,7 @@ def render_recommended(rec) -> str:
         f"RECOMMENDED {rec.display_name} — {rec.variant.variant_label} [{rec.structure_id}]",
         "  " + _variant_summary(rec.variant),
     ]
-    lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None)))
+    lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None), rec.variant.structure_notional))
     ccy = _ccy_summary(rec.variant)
     if ccy:
         lines.append("  " + ccy)
