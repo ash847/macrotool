@@ -121,18 +121,15 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         if not pack.selector_result.shortlist:
             lines.append("  (no eligible structures for this view)")
 
-    if pack.sizing is not None:
+    # Only the R:R-derived stop is surfaced here. The conviction-mapped Kelly
+    # fraction / adjusted-Kelly / Kelly notional are deliberately NOT rendered:
+    # they are heuristic defaults, not the elicited Kelly-criterion number from
+    # the dedicated Kelly Sizing screen, and the agent must not quote them.
+    if pack.sizing is not None and pack.sizing.stop_level is not None:
         sz = pack.sizing
+        sd = f"{sz.stop_distance_pct:.2%}" if sz.stop_distance_pct is not None else "n/a"
         lines.append("\nSIZING (baseline, top structure):")
-        lines.append(
-            f"  kelly={sz.kelly_fraction:.3f} (conviction {sz.kelly_conviction_used})"
-            f"  adjusted={sz.adjusted_kelly:.3f}"
-        )
-        if sz.kelly_notional_usd is not None:
-            lines.append(f"  notional≈{sz.kelly_notional_usd:,.0f} (base ccy)")
-        if sz.stop_level is not None:
-            sd = f"{sz.stop_distance_pct:.2%}" if sz.stop_distance_pct is not None else "n/a"
-            lines.append(f"  stop={sz.stop_level:.4f} (dist {sd})")
+        lines.append(f"  stop={sz.stop_level:.4f} (dist {sd})")
 
     if pack.smile_distribution is not None or pack.flat_distribution is not None:
         lines.append("\nDISTRIBUTIONS: available (smile + flat) for scenario context.")

@@ -48,6 +48,11 @@ Sizing / notionals: the recommended structures are already sized on a standard l
 notional basis (each sized so its max loss = the loss budget, which is LINEAR_NOTIONAL × the
 R:R-derived stop %). The notional / premium / max-loss in base ccy are in the pack — quote
 them directly. Do not invent a notional or ask the PM for a dollar budget.
+Do NOT state a Kelly fraction, "f*", or any "optimal bet size" number — you do not have one.
+Proper Kelly sizing lives on the dedicated Kelly Sizing screen and requires the PM's elicited
+distribution, which you cannot see. If the PM asks about Kelly or optimal sizing, say it is
+computed on the Kelly Sizing screen from their own distribution; never produce or estimate a
+Kelly number yourself.
 
 Conventions:
 - Direction is relative to the BASE currency (ccy1): 'base_higher' = base appreciates
