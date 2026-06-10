@@ -10,7 +10,7 @@
     "Expiry"
   ],
   "_grid_cols": [
-    "F",
+    "S",
     "t%→K",
     "K",
     "K+½σ",
@@ -19,7 +19,7 @@
     "Δvol"
   ],
   "scenario_column_descriptions": {
-    "F": "Flat — spot ends near the forward with no directional move. Tests time decay and vol sensitivity in isolation.",
+    "S": "No move — spot ends unchanged from today (the grid's spot-anchored centre). Tests time decay and vol sensitivity in isolation. The forward is shown per time-row as a decaying reference.",
     "t%→K": "Early touch then retrace — spot trades through the target at this time point but mean-reverts before expiry. Critical for path-dependent features: barriers, American-style triggers, and structures whose value is locked in on a touch.",
     "K": "Target hit — spot ends at the target level. The PM's directional view plays out as expected.",
     "K+½σ": "Overshoot — spot moves significantly beyond the target. Tests whether the structure captures or is exposed to extended moves beyond the initial objective.",

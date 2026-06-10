@@ -940,18 +940,22 @@ else:
         c3.metric("ATM Vol", f"{ms.vol:.1%}")
         c4.metric("Horizon", f"{h}d")
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
         c1.metric("Carry c", f"{ms.c:+.3f}")
         c2.metric("Carry regime", regime_label[ms.carry_regime])
+        if ms.target_z_spot is not None:
+            c3.metric("Target z (vs spot)", f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})")
+        else:
+            c3.metric("Target z (vs spot)", "—")
         if ms.target_z is not None:
-            c3.metric("Target z", f"{ms.target_z:+.2f}σ  ({ms.put_call})")
+            c4.metric("Target z (vs fwd)", f"{ms.target_z:+.2f}σ  ({ms.put_call})")
         else:
-            c3.metric("Target z", "—")
+            c4.metric("Target z (vs fwd)", "—")
         if ms.atmfsratio is not None:
-            c4.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
+            c5.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
         else:
-            c4.metric("ATM fwd ratio", "—")
+            c5.metric("ATM fwd ratio", "—")
 
         _pair = flow.view.pair
         _base, _quote = _pair[:3], _pair[3:]
@@ -999,7 +1003,7 @@ else:
                 return dims[dim]["score"] if eligible else None
             row = {
                 "Structure":      r["display_name"],
-                "Target Z":       _s("target_z_abs"),
+                "Target Z (spot)": _s("target_z_abs"),
                 "Carry regime":   _s("carry_regime"),
                 "ATM/FS ratio":   _s("atmfsratio"),
                 "Carry align":    _s("carry_alignment"),
@@ -1033,9 +1037,9 @@ else:
         display_df["Status"] = score_df.apply(
             lambda r: ("overlay" if r["Overlay"] else "") if r["Eligible"] else "gated", axis=1
         )
-        _col_order = ["Structure", "Target Z", "Carry regime", "ATM/FS ratio",
+        _col_order = ["Structure", "Target Z (spot)", "Carry regime", "ATM/FS ratio",
                       "Carry align", "Constraint", "Total", "Status"]
-        _score_cols = ["Target Z", "Carry regime", "ATM/FS ratio", "Carry align",
+        _score_cols = ["Target Z (spot)", "Carry regime", "ATM/FS ratio", "Carry align",
                        "Constraint", "Total"]
 
         display_df = display_df[_col_order]

@@ -50,6 +50,11 @@ PKG_ROOT = Path(__file__).resolve().parent
 KELLY_SOURCE_STANDALONE = "Standalone"
 KELLY_SOURCE_TRADE_REC = "From Trade Rec"
 
+# Max recommended variants surfaced in the "From Trade Rec" dropdown. Variants are
+# built in the same order Trade View renders them (selector_result.shortlist), so
+# this is the first N of that list.
+TRADE_REC_DROPDOWN_LIMIT = 20
+
 MODE_OPTION1 = "Use fixed probability bins"
 MODE_OPTION2 = "Use fixed spot ranges"
 
@@ -322,7 +327,7 @@ def _live_trade_rec_candidates() -> list[TradeRecCandidate]:
                     max_loss_pct=pv.max_loss_pct,
                 )
             )
-            if len(candidates) >= 10:
+            if len(candidates) >= TRADE_REC_DROPDOWN_LIMIT:
                 return candidates
     return candidates
 

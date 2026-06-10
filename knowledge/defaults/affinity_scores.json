@@ -52,6 +52,10 @@
     "atmfsratio": [
       1.5,
       2.0
+    ],
+    "carry_alignment": [
+      0.25,
+      0.65
     ]
   },
   "structures": {
