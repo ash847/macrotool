@@ -416,8 +416,8 @@ class TestComparatorInputBuilder:
         assert inputs.score_pairs_by_structure["vanilla"].base is inputs.base_scores_by_structure["vanilla"]
         assert inputs.score_pairs_by_structure["vanilla"].pm is inputs.pm_scores_by_structure["vanilla"]
         assert isinstance(inputs.scenario_aggregates_by_structure["vanilla"], ScenarioAggregates)
-        assert len(inputs.scenarios) == 20
-        assert len(inputs.scenario_rows_by_structure["vanilla"]) == 20
+        assert len(inputs.scenarios) == 29
+        assert len(inputs.scenario_rows_by_structure["vanilla"]) == 29
         assert inputs.variant_evaluations_by_structure["vanilla"]
         assert inputs.variant_evaluations_by_structure["vanilla"][0].rows
         assert inputs.variant_evaluations_by_structure["vanilla"][0].aggregates.correct_path.avg_pnl_pct is not None
@@ -452,8 +452,8 @@ class TestComparatorInputBuilder:
 class TestScenarioAggregates:
     def test_summarize_scenario_rows_groups_current_grid_cells(self):
         rows = [
-            {"scenario_id": "25%T|F", "pnl_pct": -0.01, "price_pct": 0.01},
-            {"scenario_id": "50%T|F", "pnl_pct": -0.02, "price_pct": 0.01},
+            {"scenario_id": "25%T|S", "pnl_pct": -0.01, "price_pct": 0.01},
+            {"scenario_id": "50%T|S", "pnl_pct": -0.02, "price_pct": 0.01},
             {"scenario_id": "25%T|t%→K", "pnl_pct": 0.03, "price_pct": 0.04},
             {"scenario_id": "50%T|t%→K", "pnl_pct": 0.05, "price_pct": 0.06},
             {"scenario_id": "Expiry|K", "pnl_pct": 0.20, "price_pct": 0.25},
@@ -463,7 +463,7 @@ class TestScenarioAggregates:
             {"scenario_id": "25%T|K+½σ", "pnl_pct": 0.07, "price_pct": 0.08},
             {"scenario_id": "50%T|K+½σ", "pnl_pct": 0.08, "price_pct": 0.09},
             {"scenario_id": "Expiry|K+½σ", "pnl_pct": 0.09, "price_pct": 0.10},
-            {"scenario_id": "1w|Δvol", "pnl_pct": -0.005, "price_pct": 0.02},
+            {"scenario_id": "2w|Δvol", "pnl_pct": -0.005, "price_pct": 0.02},
             {"scenario_id": "25%T|Δvol", "pnl_pct": 0.01, "price_pct": 0.03},
             {"scenario_id": "50%T|Δvol", "pnl_pct": 0.02, "price_pct": 0.04},
         ]

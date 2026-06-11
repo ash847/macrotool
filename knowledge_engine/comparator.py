@@ -653,11 +653,11 @@ def build_comparator_inputs(
 
 def summarize_scenario_rows(rows: list[dict]) -> ScenarioAggregates:
     return ScenarioAggregates(
-        slow_path=_aggregate_rows(rows, ("25%T|F", "50%T|F", "25%T|t%→K", "50%T|t%→K")),
+        slow_path=_aggregate_rows(rows, ("25%T|S", "50%T|S", "25%T|t%→K", "50%T|t%→K")),
         correct_path=_aggregate_rows(rows, ("25%T|t%→K", "50%T|t%→K", "Expiry|K")),
         wrong_way=_aggregate_rows(rows, ("25%T|−1σ", "50%T|−1σ", "Expiry|−1σ")),
         overshoot=_aggregate_rows(rows, ("25%T|K+½σ", "50%T|K+½σ", "Expiry|K+½σ")),
-        vol_sensitivity=_aggregate_rows(rows, ("1w|Δvol", "25%T|Δvol", "50%T|Δvol")),
+        vol_sensitivity=_aggregate_rows(rows, ("2w|Δvol", "25%T|Δvol", "50%T|Δvol")),
         expiry_target_price_pct=_row_value(rows, "Expiry|K", "price_pct"),
         expiry_target_pnl_pct=_row_value(rows, "Expiry|K", "pnl_pct"),
     )

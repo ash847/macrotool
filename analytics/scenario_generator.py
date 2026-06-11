@@ -20,18 +20,20 @@ from __future__ import annotations
 
 import math
 
-ONE_WEEK_YEARS = 7.0 / 365.0
+TWO_WEEKS_YEARS = 14.0 / 365.0
 SIX_WEEKS_YEARS = 42.0 / 365.0
 
-GRID_ROWS = ["1w", "25%T", "50%T", "Expiry"]
-GRID_COLS = ["S", "t%→K", "K", "K+½σ", "−½σ", "−1σ", "Δvol"]
+GRID_ROWS = ["2w", "25%T", "50%T", "Expiry"]
+GRID_COLS = ["S", "t%→K", "K−½σ", "K", "K+½σ", "−½σ", "−1σ", "Δvol"]
 
 # Human-readable labels for display. The grid id `K` is the trade *target*, not
 # the option strike — spell that out so it doesn't read as "strike". The −½σ/−1σ
-# columns offset from SPOT (not the target), so spell that out too.
+# columns offset from SPOT (not the target); the K±½σ columns offset from the
+# TARGET — spell both out so they don't get confused.
 GRID_COL_LABELS = {
     "S": "No move",
     "t%→K": "t%→target",
+    "K−½σ": "target −½σ",
     "K": "target",
     "K+½σ": "target +½σ",
     "−½σ": "spot −½σ",
@@ -44,17 +46,19 @@ def col_label(col: str) -> str:
     return GRID_COL_LABELS.get(col, col)
 
 ROW_TIME_FRACTIONS: dict[str, float | None] = {
-    "1w": None,
+    "2w": None,
     "25%T": 0.25,
     "50%T": 0.50,
     "Expiry": 1.0,
 }
 
 VALID_GRID_CELLS = {
-    "1w": ["S", "Δvol"],
+    # The 2w (early) row now exposes the full directional move set — same columns
+    # as the interim rows — so the "fast move" path is visible, not greyed out.
+    "2w": GRID_COLS[:],
     "25%T": GRID_COLS[:],
     "50%T": GRID_COLS[:],
-    "Expiry": ["S", "K", "K+½σ", "−1σ"],
+    "Expiry": ["S", "K−½σ", "K", "K+½σ", "−1σ"],
 }
 
 
@@ -67,7 +71,7 @@ def get_enumerations() -> dict:
         # Legacy aliases retained for callers/tests that only need discovery.
         "families": GRID_ROWS,
         "time_fractions": [0.25, 0.50, 0.75, 1.00],
-        "fwd_rules": ["S", "t%→K", "K", "K+½σ", "−½σ", "−1σ", "Δvol"],
+        "fwd_rules": GRID_COLS[:],
         "vol_rules": ["VOL_FLAT", "VOL_AVG"],
         "skew_rules": ["SKEW_UNCHANGED"],
     }
@@ -76,7 +80,7 @@ def get_enumerations() -> dict:
 def valid_grid_rows(T: float) -> list[str]:
     rows = ["25%T", "50%T", "Expiry"]
     if T > SIX_WEEKS_YEARS:
-        return ["1w"] + rows
+        return ["2w"] + rows
     return rows
 
 
@@ -112,7 +116,7 @@ def generate_scenarios(trade_inputs: dict) -> list[dict]:
 
     scenarios: list[dict] = []
     for row in valid_grid_rows(T):
-        elapsed = ONE_WEEK_YEARS if row == "1w" else T * float(ROW_TIME_FRACTIONS[row])
+        elapsed = TWO_WEEKS_YEARS if row == "2w" else T * float(ROW_TIME_FRACTIONS[row])
         tau = max(T - elapsed, 0.0)
         sigma_t = base_vol * math.sqrt(elapsed) if elapsed > 0 else 0.0
 
@@ -152,6 +156,10 @@ def _apply_spot_rule(rule: str, spot: float, K: float, sigma_t: float, direction
         raise ValueError("t%→K requires row-specific progress fraction")
     if rule == "K":
         return K
+    if rule == "K−½σ":
+        # Half a sigma SHORT of the target, in the direction of the view — a
+        # partial move that falls just short of the objective (target-anchored).
+        return K * math.exp(-direction * 0.5 * sigma_t)
     if rule == "K+½σ":
         return K * math.exp(direction * 0.5 * sigma_t)
     if rule == "−½σ":
@@ -161,14 +169,13 @@ def _apply_spot_rule(rule: str, spot: float, K: float, sigma_t: float, direction
     raise ValueError(f"Unknown spot_rule: {rule!r}")
 
 
-def _proportional_progress_spot(row: str, spot: float, K: float) -> float:
-    """Spot level at proportional progress from spot toward the target K."""
-    if row == "25%T":
-        p = 0.25
-    elif row == "50%T":
-        p = 0.50
-    else:
-        raise ValueError(f"Row {row!r} does not support proportional-progress spot")
+def _proportional_progress_spot(p: float, spot: float, K: float) -> float:
+    """Spot at proportional progress `p` from spot toward the target K (log-space).
+
+    `p` is the fraction of the tenor elapsed at this checkpoint (= time_fraction),
+    so 25%T → 0.25, 50%T → 0.50, and the 2w row → 14/365 / T. This generalises the
+    old per-row mapping so the early (2w) row supports the progress column too.
+    """
     return math.exp((1.0 - p) * math.log(spot) + p * math.log(K))
 
 
@@ -188,7 +195,8 @@ def _build_cell_scenario(
     direction: int,
 ) -> dict:
     if col == "t%→K":
-        scenario_spot = _proportional_progress_spot(row, spot, K)
+        p = (elapsed / T) if T > 0 else 0.0
+        scenario_spot = _proportional_progress_spot(p, spot, K)
     elif col == "Δvol":
         # Hold spot at no-move at every checkpoint so the Δvol column isolates the
         # vol shock (a clean vega read). Anchoring interim rows to proportional

@@ -118,7 +118,9 @@ Primary structures (overlay_only=False) are capped at max_primary (default 3). O
 - **Spot** anchors the grid geometry (where scenarios sit, what "no move" means).
 - **Forward** anchors pricing and construction (Black-76 MtM, `direction = sign(K/F)`).
 
-Column set: `[S, t%→K, K, K+½σ, −½σ, −1σ, Δvol]`. `S` = spot unchanged (displayed as "No move" in the UI). `K`/`K+½σ` remain target-anchored (unchanged). `t%→K` now tracks progress spot→K (was forward→K).
+Column set: `[S, t%→K, K−½σ, K, K+½σ, −½σ, −1σ, Δvol]`. `S` = spot unchanged (displayed as "No move" in the UI). `K−½σ`/`K`/`K+½σ` are **target-anchored** (`K±½σ = K·e^{±direction·½σ_t}`): `K−½σ` = half a sigma *short* of the target in the view's direction (a partial move that undershoots), `K+½σ` = overshoot. `t%→K` tracks progress spot→K with progress fraction `p = elapsed/T` (so 25%T→0.25, 50%T→0.50, early row→14/365 ÷ T).
+
+Rows: `[2w, 25%T, 50%T, Expiry]`. The early **2w** row (was `1w`) only appears for tenors `> 6 weeks` (`valid_grid_rows`) and now exposes the **full directional move set** (same columns as the interim rows) so the "fast move" path — reaching/overshooting the target inside two weeks — is visible rather than greyed out. `−½σ`/`−1σ` stay spot-anchored adverse cells.
 
 **Per-row roll-down forward:** the `S` cell's `scenario_fwd` gives the carry-derived forward at each time checkpoint. It decays toward spot at expiry and is surfaced in the UI row headers (`25%T · fwd 41.2`) so the carry tailwind remains visible without being the grid's centre.
 

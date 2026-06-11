@@ -4,7 +4,7 @@
   "_what_the_weights_mean": "Each multiplier scales the importance of one explicit grid cell. A value of 1.0 means baseline importance; higher values emphasize the scenario, lower values de-emphasize it. Final structure scoring uses a weighted average across valid cells.",
   "_baseline_logic": "All valid grid cells start at the universal baseline multiplier. The active base weighting overrides individual cells. Matching PM overlays then multiply specific cells on top. Final scenario weights are the normalized multipliers over the valid cells for that tenor.",
   "_grid_rows": [
-    "1w",
+    "2w",
     "25%T",
     "50%T",
     "Expiry"
@@ -12,6 +12,7 @@
   "_grid_cols": [
     "S",
     "t%→K",
+    "K−½σ",
     "K",
     "K+½σ",
     "−½σ",
@@ -21,6 +22,7 @@
   "scenario_column_descriptions": {
     "S": "No move — spot ends unchanged from today (the grid's spot-anchored centre). Tests time decay and vol sensitivity in isolation. The forward is shown per time-row as a decaying reference.",
     "t%→K": "Early touch then retrace — spot trades through the target at this time point but mean-reverts before expiry. Critical for path-dependent features: barriers, American-style triggers, and structures whose value is locked in on a touch.",
+    "K−½σ": "Falls just short — spot ends half a sigma short of the target, in the direction of the view. A partial move that does not quite reach the objective; tests whether the structure still pays when the move undershoots the target.",
     "K": "Target hit — spot ends at the target level. The PM's directional view plays out as expected.",
     "K+½σ": "Overshoot — spot moves significantly beyond the target. Tests whether the structure captures or is exposed to extended moves beyond the initial objective.",
     "−½σ": "Modest adverse move — spot drifts half a sigma against the trade. A mild correction or slow bleed; tests whether the structure bleeds slowly or holds up on a partial reversal.",

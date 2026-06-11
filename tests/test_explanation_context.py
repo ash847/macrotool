@@ -46,8 +46,12 @@ def _item(structure_id: str, rank: int, display_name: str) -> StructureShortlist
 
 
 def test_render_explanation_pack_includes_sections_and_disclosure():
+    # Both contenders are spreads so the grid-weighted ranking — whichever wins —
+    # keeps a spread as "chosen", which deterministically fires the
+    # target_supports_spread summary reason (Summary section). Avoids coupling the
+    # test to exact scenario-weighted P&L magnitudes.
     chosen = _item("1x1_spread", 1, "1x1 Spread")
-    challenger = _item("vanilla", 2, "Vanilla")
+    challenger = _item("1x2_spread", 2, "1x2 Spread")
     selector_result = StructureSelectionResult(shortlist=[chosen, challenger], rules_fired=["test"])
     inputs = build_comparator_inputs(
         _ms(),

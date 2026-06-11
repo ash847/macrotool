@@ -3,7 +3,7 @@ import math
 from analytics.scenario_generator import (
     GRID_COLS,
     GRID_ROWS,
-    ONE_WEEK_YEARS,
+    TWO_WEEKS_YEARS,
     SIX_WEEKS_YEARS,
     cell_id,
     generate_scenarios,
@@ -28,11 +28,11 @@ class TestGridStructure:
         assert enums["grid_rows"] == GRID_ROWS
         assert enums["grid_cols"] == GRID_COLS
 
-    def test_1w_row_only_when_tenor_gt_6w(self):
+    def test_2w_row_only_when_tenor_gt_6w(self):
         short = valid_grid_cells_for_tenor(SIX_WEEKS_YEARS)
         long = valid_grid_cells_for_tenor(SIX_WEEKS_YEARS + 0.01)
-        assert ("1w", "S") not in short
-        assert ("1w", "S") in long
+        assert ("2w", "S") not in short
+        assert ("2w", "S") in long
 
     def test_generated_ids_follow_row_col_scheme(self):
         scenarios = generate_scenarios(_INPUTS)
@@ -70,10 +70,10 @@ class TestSigmaScaling:
 
 
 class TestRowSemantics:
-    def test_1w_s_uses_one_week_elapsed_time(self):
+    def test_2w_s_uses_two_week_elapsed_time(self):
         scenarios = generate_scenarios(_INPUTS)
-        sc = next(s for s in scenarios if s["id"] == cell_id("1w", "S"))
-        assert sc["derived"]["elapsed_time"] == round(ONE_WEEK_YEARS, 8)
+        sc = next(s for s in scenarios if s["id"] == cell_id("2w", "S"))
+        assert sc["derived"]["elapsed_time"] == round(TWO_WEEKS_YEARS, 8)
 
     def test_progress_row_moves_partway_to_target_in_log_space(self):
         scenarios = generate_scenarios(_INPUTS)
