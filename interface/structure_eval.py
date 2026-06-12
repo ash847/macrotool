@@ -212,6 +212,19 @@ def _fit_height(prefix: str, n_rows: int) -> int | None:
     return 38 + 35 * max(n_rows, 1) + 2  # header + rows + border
 
 
+def _show_df(df, *, key=None, height=None) -> None:
+    """st.dataframe wrapper that OMITS height when None. Some Streamlit versions
+    reject height=None (must be a positive int / 'content' / 'stretch'), so we only
+    pass it when set — Trade View gets the default capped table, Batch gets a full
+    content height (no inner scrollbar)."""
+    kwargs = {"use_container_width": True, "hide_index": True}
+    if key is not None:
+        kwargs["key"] = key
+    if height is not None:
+        kwargs["height"] = height
+    st.dataframe(df, **kwargs)
+
+
 def render_structure_variants(
     flow: ConversationFlow,
     is_call: bool,
@@ -302,8 +315,8 @@ def render_structure_variants(
                 if _has_wing:
                     r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
                 _rows.append(r)
-            st.dataframe(
-                pd.DataFrame(_rows), use_container_width=True, hide_index=True,
+            _show_df(
+                pd.DataFrame(_rows),
                 key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
                 height=_fit_height(key_prefix, len(_rows)),
             )
@@ -502,8 +515,8 @@ def render_structure_evaluation(
                     "Multiplier": f"{_ev_multipliers[_cid]:.1f}",
                     "Weight": f"{_ev_weights[_cid]:.1%}",
                 })
-        st.dataframe(
-            pd.DataFrame(_w_rows), use_container_width=True, hide_index=True,
+        _show_df(
+            pd.DataFrame(_w_rows),
             key=_df_key(key_prefix, "weights"),
             height=_fit_height(key_prefix, len(_w_rows)),
         )
@@ -513,8 +526,8 @@ def render_structure_evaluation(
                 "Weighting": _ctx.id.replace("_", " "),
                 "Reasoning": _ctx.comment,
             } for _ctx in _fired_all]
-            st.dataframe(
-                pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True,
+            _show_df(
+                pd.DataFrame(_ctx_rows),
                 key=_df_key(key_prefix, "ctx"),
                 height=_fit_height(key_prefix, len(_ctx_rows)),
             )
@@ -638,8 +651,8 @@ def render_structure_evaluation(
                         ),
                     })
             if _summary_rows:
-                st.dataframe(
-                    pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True,
+                _show_df(
+                    pd.DataFrame(_summary_rows),
                     key=_df_key(key_prefix, f"sum_{_rank_idx}"),
                     height=_fit_height(key_prefix, len(_summary_rows)),
                 )
@@ -667,8 +680,8 @@ def render_structure_evaluation(
                         "Price":     f"{r['price_pct']:.2%}  ({fmt_ccy(r['price_ccy'], _ev_base)})",
                         "P&L":       f"{r['pnl_pct']:+.2%}  ({fmt_ccy(r['pnl_ccy'], _ev_base)})",
                     } for r in _row_rows])
-                    st.dataframe(
-                        _row_df, use_container_width=True, hide_index=True,
+                    _show_df(
+                        _row_df,
                         key=_df_key(key_prefix, f"row_{_rank_idx}_{_row}"),
                         height=_fit_height(key_prefix, len(_row_df)),
                     )
