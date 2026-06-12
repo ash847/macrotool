@@ -178,6 +178,56 @@ def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> No
     ctx["multipliers"] = _compact_multipliers(multipliers, baseline)
 
 
+def _resolved_weights(ctx: dict, baseline: float) -> dict[tuple[str, str], float]:
+    """Per-(row, col) effective weight over valid cells: the cell's multiplier, or
+    the baseline where unset. This is the importance each scenario carries before
+    normalisation (scoring normalises these over the valid cells)."""
+    mult = ctx.get("multipliers", {})
+    weights: dict[tuple[str, str], float] = {}
+    for row in GRID_ROWS:
+        for col in VALID_GRID_CELLS[row]:
+            weights[(row, col)] = float(mult.get(cell_id(row, col), baseline))
+    return weights
+
+
+def _render_weight_totals(ctx: dict, baseline: float) -> None:
+    """On-the-fly (non-input) summary: total weight per row and per column, each as
+    a share of the grand total. Recomputes live from the editor's current values."""
+    weights = _resolved_weights(ctx, baseline)
+    grand = sum(weights.values())
+    st.markdown("**Weighting totals** — live, computed from the grid above (not an input)")
+    if grand <= 0:
+        st.caption("No positive weights to total.")
+        return
+
+    row_rows = []
+    for row in GRID_ROWS:
+        rt = sum(w for (r, _c), w in weights.items() if r == row)
+        row_rows.append({"Row": row, "Total weight": round(rt, 2), "% of total": rt / grand})
+    col_rows = []
+    for col in GRID_COLS:
+        ct = sum(w for (_r, c), w in weights.items() if c == col)
+        col_rows.append({"Column": col_label(col), "Total weight": round(ct, 2), "% of total": ct / grand})
+
+    pct_cfg = {"% of total": st.column_config.NumberColumn("% of total", format="%.1f%%")}
+    df_rows = pd.DataFrame(row_rows)
+    df_rows["% of total"] = df_rows["% of total"] * 100
+    df_cols = pd.DataFrame(col_rows)
+    df_cols["% of total"] = df_cols["% of total"] * 100
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.caption("Per row")
+        st.dataframe(df_rows, hide_index=True, use_container_width=True, column_config=pct_cfg)
+    with c2:
+        st.caption("Per column")
+        st.dataframe(df_cols, hide_index=True, use_container_width=True, column_config=pct_cfg)
+    st.caption(
+        f"Grand total weight across valid cells: **{grand:.2f}** "
+        "(row totals and column totals each sum to this; their percentages each sum to 100%)."
+    )
+
+
 def _render_context_weights(cfg: dict) -> None:
     contexts = cfg["base_weightings"]
     if not contexts:
@@ -194,6 +244,10 @@ def _render_context_weights(cfg: dict) -> None:
     st.markdown(f"**Fires when:** {_fmt_conditions(ctx.get('when', []))}")
     st.caption(f"Explicit overrides in this weighting: **{len(overrides)}**")
     _render_grid_editor(ctx, cfg["baseline"], cfg["min_multiplier"])
+
+    st.divider()
+    _render_weight_totals(ctx, cfg["baseline"])
+    st.divider()
 
     if st.button("Save multipliers", type="primary", use_container_width=True):
         try:
