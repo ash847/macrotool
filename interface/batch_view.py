@@ -28,10 +28,6 @@ from pricing.forwards import rate_context_for_snapshot
 
 BATCH_FILE = Path(__file__).parent / "batch_trades.json"
 
-# Pairs validated in the knowledge layer; others run through the engine but are
-# flagged (rate context + vol surface build, but per-pair conventions are unproven).
-_WIRED_PAIRS = {"USDBRL", "USDTRY", "EURPLN", "GBPUSD"}
-
 _TENOR_RE = re.compile(r"^(\d+(?:\.\d+)?)([mwyMWY])$")
 
 
@@ -151,12 +147,11 @@ def _render_trade_analytics(flow, is_admin: bool, key_prefix: str) -> None:
 
     # Compact market read (mirrors the top of Trade View).
     pair = flow.view.pair
-    flag = "" if pair in _WIRED_PAIRS else "  ·  ⚠ unvalidated pair (engine runs, conventions unproven)"
     tz = f"{ms.target_z:+.2f}σ" if ms.target_z is not None else "—"
     st.caption(
         f"**{pair}** {'Long' if is_call else 'Short'} · {flow.view.horizon_days}d · "
         f"spot {ms.spot:.4f} · fwd {ms.fwd:.4f} · target {target:.4f} · "
-        f"target_z(fwd) {tz} · carry regime {ms.carry_regime}{flag}"
+        f"target_z(fwd) {tz} · carry regime {ms.carry_regime}"
     )
     if ms.target_z is not None and abs(ms.target_z) < 0.25:
         st.info("Target is < 0.25σ from the forward — a small move to structure around.")
