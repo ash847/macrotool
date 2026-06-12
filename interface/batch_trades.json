@@ -1,8 +1,17 @@
 {
   "_comment": "Batch input for the Batch page. Each entry is '<tenor> <pair> <target-level>', e.g. '3m USDBRL 5.60'. Tenor units: m (months), w (weeks), y (years). Direction is inferred from the target vs the horizon forward. Edit this file and click 'Run batch'. JSON deploys immediately on Streamlit Cloud (no version bump).",
   "trades": [
-    "3m USDBRL 5.60",
+    "3m USDBRL 4.90",
+    "3m USDBRL 5.20",
+    "3m USDBRL 5.05",
+    "6m USDBRL 6.80",
+    "6m USDBRL 7.00",
+    "6m USDBRL 7.25",
+    "3m EURUSD 1.15",
     "3m EURUSD 1.20",
-    "6m EURUSD 0.99"
+    "3m EURUSD 1.25",
+    "6m EURUSD 0.98",
+    "6m EURUSD 0.96",
+    "6m EURUSD 0.94"
   ]
 }
