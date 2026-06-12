@@ -201,6 +201,17 @@ def _df_key(prefix: str, suffix: str) -> str | None:
     return f"{prefix}{suffix}" if prefix else None
 
 
+def _fit_height(prefix: str, n_rows: int) -> int | None:
+    """Full pixel height for a dataframe so it shows every row WITHOUT an internal
+    scrollbar — only when a key_prefix is set (Batch page). A capped-height table
+    traps the mouse wheel and blocks the page from scrolling past it; sizing to the
+    content removes that trap. Empty prefix → None → Streamlit's default height
+    (Trade View unchanged)."""
+    if not prefix:
+        return None
+    return 38 + 35 * max(n_rows, 1) + 2  # header + rows + border
+
+
 def render_structure_variants(
     flow: ConversationFlow,
     is_call: bool,
@@ -294,6 +305,7 @@ def render_structure_variants(
             st.dataframe(
                 pd.DataFrame(_rows), use_container_width=True, hide_index=True,
                 key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
+                height=_fit_height(key_prefix, len(_rows)),
             )
 
 
@@ -493,6 +505,7 @@ def render_structure_evaluation(
         st.dataframe(
             pd.DataFrame(_w_rows), use_container_width=True, hide_index=True,
             key=_df_key(key_prefix, "weights"),
+            height=_fit_height(key_prefix, len(_w_rows)),
         )
         if _fired_all:
             _ctx_rows = [{
@@ -503,6 +516,7 @@ def render_structure_evaluation(
             st.dataframe(
                 pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True,
                 key=_df_key(key_prefix, "ctx"),
+                height=_fit_height(key_prefix, len(_ctx_rows)),
             )
         else:
             st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
@@ -627,6 +641,7 @@ def render_structure_evaluation(
                 st.dataframe(
                     pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True,
                     key=_df_key(key_prefix, f"sum_{_rank_idx}"),
+                    height=_fit_height(key_prefix, len(_summary_rows)),
                 )
 
             with st.expander("Scenarios", expanded=False):
@@ -655,4 +670,5 @@ def render_structure_evaluation(
                     st.dataframe(
                         _row_df, use_container_width=True, hide_index=True,
                         key=_df_key(key_prefix, f"row_{_rank_idx}_{_row}"),
+                        height=_fit_height(key_prefix, len(_row_df)),
                     )
