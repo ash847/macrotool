@@ -188,7 +188,7 @@ with st.sidebar:
 
     user_nav_labels = ("Trade View", "Agent", "Kelly Sizing")
     nav_labels = (
-        user_nav_labels + ("Market Data", "Structure Selection", "Scenario Weightings", "Query log")
+        user_nav_labels + ("Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log")
         if IS_ADMIN
         else user_nav_labels
     )
@@ -863,6 +863,10 @@ elif st.session_state.page == "Structure Selection":
 elif st.session_state.page == "Scenario Weightings":
     from interface.context_rules import render as _render_context_rules
     _render_context_rules()
+
+elif st.session_state.page == "Batch":
+    from interface.batch_view import render as _render_batch
+    _render_batch(make_flow=_make_flow, snapshot=_get_effective_snapshot(), is_admin=IS_ADMIN)
 
 elif st.session_state.page == "Kelly Sizing":
     from interface.kelly_v2.app import render_page as _render_kelly_page

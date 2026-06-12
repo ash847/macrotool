@@ -194,12 +194,20 @@ def _build_smile(flow: ConversationFlow):
         return None
 
 
+def _df_key(prefix: str, suffix: str) -> str | None:
+    """Stable, unique st.dataframe key when a prefix is supplied (e.g. the Batch page
+    renders these tables once per trade on one page). Empty prefix → None, preserving
+    the single-render Trade View behaviour exactly."""
+    return f"{prefix}{suffix}" if prefix else None
+
+
 def render_structure_variants(
     flow: ConversationFlow,
     is_call: bool,
     target: float | None,
     stop_price: float | None,
     loss_budget: float | None,
+    key_prefix: str = "",
 ) -> None:
     from analytics.structure_pricer import price_variants as _price_variants
 
@@ -283,7 +291,10 @@ def render_structure_variants(
                 if _has_wing:
                     r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
                 _rows.append(r)
-            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+            st.dataframe(
+                pd.DataFrame(_rows), use_container_width=True, hide_index=True,
+                key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +305,7 @@ def render_structure_evaluation(
     flow: ConversationFlow,
     is_admin: bool,
     target: float | None,
+    key_prefix: str = "",
 ) -> None:
     if not (flow.market_state and flow.selector_result and flow.selector_result.shortlist and target is not None):
         return
@@ -478,14 +490,20 @@ def render_structure_evaluation(
                     "Multiplier": f"{_ev_multipliers[_cid]:.1f}",
                     "Weight": f"{_ev_weights[_cid]:.1%}",
                 })
-        st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(_w_rows), use_container_width=True, hide_index=True,
+            key=_df_key(key_prefix, "weights"),
+        )
         if _fired_all:
             _ctx_rows = [{
                 "Layer": "Base" if _ctx == _base_fired else "Overlay",
                 "Weighting": _ctx.id.replace("_", " "),
                 "Reasoning": _ctx.comment,
             } for _ctx in _fired_all]
-            st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
+            st.dataframe(
+                pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True,
+                key=_df_key(key_prefix, "ctx"),
+            )
         else:
             st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
 
@@ -554,7 +572,7 @@ def render_structure_evaluation(
         reverse=True,
     )
     st.session_state["kelly_ranked_trade_rec_variants"] = _all_ranked
-    for _ranked_entry in _all_ranked:
+    for _rank_idx, _ranked_entry in enumerate(_all_ranked):
         _ev_v = _ranked_entry["ev_v"]
         _pv0 = _ev_v["pv"]
         _score = _ev_v["score"]
@@ -606,7 +624,10 @@ def render_structure_evaluation(
                         ),
                     })
             if _summary_rows:
-                st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
+                st.dataframe(
+                    pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True,
+                    key=_df_key(key_prefix, f"sum_{_rank_idx}"),
+                )
 
             with st.expander("Scenarios", expanded=False):
                 _ev_by_row: dict[str, list] = {}
@@ -631,4 +652,7 @@ def render_structure_evaluation(
                         "Price":     f"{r['price_pct']:.2%}  ({fmt_ccy(r['price_ccy'], _ev_base)})",
                         "P&L":       f"{r['pnl_pct']:+.2%}  ({fmt_ccy(r['pnl_ccy'], _ev_base)})",
                     } for r in _row_rows])
-                    st.dataframe(_row_df, use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        _row_df, use_container_width=True, hide_index=True,
+                        key=_df_key(key_prefix, f"row_{_rank_idx}_{_row}"),
+                    )
