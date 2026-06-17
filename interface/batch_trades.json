@@ -2,7 +2,7 @@
   "_comment": "Named batches for the Batch page. Each batch has a 'name' and a 'trades' list; each trade is '<tenor> <pair> <target-level>' (e.g. '3m USDBRL 5.60'). Tenor units: m (months), w (weeks), y (years). Direction is inferred from target vs the horizon forward. Pick a batch on the page, then click 'Run batch'. JSON deploys immediately on Streamlit Cloud (no version bump).",
   "batches": [
     {
-      "name": "USDBRL 3m/6m sweep",
+      "name": "USDBRL big move",
       "trades": [
         "3m USDBRL 4.90",
         "3m USDBRL 5.20",
@@ -13,7 +13,7 @@
       ]
     },
     {
-      "name": "EURUSD 3m/6m sweep",
+      "name": "EURUSD big move",
       "trades": [
         "3m EURUSD 1.15",
         "3m EURUSD 1.20",
@@ -24,7 +24,7 @@
       ]
     },
     {
-      "name": "All 12",
+      "name": "All 12 big move",
       "trades": [
         "3m USDBRL 4.90",
         "3m USDBRL 5.20",
