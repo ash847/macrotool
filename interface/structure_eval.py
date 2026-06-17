@@ -593,6 +593,16 @@ def render_structure_evaluation(
 
     st.subheader("Structure Evaluation")
     st.markdown(f"**Active scenario weighting:** {_active_ctx}")
+    _ue = getattr(flow, "user_email", None)
+    try:
+        from knowledge_engine.scenario_weighter import get_scenario_weights_source as _src_fn
+        _wsrc = _src_fn(_ue)
+    except Exception:
+        _wsrc = ""
+    if _wsrc.startswith("supabase (personal"):
+        st.caption(f"⚙️ Weights profile: **personal** — {_ue}")
+    else:
+        st.caption("⚙️ Weights profile: **global**")
 
     _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
     _dir_lbl = "with-carry" if _ev_ms.with_carry else "counter-carry"
