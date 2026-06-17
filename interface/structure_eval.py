@@ -7,6 +7,7 @@ full scenario-weighted evaluation block with advisor pack preview.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pandas as pd
@@ -326,33 +327,239 @@ def render_structure_variants(
 # Structure evaluation (scenario-weighted P&L tables)
 # ---------------------------------------------------------------------------
 
+# P&L-driver buckets over the scenario-grid columns. Every GRID_COL maps to
+# exactly one bucket, so a variant's driver contributions sum back to its
+# weighted P&L (see driver_contribs). "Adverse" = the spot-anchored downside
+# cells; "Vega" = the vol-shock column.
+DRIVER_BUCKETS: dict[str, list[str]] = {
+    "Carry":       ["S"],
+    "Directional": ["t%→K", "K−½σ", "K", "K+½σ"],
+    "Adverse":     ["−½σ", "−1σ"],
+    "Vega":        ["Δvol"],
+}
+
+
+def driver_contribs(score) -> dict[str, float]:
+    """Decompose a ScoreResult's weighted P&L into driver buckets — the sum of
+    per-cell ``contrib_pct`` grouped by grid column. Exhaustive: the bucket
+    totals sum back to ``score.score_pct``."""
+    by_col: dict[str, float] = {}
+    for c in score.cells:
+        by_col[c.col] = by_col.get(c.col, 0.0) + c.contrib_pct
+    return {
+        bucket: sum(by_col.get(col, 0.0) for col in cols)
+        for bucket, cols in DRIVER_BUCKETS.items()
+    }
+
+
+@dataclass
+class VariantEval:
+    """One priced variant scored across the grid under baseline + context weights.
+
+    ``(structure_id, variant_label)`` is a stable identity across trades — the
+    delta-based labels in structure_variants.json are pair/tenor-independent — so
+    the Batch pivot can align the same variant across different trades.
+    """
+    structure_id: str
+    struct_label: str
+    variant_label: str
+    pv: object
+    rows: list
+    score: object        # ScoreResult — context (PM-overlay) weighted
+    score_base: object   # ScoreResult — baseline (pre-overlay) weighted
+
+    @property
+    def score_pct(self) -> float:
+        return self.score.score_pct
+
+    @property
+    def score_base_pct(self) -> float:
+        return self.score_base.score_pct
+
+    @property
+    def delta_pct(self) -> float:
+        """Weighting effect: context − baseline. This is what re-tuning moves."""
+        return self.score.score_pct - self.score_base.score_pct
+
+    @property
+    def drivers(self) -> dict[str, float]:
+        return driver_contribs(self.score)
+
+
+@dataclass
+class EvalResult:
+    """Pure output of compute_structure_evaluation — everything the render and the
+    Batch pivot need, with no Streamlit dependency."""
+    ms: object
+    is_call: bool
+    target: float
+    stop: float
+    loss_budget: float
+    inputs: dict
+    scenarios: list
+    smile: object
+    weighter: object
+    weights: dict
+    multipliers: dict
+    base_weights: dict
+    base_fired: object
+    overlay_fired: list
+    fired_all: list
+    active_ctx: str
+    base_ccy: str
+    structs: list        # legacy [{item, variants:[{pv,rows,score,score_base}], label}]
+    variants: list       # flat list[VariantEval], ranked by context score_ccy desc
+
+
+def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -> "EvalResult | None":
+    """Price every shortlist variant across the scenario grid, weight each under
+    the baseline and the active PM-overlay context, and rank them. Pure compute —
+    no rendering. Returns None when the flow has nothing to evaluate.
+
+    render_structure_evaluation renders from this; the Batch pivot consumes the
+    returned EvalResult (its ``variants`` + per-variant ``drivers``) directly.
+    """
+    if not (flow.market_state and flow.selector_result and flow.selector_result.shortlist and target is not None):
+        return None
+
+    from analytics.structure_pricer import PricedVariant as _PricedVariant, price_variants as _pv_fn
+    from analytics.scenario_generator import generate_scenarios as _gen_sc
+    from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
+    from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
+    from knowledge_engine.scenario_scorer import score_structure as _score_struct
+
+    ms = flow.market_state
+    is_call = flow.view.direction == "base_higher"
+    move = abs(target - ms.fwd) / ms.fwd
+    stop_pct = move / flow.target_rr
+    stop = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
+    loss_budget = LINEAR_NOTIONAL * stop_pct
+
+    weighter = _compute_w(
+        ms,
+        primary_objective=getattr(flow, "primary_objective", "Balanced"),
+        trade_management=getattr(flow, "trade_management", "Standard hold"),
+    )
+    weights = weighter.weights
+    multipliers = weighter.multipliers
+    base_fired = getattr(weighter, "base_fired", None)
+    if base_fired is not None:
+        base_weights = {
+            cid: base_fired.multipliers[cid] / sum(base_fired.multipliers.values())
+            for cid in base_fired.multipliers
+        }
+    else:
+        base_weights = weights
+
+    base_ccy = flow.view.pair[:3]
+    inputs = {
+        "spot": ms.spot,
+        "forward": ms.fwd,
+        "implied_vol": ms.vol,
+        "tenor_years": ms.T,
+        "target": target,
+        "r_d": ms.r_d,
+        "r_f": ms.r_f,
+    }
+    scenarios = _gen_sc(inputs)
+    smile = _build_smile(flow)
+
+    structs: list = []
+    for item in flow.selector_result.shortlist:
+        try:
+            pvs = _pv_fn(
+                ms, item.structure_id,
+                target=target, is_call=is_call,
+                stop_price=stop, loss_budget=loss_budget,
+                smile=smile,
+            )
+        except Exception:
+            continue
+        if not pvs:
+            continue
+        variants = []
+        for pv in pvs:
+            rows = _price_sc(pv, item.structure_id, scenarios, inputs, is_call, surface=smile)
+            variants.append({
+                "pv": pv,
+                "rows": rows,
+                "score": _score_struct(rows, weights),
+                "score_base": _score_struct(rows, base_weights),
+            })
+        if not variants:
+            continue
+        structs.append({"item": item, "variants": variants, "label": item.display_name})
+
+    # Linear benchmark (delta-1, max-loss capped) — mirrors Trade View.
+    linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
+    linear_pv = _PricedVariant(
+        variant_label="Delta 1 (max-loss capped)",
+        strikes=[], barrier=None, net_premium_pct=0.0, breakeven=None,
+        payoff_at_target_pct=None, rr_at_target=None, max_loss_pct=stop_pct,
+        wing_ratio=None, is_zero_cost=True, structure_notional=LINEAR_NOTIONAL,
+        net_premium_ccy=0.0, payoff_at_target_ccy=None, max_loss_ccy=loss_budget,
+    )
+    linear_rows = _price_linear_sc(scenarios, inputs, is_call, LINEAR_NOTIONAL, loss_budget)
+    structs.append({
+        "item": linear_item,
+        "variants": [{
+            "pv": linear_pv, "rows": linear_rows,
+            "score": _score_struct(linear_rows, weights),
+            "score_base": _score_struct(linear_rows, base_weights),
+        }],
+        "label": linear_item.display_name,
+    })
+
+    if not structs:
+        return None
+
+    # Active-context label (base + any overlays, first-match fallback).
+    overlay_fired = getattr(weighter, "overlay_fired", [])
+    fired_all = getattr(weighter, "fired", [])
+    active_parts: list[str] = []
+    if base_fired:
+        active_parts.append(base_fired.id.replace("_", " ").title())
+    if overlay_fired:
+        active_parts.extend(c.id.replace("_", " ").title() for c in overlay_fired)
+    if not active_parts and fired_all:
+        active_parts.append(fired_all[0].id.replace("_", " ").title())
+    active_ctx = " + ".join(active_parts) if active_parts else "Baseline grid"
+
+    flat = [
+        VariantEval(
+            structure_id=s["item"].structure_id,
+            struct_label=s["label"],
+            variant_label=v["pv"].variant_label,
+            pv=v["pv"], rows=v["rows"], score=v["score"], score_base=v["score_base"],
+        )
+        for s in structs for v in s["variants"]
+    ]
+    flat.sort(key=lambda ve: ve.score.score_ccy if ve.score.score_ccy is not None else 0.0, reverse=True)
+
+    return EvalResult(
+        ms=ms, is_call=is_call, target=target, stop=stop, loss_budget=loss_budget,
+        inputs=inputs, scenarios=scenarios, smile=smile,
+        weighter=weighter, weights=weights, multipliers=multipliers, base_weights=base_weights,
+        base_fired=base_fired, overlay_fired=overlay_fired, fired_all=fired_all,
+        active_ctx=active_ctx, base_ccy=base_ccy, structs=structs, variants=flat,
+    )
+
+
 def render_structure_evaluation(
     flow: ConversationFlow,
     is_admin: bool,
     target: float | None,
     key_prefix: str = "",
 ) -> None:
-    if not (flow.market_state and flow.selector_result and flow.selector_result.shortlist and target is not None):
+    _res = compute_structure_evaluation(flow, target)
+    if _res is None:
         return
 
-    _ev_ms = flow.market_state
-    _ev_is_call = flow.view.direction == "base_higher"
-    _ev_target = target
-    _ev_move = abs(_ev_target - _ev_ms.fwd) / _ev_ms.fwd
-    _ev_stop_pct = _ev_move / flow.target_rr
-    _ev_stop = _ev_ms.fwd * (1 - _ev_stop_pct) if _ev_is_call else _ev_ms.fwd * (1 + _ev_stop_pct)
-    _ev_loss_budget = LINEAR_NOTIONAL * _ev_stop_pct
-
-    from analytics.structure_pricer import PricedVariant as _PricedVariant, price_variants as _pv_fn
     from analytics.scenario_generator import (
         GRID_COLS as _SC_GRID_COLS,
         col_label as _sc_col_label,
-        generate_scenarios as _gen_sc,
         valid_grid_rows as _valid_grid_rows,
     )
-    from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
-    from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
-    from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
     from conversation.explanation_context import (
         render_explanation_pack_overview as _render_expl_overview,
         render_structure_comparisons as _render_structure_comparisons,
@@ -364,126 +571,23 @@ def render_structure_evaluation(
         summarize_scenario_rows as _summarize_scenario_rows,
     )
 
-    _ev_weighter = _compute_w(
-        _ev_ms,
-        primary_objective=getattr(flow, "primary_objective", "Balanced"),
-        trade_management=getattr(flow, "trade_management", "Standard hold"),
-    )
-    _ev_weights  = _ev_weighter.weights
-    _ev_multipliers = _ev_weighter.multipliers
-    _ev_base_fired = getattr(_ev_weighter, "base_fired", None)
-    if _ev_base_fired is not None:
-        _ev_base_weights = {
-            _cid: _ev_base_fired.multipliers[_cid] / sum(_ev_base_fired.multipliers.values())
-            for _cid in _ev_base_fired.multipliers
-        }
-    else:
-        _ev_base_weights = _ev_weights
-
-    _ev_base = flow.view.pair[:3]
-
-    _ev_inputs = {
-        "spot": _ev_ms.spot,
-        "forward": _ev_ms.fwd,
-        "implied_vol": _ev_ms.vol,
-        "tenor_years": _ev_ms.T,
-        "target": _ev_target,
-        "r_d": _ev_ms.r_d,
-        "r_f": _ev_ms.r_f,
-    }
-    _ev_scenarios = _gen_sc(_ev_inputs)
-    _ev_smile = _build_smile(flow)
-
-    _ev_structs = []
-    for _ev_item in flow.selector_result.shortlist:
-        try:
-            _ev_pvs = _pv_fn(
-                _ev_ms, _ev_item.structure_id,
-                target=_ev_target, is_call=_ev_is_call,
-                stop_price=_ev_stop, loss_budget=_ev_loss_budget,
-                smile=_ev_smile,
-            )
-        except Exception:
-            continue
-        if not _ev_pvs:
-            continue
-        _ev_variants = []
-        for _ev_pv in _ev_pvs:
-            _ev_rows = _price_sc(
-                _ev_pv, _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call,
-                surface=_ev_smile,
-            )
-            _ev_score = _score_struct(_ev_rows, _ev_weights)
-            _ev_score_base = _score_struct(_ev_rows, _ev_base_weights)
-            _ev_variants.append({
-                "pv": _ev_pv,
-                "rows": _ev_rows,
-                "score": _ev_score,
-                "score_base": _ev_score_base,
-            })
-        if not _ev_variants:
-            continue
-        _ev_structs.append({
-            "item":     _ev_item,
-            "variants": _ev_variants,
-            "label":    _ev_item.display_name,
-        })
-
-    _linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
-    _linear_pv = _PricedVariant(
-        variant_label="Delta 1 (max-loss capped)",
-        strikes=[],
-        barrier=None,
-        net_premium_pct=0.0,
-        breakeven=None,
-        payoff_at_target_pct=None,
-        rr_at_target=None,
-        max_loss_pct=_ev_stop_pct,
-        wing_ratio=None,
-        is_zero_cost=True,
-        structure_notional=LINEAR_NOTIONAL,
-        net_premium_ccy=0.0,
-        payoff_at_target_ccy=None,
-        max_loss_ccy=_ev_loss_budget,
-    )
-    _linear_rows = _price_linear_sc(
-        _ev_scenarios,
-        _ev_inputs,
-        _ev_is_call,
-        LINEAR_NOTIONAL,
-        _ev_loss_budget,
-    )
-    _linear_score = _score_struct(_linear_rows, _ev_weights)
-    _linear_score_base = _score_struct(_linear_rows, _ev_base_weights)
-    _ev_structs.append({
-        "item": _linear_item,
-        "variants": [{
-            "pv": _linear_pv,
-            "rows": _linear_rows,
-            "score": _linear_score,
-            "score_base": _linear_score_base,
-        }],
-        "label": _linear_item.display_name,
-    })
-
-    if not _ev_structs:
-        return
+    _ev_ms = _res.ms
+    _ev_is_call = _res.is_call
+    _ev_target = _res.target
+    _ev_weighter = _res.weighter
+    _ev_weights = _res.weights
+    _ev_multipliers = _res.multipliers
+    _ev_base_weights = _res.base_weights
+    _ev_base = _res.base_ccy
+    _ev_structs = _res.structs
+    _base_fired = _res.base_fired
+    _overlay_fired = _res.overlay_fired
+    _fired_all = _res.fired_all
+    _active_ctx = _res.active_ctx
 
     st.session_state["last_scenario_results"] = _ev_structs[-1]["variants"][-1]["rows"]
 
     st.subheader("Structure Evaluation")
-
-    _base_fired = getattr(_ev_weighter, "base_fired", None)
-    _overlay_fired = getattr(_ev_weighter, "overlay_fired", [])
-    _fired_all = getattr(_ev_weighter, "fired", [])
-    _active_parts = []
-    if _base_fired:
-        _active_parts.append(_base_fired.id.replace("_", " ").title())
-    if _overlay_fired:
-        _active_parts.extend(_ctx.id.replace("_", " ").title() for _ctx in _overlay_fired)
-    if not _active_parts and _fired_all:
-        _active_parts.append(_fired_all[0].id.replace("_", " ").title())
-    _active_ctx = " + ".join(_active_parts) if _active_parts else "Baseline grid"
     st.markdown(f"**Active scenario weighting:** {_active_ctx}")
 
     _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
