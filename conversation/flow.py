@@ -109,6 +109,7 @@ class ConversationFlow:
         self.structure_constraint: str = "No restriction"
         self.primary_objective: str = "Balanced"
         self.trade_management: str = "Standard hold"
+        self.user_email: str | None = None  # active scenario-weights profile selector
         self.view: TradeView | None = None
         self.ccy: CurrencySnapshot | None = None
         self.market_state: MarketState | None = None
@@ -150,6 +151,7 @@ class ConversationFlow:
         self.structure_constraint = "No restriction"
         self.primary_objective = "Balanced"
         self.trade_management = "Standard hold"
+        self.user_email = None
         self.view = None
         self.ccy = None
         self.market_state = None
@@ -425,6 +427,7 @@ class ConversationFlow:
                 loss_budget=loss_budget,
                 preferences=prefs,
                 smile=smile,
+                user_email=self.user_email,
             )
             pack = build_recommendation_pack(
                 self.market_state,
@@ -433,6 +436,7 @@ class ConversationFlow:
                 comparator_inputs.pm_scores_by_structure,
                 preferences=prefs,
                 variant_evaluations_by_structure=comparator_inputs.variant_evaluations_by_structure,
+                user_email=self.user_email,
             )
             self.explanation_pack_context = render_explanation_pack(pack)
         except Exception:

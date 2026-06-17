@@ -44,8 +44,14 @@ class WeighterResult:
     min_multiplier: float
 
 
-_weights_cache: dict | None = None
-_weights_source = "local"
+# Per-profile config cache and source label, keyed by the resolved config-history key
+# ("scenario_definitions" for global, "scenario_definitions::<email>" for personal).
+# Keying by profile is the load-bearing correctness fix: on Streamlit Cloud one process
+# serves all sessions, so a single shared cache would bleed one user's weights to another.
+_GLOBAL_KEY = "scenario_definitions"
+_INHERIT_GLOBAL = "_inherit_global"  # sentinel personal config → behave as global (revert)
+_weights_cache: dict[str, dict] = {}
+_weights_source: dict[str, str] = {}
 
 
 def _empty_grid_multipliers() -> dict[str, float]:
@@ -106,36 +112,87 @@ def _migrate_config_shape(cfg: dict) -> dict:
     return cfg
 
 
-def load_scenario_weights_config() -> dict:
-    global _weights_cache, _weights_source
-    if _weights_cache is not None:
-        return _weights_cache
+def _load_global_config() -> dict:
+    """Global scenario-weights config: Supabase latest → local JSON. Cached under the
+    global key on a real Supabase hit only (so a transient outage self-heals)."""
+    if _GLOBAL_KEY in _weights_cache:
+        return _weights_cache[_GLOBAL_KEY]
     try:
         from interface.supabase_logger import fetch_config_for_engine_with_meta
-        data, source = fetch_config_for_engine_with_meta("scenario_definitions")
+        data, source = fetch_config_for_engine_with_meta(_GLOBAL_KEY)
         if data:
-            _weights_cache = _migrate_config_shape(data)
-            _weights_source = source
-            return _weights_cache
+            cfg = _migrate_config_shape(data)
+            _weights_cache[_GLOBAL_KEY] = cfg
+            _weights_source[_GLOBAL_KEY] = source
+            return cfg
         if source == "error":
+            _weights_source[_GLOBAL_KEY] = "local-fallback-error"
             with open(_WEIGHTS_PATH) as f:
-                _weights_source = "local-fallback-error"
                 return _migrate_config_shape(json.load(f))
     except Exception:
         pass
+    _weights_source[_GLOBAL_KEY] = "local"
     with open(_WEIGHTS_PATH) as f:
-        _weights_source = "local"
         return _migrate_config_shape(json.load(f))
 
 
-def clear_scenario_weights_cache() -> None:
-    global _weights_cache, _weights_source
-    _weights_cache = None
-    _weights_source = "local"
+def load_scenario_weights_config(user_email: str | None = None) -> dict:
+    """Resolve the active scenario-weights config for a user.
+
+    Order: personal profile (only if `user_email` is allowlisted AND a non-sentinel
+    personal config exists) → global → local JSON. The allowlist check lives here so a
+    de-allowlisted user immediately reverts to global even if a personal row lingers.
+    """
+    if user_email:
+        try:
+            from interface.security import can_have_personal_weights
+            allowed = can_have_personal_weights(user_email)
+        except Exception:
+            allowed = False
+        if allowed:
+            from interface.supabase_logger import (
+                personal_weights_key,
+                fetch_config_for_engine_with_meta,
+            )
+            pkey = personal_weights_key(user_email)
+            if pkey in _weights_cache:
+                return _weights_cache[pkey]
+            try:
+                data, _source = fetch_config_for_engine_with_meta(pkey)
+            except Exception:
+                data = None
+            # A sentinel ({_inherit_global: true}) or missing config → fall to global.
+            if data and not data.get(_INHERIT_GLOBAL):
+                cfg = _migrate_config_shape(data)
+                _weights_cache[pkey] = cfg
+                _weights_source[pkey] = f"supabase (personal: {user_email})"
+                return cfg
+    return _load_global_config()
 
 
-def get_scenario_weights_source() -> str:
-    return _weights_source
+def clear_scenario_weights_cache(profile_key: str | None = None) -> None:
+    """Clear the whole cache (default) or just one profile's entry (e.g. after saving
+    that profile). Existing no-arg callers clear everything, as before."""
+    if profile_key is None:
+        _weights_cache.clear()
+        _weights_source.clear()
+    else:
+        _weights_cache.pop(profile_key, None)
+        _weights_source.pop(profile_key, None)
+
+
+def get_scenario_weights_source(user_email: str | None = None) -> str:
+    """Source label for the profile a user resolves to. Personal source if a personal
+    config was loaded for them, else the global source. No arg → global."""
+    if user_email:
+        try:
+            from interface.supabase_logger import personal_weights_key
+            pkey = personal_weights_key(user_email)
+            if pkey in _weights_source:
+                return _weights_source[pkey]
+        except Exception:
+            pass
+    return _weights_source.get(_GLOBAL_KEY, "local")
 
 
 _FIELD_GETTERS = {
@@ -180,12 +237,14 @@ def compute_family_weights(
     ms: MarketState,
     primary_objective: str = "Balanced",
     trade_management: str = "Standard hold",
+    user_email: str | None = None,
 ) -> WeighterResult:
     """
     Backwards-compatible entry point. Returns normalized scenario-cell weights
-    plus the raw multipliers used to derive them.
+    plus the raw multipliers used to derive them. `user_email` selects the active
+    weights profile (personal for allowlisted users, else global); None → global.
     """
-    cfg = load_scenario_weights_config()
+    cfg = load_scenario_weights_config(user_email)
     baseline = float(cfg["baseline"])
     min_multiplier = float(cfg["min_multiplier"])
 

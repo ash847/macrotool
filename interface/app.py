@@ -337,6 +337,7 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
     flow.trade_management = st.session_state.get(
         "pref_trade_management", "Standard hold"
     )
+    flow.user_email = USER_EMAIL  # selects this user's scenario-weights profile (if any)
     try:
         flow._run_engines()
         log_view_extracted(view.__dict__)
@@ -866,7 +867,7 @@ elif st.session_state.page == "Scenario Weightings":
 
 elif st.session_state.page == "Batch":
     from interface.batch_view import render as _render_batch
-    _render_batch(make_flow=_make_flow, snapshot=_get_effective_snapshot(), is_admin=IS_ADMIN)
+    _render_batch(make_flow=_make_flow, snapshot=_get_effective_snapshot(), is_admin=IS_ADMIN, user_email=USER_EMAIL)
 
 elif st.session_state.page == "Kelly Sizing":
     from interface.kelly_v2.app import render_page as _render_kelly_page

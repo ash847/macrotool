@@ -94,7 +94,7 @@ def _parse_trade(s: str, snapshot) -> tuple[str, int, float]:
     return pair, horizon_days, target
 
 
-def _build_and_run(trade_str: str, make_flow, snapshot):
+def _build_and_run(trade_str: str, make_flow, snapshot, user_email: str | None = None):
     """Parse + run one trade. Returns a populated ConversationFlow. Raises on error."""
     pair, horizon_days, target = _parse_trade(trade_str, snapshot)
     ccy = snapshot.get(pair)
@@ -121,16 +121,17 @@ def _build_and_run(trade_str: str, make_flow, snapshot):
     flow.primary_objective = "Balanced"
     flow.trade_management = "Standard hold"
     flow.target_rr = 3.0
+    flow.user_email = user_email  # reflect the logged-in user's weights profile
     flow._run_engines()
     return flow
 
 
-def _run_batch(trades: list[str], make_flow, snapshot) -> list[dict]:
+def _run_batch(trades: list[str], make_flow, snapshot, user_email: str | None = None) -> list[dict]:
     results: list[dict] = []
     for raw in trades:
         entry: dict = {"title": raw, "flow": None, "error": None}
         try:
-            entry["flow"] = _build_and_run(raw, make_flow, snapshot)
+            entry["flow"] = _build_and_run(raw, make_flow, snapshot, user_email=user_email)
         except Exception as e:  # one bad trade must not kill the batch
             entry["error"] = str(e)
         results.append(entry)
@@ -293,7 +294,7 @@ def _render_trade_analytics(flow, is_admin: bool, key_prefix: str, eval_result=N
     render_structure_evaluation(flow, is_admin, target, key_prefix=key_prefix, eval_result=eval_result)
 
 
-def render(make_flow, snapshot, is_admin: bool) -> None:
+def render(make_flow, snapshot, is_admin: bool, user_email: str | None = None) -> None:
     st.header("Batch")
     trades, load_err = _load_batch_trades()
     if load_err:
@@ -314,7 +315,7 @@ def render(make_flow, snapshot, is_admin: bool) -> None:
 
     if rerun or "batch_results" not in st.session_state:
         with st.spinner(f"Running {len(trades)} trade(s) through the engine…"):
-            results = _run_batch(trades, make_flow, snapshot)
+            results = _run_batch(trades, make_flow, snapshot, user_email=user_email)
             st.session_state["batch_results"] = results
             # Price + score every trade ONCE here; cache so reruns (pivot toggles,
             # expander interactions) read the cache instead of re-pricing.

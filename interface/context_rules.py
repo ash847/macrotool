@@ -228,7 +228,7 @@ def _render_weight_totals(ctx: dict, baseline: float) -> None:
     )
 
 
-def _render_context_weights(cfg: dict) -> None:
+def _render_context_weights(cfg: dict, save_key: str = "scenario_definitions") -> None:
     contexts = cfg["base_weightings"]
     if not contexts:
         st.info("No base weightings configured yet.")
@@ -253,13 +253,13 @@ def _render_context_weights(cfg: dict) -> None:
         try:
             from interface.supabase_logger import save_config as _save
             ok = _save(
-                "scenario_definitions",
+                save_key,
                 cfg,
                 _admin=is_admin_user(),
                 user_email=current_user_email(),
             )
             if ok:
-                clear_scenario_weights_cache()
+                clear_scenario_weights_cache(save_key)
                 st.success("Saved. New scenario-grid multipliers apply on the next trade query.")
             else:
                 st.error("Save failed — Supabase not configured or unreachable.")
@@ -284,7 +284,7 @@ def _render_choosing_a_context(cfg: dict) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_pm_overlay_editor(cfg: dict) -> None:
+def _render_pm_overlay_editor(cfg: dict, save_key: str = "scenario_definitions") -> None:
     overlays = _ensure_preference_overlays(cfg)
     cfg["preference_overlays"] = [
         {k: copy.deepcopy(v) for k, v in ctx.items() if not k.startswith("_")}
@@ -312,13 +312,13 @@ def _render_pm_overlay_editor(cfg: dict) -> None:
         try:
             from interface.supabase_logger import save_config as _save
             ok = _save(
-                "scenario_definitions",
+                save_key,
                 cfg,
                 _admin=is_admin_user(),
                 user_email=current_user_email(),
             )
             if ok:
-                clear_scenario_weights_cache()
+                clear_scenario_weights_cache(save_key)
                 st.success("Saved. This PM overlay will apply on the next trade query.")
             else:
                 st.error("Save failed — Supabase not configured or unreachable.")
@@ -443,10 +443,14 @@ def _validate_contexts(contexts: list[dict]) -> list[str]:
     return errors
 
 
-def _render_base_priority_conditions(cfg: dict) -> None:
-    if _BASE_PRIORITY_STATE_KEY not in st.session_state:
-        st.session_state[_BASE_PRIORITY_STATE_KEY] = _init_priority_state({"weightings": cfg["base_weightings"]})
-    contexts: list[dict] = st.session_state[_BASE_PRIORITY_STATE_KEY]
+def _render_base_priority_conditions(
+    cfg: dict, save_key: str = "scenario_definitions", profile_email: str | None = None
+) -> None:
+    # Session-state editing buffer is per-profile so switching profiles re-seeds it.
+    _state_key = f"{_BASE_PRIORITY_STATE_KEY}::{save_key}"
+    if _state_key not in st.session_state:
+        st.session_state[_state_key] = _init_priority_state({"weightings": cfg["base_weightings"]})
+    contexts: list[dict] = st.session_state[_state_key]
 
     st.subheader("Live preview")
     p1 = st.columns(6)
@@ -527,8 +531,8 @@ def _render_base_priority_conditions(cfg: dict) -> None:
         else:
             try:
                 from interface.supabase_logger import save_config as _save_cfg
-                clear_scenario_weights_cache()
-                latest_cfg = load_scenario_weights_config()
+                clear_scenario_weights_cache(save_key)
+                latest_cfg = load_scenario_weights_config(profile_email)
                 new_cfg = copy.deepcopy(latest_cfg)
                 new_cfg["base_weightings"] = _merge_contexts_with_latest_multipliers(
                     contexts,
@@ -536,21 +540,21 @@ def _render_base_priority_conditions(cfg: dict) -> None:
                     config_key="base_weightings",
                 )
                 ok = _save_cfg(
-                    "scenario_definitions",
+                    save_key,
                     new_cfg,
                     _admin=is_admin_user(),
                     user_email=current_user_email(),
                 )
                 if ok:
-                    clear_scenario_weights_cache()
+                    clear_scenario_weights_cache(save_key)
                     st.success("Saved. Updated scenario weighting rules apply on the next trade query.")
                 else:
                     st.error("Save failed — Supabase not configured or unreachable.")
             except Exception as e:
                 st.error(f"Save error: {e}")
     if revert_col.button("Revert", key="revert_prio", use_container_width=True):
-        st.session_state.pop(_BASE_PRIORITY_STATE_KEY, None)
-        clear_scenario_weights_cache()
+        st.session_state.pop(_state_key, None)
+        clear_scenario_weights_cache(save_key)
         st.rerun()
 
 
@@ -561,8 +565,47 @@ def render() -> None:
         "Edit the two-layer scenario weighting system: one base grid selected from market state, "
         "plus PM preference overlays stacked on top. Edits are saved to Supabase and every version is retained."
     )
-    cfg = load_scenario_weights_config()
-    st.caption(f"Loaded from: `{get_scenario_weights_source()}`")
+
+    # Profile selector — Global, or a personal profile for an allowlisted user.
+    from interface.security import personal_weights_emails
+    from interface.supabase_logger import GLOBAL_SCENARIO_WEIGHTS_KEY, personal_weights_key, save_config
+
+    _options = ["Global (default)"] + personal_weights_emails()
+    selected = st.selectbox(
+        "Profile", _options, key="weights_profile_select",
+        help="Edit the shared global weights, or a specific user's personal profile. "
+             "Personal profiles only exist for users in the `personal_weights_emails` secret.",
+    )
+    is_global = selected == "Global (default)"
+    profile_email = None if is_global else selected
+    save_key = GLOBAL_SCENARIO_WEIGHTS_KEY if is_global else personal_weights_key(profile_email)
+
+    cfg = copy.deepcopy(load_scenario_weights_config(profile_email))
+    src = get_scenario_weights_source(profile_email)
+
+    if is_global:
+        st.caption(f"Profile: **Global** · loaded from `{src}`")
+    else:
+        has_personal = src.startswith("supabase (personal")
+        state = "**personal profile** active" if has_personal else "**inheriting global** (not yet forked — Save on any tab forks it)"
+        st.caption(f"Profile: **{profile_email}** · {state} · loaded from `{src}`")
+        if has_personal and st.button(
+            "Revert this user to global",
+            help="Stop using a personal profile — this user falls back to global weights. "
+                 "Reversible: edit and Save again to re-fork.",
+        ):
+            try:
+                ok = save_config(save_key, {"_inherit_global": True}, _admin=is_admin_user(), user_email=current_user_email())
+                if ok:
+                    clear_scenario_weights_cache(save_key)
+                    st.session_state.pop(f"{_BASE_PRIORITY_STATE_KEY}::{save_key}", None)
+                    st.success(f"{profile_email} reverted to global weights.")
+                    st.rerun()
+                else:
+                    st.error("Revert failed — Supabase not configured or unreachable.")
+            except Exception as e:
+                st.error(f"Revert error: {e}")
+
     tab_base_grid, tab_base_read, tab_base_write, tab_pm_overlay = st.tabs(
         [
             "Base scenario grid",
@@ -572,10 +615,10 @@ def render() -> None:
         ]
     )
     with tab_base_grid:
-        _render_context_weights(cfg)
+        _render_context_weights(cfg, save_key)
     with tab_base_read:
         _render_choosing_a_context(cfg)
     with tab_base_write:
-        _render_base_priority_conditions(cfg)
+        _render_base_priority_conditions(cfg, save_key, profile_email)
     with tab_pm_overlay:
-        _render_pm_overlay_editor(cfg)
+        _render_pm_overlay_editor(cfg, save_key)

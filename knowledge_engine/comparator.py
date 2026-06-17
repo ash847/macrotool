@@ -352,6 +352,7 @@ def build_recommendation_pack(
     scenario_scores_by_structure: dict[str, object],
     preferences: PMPreferences | None = None,
     variant_evaluations_by_structure: dict[str, list[VariantEvaluation]] | None = None,
+    user_email: str | None = None,
 ) -> RecommendationExplanationPack:
     if not selector_result.shortlist:
         raise ValueError("Cannot build explanation pack without a shortlisted chosen structure")
@@ -427,6 +428,7 @@ def build_recommendation_pack(
         market_state,
         primary_objective=prefs.primary_objective,
         trade_management=prefs.trade_management,
+        user_email=user_email,
     )
     _active_ids: list[str] = []
     _active_comments: list[str] = []
@@ -542,6 +544,7 @@ def build_comparator_inputs(
     loss_budget: float | None,
     preferences: PMPreferences | None = None,
     smile: object | None = None,
+    user_email: str | None = None,
 ) -> ComparatorInputs:
     """
     Build real pricing/scenario inputs for the comparator from existing engines.
@@ -576,6 +579,7 @@ def build_comparator_inputs(
         market_state,
         primary_objective=prefs.primary_objective,
         trade_management=prefs.trade_management,
+        user_email=user_email,
     )
     base_weights = _base_weights_from_weighter(weighter)
 

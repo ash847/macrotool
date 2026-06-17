@@ -439,6 +439,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
         ms,
         primary_objective=getattr(flow, "primary_objective", "Balanced"),
         trade_management=getattr(flow, "trade_management", "Standard hold"),
+        user_email=getattr(flow, "user_email", None),
     )
     weights = weighter.weights
     multipliers = weighter.multipliers
@@ -670,6 +671,7 @@ def render_structure_evaluation(
                 _expl_variants,
                 _expl_scores,
                 variant_evaluations_by_structure=_expl_variant_evals,
+                user_email=getattr(flow, "user_email", None),
             )
             from conversation.explanation_context import render_explanation_pack as _render_full_pack
             from interface.advisor_chat import build_chat_system_prompt as _build_chat_system

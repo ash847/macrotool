@@ -111,6 +111,16 @@ def log_feedback(
         _service_client.table("feedback").insert(row, returning="minimal").execute()
 
 
+GLOBAL_SCENARIO_WEIGHTS_KEY = "scenario_definitions"
+
+
+def personal_weights_key(email: str) -> str:
+    """config_history key for a user's personal scenario-weights profile. The global
+    profile keeps the bare key; personal profiles namespace by email. Same table, same
+    versioning — lookup is by key, so this needs no schema change."""
+    return f"{GLOBAL_SCENARIO_WEIGHTS_KEY}::{email}"
+
+
 def fetch_config_for_engine(key: str) -> dict | None:
     data, _ = fetch_config_for_engine_with_meta(key)
     return data

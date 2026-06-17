@@ -223,6 +223,17 @@ Three layers merged at session start: base defaults (JSON) → user profile → 
 
 Session overrides are triggered by `[PREF_CHANGE: {"field_path": ..., "value": ...}]` tags emitted by the LLM. The override detector parses these, validates against an allowlist, and re-resolves config. Overrides are ephemeral — they don't persist across sessions.
 
+### Per-user scenario-weights profiles
+
+Scenario weights (`scenario_definitions`) can be **forked per user** for a select few, so PMs can iterate on their own weighting and surface differences of opinion. Admin-managed via the **Profile** picker on the Scenario Weightings page.
+
+- **Gating:** the `personal_weights_emails` secret allowlists who may have a personal profile. The check lives in `interface/security.py:can_have_personal_weights` and is enforced **inside the loader** (single source of truth) — a de-allowlisted user reverts to global immediately even if a personal row lingers.
+- **Storage:** same `config_history` table, composite key. Global keeps `"scenario_definitions"`; a personal profile uses `f"scenario_definitions::{email}"` (`interface/supabase_logger.py:personal_weights_key`). No schema change; versioned/audited like any other config.
+- **Resolution** (`knowledge_engine/scenario_weighter.py:load_scenario_weights_config(user_email)`): personal (allowlisted + non-sentinel config) → global → local JSON.
+- **Revert to global:** writes a sentinel personal row `{"_inherit_global": true}`; the loader treats it as "behave as global" (reversible — Save again to re-fork). The UI exposes a "Revert this user to global" button.
+- **Cache:** `_weights_cache`/`_weights_source` are **keyed by resolved profile key**, not a single global. This is load-bearing — Streamlit Cloud runs one process for all sessions, so an unkeyed cache would bleed one user's weights to another. `clear_scenario_weights_cache(profile_key=None)` clears all or one.
+- **Threading:** `user_email` flows interface → engine via `flow.user_email` (set before `_run_engines`) and the `user_email=` param on `compute_family_weights`, `build_comparator_inputs`, and `build_recommendation_pack`. Trade View and Batch use the logged-in user's profile; the Agent path defaults to global for now (param plumbed through `build_pack`). Default `None` everywhere → global, so all existing callers are unchanged. Guard: `tests/test_personal_weights.py`.
+
 ## Deployment
 
 GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys on push to `main`. The `feature/security-hardening` branch deploys a separate app instance.
@@ -235,6 +246,7 @@ SUPABASE_URL = "..."
 SUPABASE_ANON_KEY = "..."
 SUPABASE_SERVICE_KEY = "..."
 admin_emails = ["name@fund.com"]
+personal_weights_emails = ["pm1@fund.com"]   # optional: users allowed a personal scenario-weights profile
 
 [auth]
 redirect_uri  = "https://<app-slug>.streamlit.app/~/+/oauth2callback"

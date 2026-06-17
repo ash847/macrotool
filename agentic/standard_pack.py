@@ -100,6 +100,7 @@ _COMPARATOR_LINEAR_NOTIONAL = 100.0
 def _recommend_ranked(
     ms: MarketState, selector_result, target, is_call, surface,
     primary_objective, trade_management, structure_constraint, target_rr,
+    user_email=None,
 ) -> list[RecommendedStructure]:
     """Per shortlisted family, pick the variant the scoring ranks best.
 
@@ -131,6 +132,7 @@ def _recommend_ranked(
             structure_constraint=structure_constraint,
         ),
         smile=surface,
+        user_email=user_email,
     )
 
     out: list[RecommendedStructure] = []
@@ -195,6 +197,7 @@ def build_pack(
     primary_objective: str = "Balanced",
     trade_management: str = "Standard hold",
     target_rr: float = 3.0,
+    user_email: str | None = None,
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -267,6 +270,7 @@ def build_pack(
             recommended, loss_budget = _recommend_ranked(
                 market_state, selector_result, target, is_call, surface,
                 primary_objective, trade_management, structure_constraint, target_rr,
+                user_email=user_email,
             )
         except Exception:
             recommended, loss_budget = [], None

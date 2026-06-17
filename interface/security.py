@@ -42,6 +42,22 @@ def is_admin_user() -> bool:
     return email in admins
 
 
+def personal_weights_emails() -> list[str]:
+    """Allowlist of users permitted a personal scenario-weights profile. Read from
+    the `personal_weights_emails` secret (like `admin_emails`). Defensive: any failure
+    (e.g. no Streamlit secrets in a test/engine context) → empty list → everyone uses
+    the global profile."""
+    try:
+        emails = st.secrets.get("personal_weights_emails", [])
+        return list(emails) if emails else []
+    except Exception:
+        return []
+
+
+def can_have_personal_weights(email: str | None) -> bool:
+    return bool(email) and email in personal_weights_emails()
+
+
 def assert_admin() -> None:
     require_login()
     if not is_admin_user():
