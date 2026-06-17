@@ -50,20 +50,56 @@ def _tenor_to_days(tok: str) -> int | None:
     return None
 
 
-def _load_batch_trades() -> tuple[list[str], str | None]:
-    """Return (trades, error). `trades` is a list of raw trade strings."""
+def _clean_trades(trades) -> list[str]:
+    if not isinstance(trades, list):
+        return []
+    return [str(t).strip() for t in trades if str(t).strip()]
+
+
+def _load_batches() -> tuple[list[tuple[str, list[str]]], str | None]:
+    """Load the named batches from the JSON file as an ordered list of (name, trades).
+
+    Canonical format: {"batches": [{"name": "...", "trades": ["3m USDBRL 5.60", ...]}]}.
+    Also accepts {"batches": {"name": [...]}} and the legacy single-batch forms
+    ({"trades": [...]} or a bare list), wrapped as one batch named "Batch".
+    """
     if not BATCH_FILE.exists():
         return [], f"Batch file not found: `{BATCH_FILE}`"
     try:
         data = json.loads(BATCH_FILE.read_text())
     except Exception as e:
         return [], f"Could not parse `{BATCH_FILE.name}`: {e}"
-    if isinstance(data, dict):
-        data = data.get("trades", [])
-    if not isinstance(data, list):
-        return [], "Batch JSON must be a list of trade strings or {\"trades\": [...]}."
-    trades = [str(t).strip() for t in data if str(t).strip()]
-    return trades, None
+
+    batches: list[tuple[str, list[str]]] = []
+    if isinstance(data, dict) and isinstance(data.get("batches"), list):
+        for i, b in enumerate(data["batches"]):
+            if isinstance(b, dict):
+                name = str(b.get("name") or f"Batch {i + 1}").strip()
+                batches.append((name, _clean_trades(b.get("trades", []))))
+    elif isinstance(data, dict) and isinstance(data.get("batches"), dict):
+        for name, trades in data["batches"].items():
+            batches.append((str(name).strip(), _clean_trades(trades)))
+    elif isinstance(data, dict) and "trades" in data:          # legacy single batch
+        batches.append(("Batch", _clean_trades(data.get("trades", []))))
+    elif isinstance(data, list):                                # legacy bare list
+        batches.append(("Batch", _clean_trades(data)))
+    else:
+        return [], 'Batch JSON must define "batches" (list of {name, trades}) or a "trades" list.'
+
+    batches = [(n, t) for (n, t) in batches if t]  # drop empty/unnamed-empty batches
+    if not batches:
+        return [], "No non-empty batches found in the JSON."
+    # De-dup names (later ones get a suffix) so the selectbox keys stay unique.
+    seen: dict[str, int] = {}
+    out: list[tuple[str, list[str]]] = []
+    for name, trades in batches:
+        if name in seen:
+            seen[name] += 1
+            name = f"{name} ({seen[name]})"
+        else:
+            seen[name] = 1
+        out.append((name, trades))
+    return out, None
 
 
 def _parse_trade(s: str, snapshot) -> tuple[str, int, float]:
@@ -296,39 +332,55 @@ def _render_trade_analytics(flow, is_admin: bool, key_prefix: str, eval_result=N
 
 def render(make_flow, snapshot, is_admin: bool, user_email: str | None = None) -> None:
     st.header("Batch")
-    trades, load_err = _load_batch_trades()
+    batches, load_err = _load_batches()
     if load_err:
         st.error(load_err)
         st.caption(
-            "Edit the batch in `interface/batch_trades.json` — a JSON list of trade "
-            'strings, e.g. `["3m USDBRL 5.60", "6m EURPLN 4.40"]`.'
+            "Define batches in `interface/batch_trades.json`, e.g. "
+            '`{"batches": [{"name": "USDBRL sweep", "trades": ["3m USDBRL 5.60", ...]}]}`.'
         )
         return
 
+    by_name = dict(batches)
+    names = [n for n, _ in batches]
+    selected_name = st.selectbox(
+        "Batch", names, key="batch_select",
+        help="Batches are defined in interface/batch_trades.json. Pick one, then Run.",
+    )
+    trades = by_name[selected_name]
+
     st.caption(
-        f"{len(trades)} trade(s) from `{BATCH_FILE.name}` · constraints = defaults "
+        f"**{selected_name}** — {len(trades)} trade(s) · constraints = defaults "
         "(No restriction / Balanced / Standard hold) · R:R = 3.0 · no LLM pack."
     )
+    with st.expander(f"Trades in “{selected_name}”", expanded=False):
+        for _t in trades:
+            st.caption(f"• {_t}")
 
-    col_run, _ = st.columns([1, 4])
-    rerun = col_run.button("Run batch", type="primary", use_container_width=True)
+    run = st.button("Run batch", type="primary")
 
-    if rerun or "batch_results" not in st.session_state:
-        with st.spinner(f"Running {len(trades)} trade(s) through the engine…"):
+    # Results are cached per batch name, so switching batches shows that batch's last
+    # run (or a prompt to run) and never re-runs on its own. Running (re)computes the
+    # selected batch. Nothing runs until the button is pressed.
+    cache: dict = st.session_state.setdefault("batch_runs", {})
+    if run:
+        with st.spinner(f"Running “{selected_name}” — {len(trades)} trade(s)…"):
             results = _run_batch(trades, make_flow, snapshot, user_email=user_email)
-            st.session_state["batch_results"] = results
-            # Price + score every trade ONCE here; cache so reruns (pivot toggles,
-            # expander interactions) read the cache instead of re-pricing.
-            st.session_state["batch_evals"] = _compute_batch_evals(results)
+            cache[selected_name] = {"results": results, "evals": _compute_batch_evals(results)}
 
-    results = st.session_state.get("batch_results", [])
-    if not results:
-        st.info("No trades to run. Add some to the batch JSON file.")
+    entry = cache.get(selected_name)
+    if entry is None:
+        st.info(f"Press **Run batch** to evaluate “{selected_name}”.")
         return
-    evals = st.session_state.get("batch_evals", [None] * len(results))
+
+    results = entry["results"]
+    evals = entry["evals"]
+    if not results:
+        st.info("This batch has no trades to run.")
+        return
 
     n_ok = sum(1 for r in results if r["error"] is None)
-    st.caption(f"{n_ok}/{len(results)} ran cleanly.")
+    st.caption(f"“{selected_name}” — {n_ok}/{len(results)} ran cleanly.")
 
     st.subheader("Cross-trade pivot")
     _render_pivot(results, evals)

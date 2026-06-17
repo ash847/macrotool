@@ -1,17 +1,44 @@
 {
-  "_comment": "Batch input for the Batch page. Each entry is '<tenor> <pair> <target-level>', e.g. '3m USDBRL 5.60'. Tenor units: m (months), w (weeks), y (years). Direction is inferred from the target vs the horizon forward. Edit this file and click 'Run batch'. JSON deploys immediately on Streamlit Cloud (no version bump).",
-  "trades": [
-    "3m USDBRL 4.90",
-    "3m USDBRL 5.20",
-    "3m USDBRL 5.05",
-    "6m USDBRL 6.80",
-    "6m USDBRL 7.00",
-    "6m USDBRL 7.25",
-    "3m EURUSD 1.15",
-    "3m EURUSD 1.20",
-    "3m EURUSD 1.25",
-    "6m EURUSD 0.98",
-    "6m EURUSD 0.96",
-    "6m EURUSD 0.94"
+  "_comment": "Named batches for the Batch page. Each batch has a 'name' and a 'trades' list; each trade is '<tenor> <pair> <target-level>' (e.g. '3m USDBRL 5.60'). Tenor units: m (months), w (weeks), y (years). Direction is inferred from target vs the horizon forward. Pick a batch on the page, then click 'Run batch'. JSON deploys immediately on Streamlit Cloud (no version bump).",
+  "batches": [
+    {
+      "name": "USDBRL 3m/6m sweep",
+      "trades": [
+        "3m USDBRL 4.90",
+        "3m USDBRL 5.20",
+        "3m USDBRL 5.05",
+        "6m USDBRL 6.80",
+        "6m USDBRL 7.00",
+        "6m USDBRL 7.25"
+      ]
+    },
+    {
+      "name": "EURUSD 3m/6m sweep",
+      "trades": [
+        "3m EURUSD 1.15",
+        "3m EURUSD 1.20",
+        "3m EURUSD 1.25",
+        "6m EURUSD 0.98",
+        "6m EURUSD 0.96",
+        "6m EURUSD 0.94"
+      ]
+    },
+    {
+      "name": "All 12",
+      "trades": [
+        "3m USDBRL 4.90",
+        "3m USDBRL 5.20",
+        "3m USDBRL 5.05",
+        "6m USDBRL 6.80",
+        "6m USDBRL 7.00",
+        "6m USDBRL 7.25",
+        "3m EURUSD 1.15",
+        "3m EURUSD 1.20",
+        "3m EURUSD 1.25",
+        "6m EURUSD 0.98",
+        "6m EURUSD 0.96",
+        "6m EURUSD 0.94"
+      ]
+    }
   ]
 }
