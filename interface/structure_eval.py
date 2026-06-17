@@ -550,8 +550,11 @@ def render_structure_evaluation(
     is_admin: bool,
     target: float | None,
     key_prefix: str = "",
+    eval_result: "EvalResult | None" = None,
 ) -> None:
-    _res = compute_structure_evaluation(flow, target)
+    # Reuse a precomputed EvalResult when given (Batch page caches one per trade
+    # so toggling the pivot doesn't re-price every grid on each Streamlit rerun).
+    _res = eval_result if eval_result is not None else compute_structure_evaluation(flow, target)
     if _res is None:
         return
 

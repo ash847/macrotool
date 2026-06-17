@@ -1,6 +1,6 @@
 [project]
 name = "macrotool"
-version = "0.1.50+agent.spotanchor"
+version = "0.1.51+agent.spotanchor"
 description = "EM FX Trade Structuring & Sizing Tool"
 requires-python = ">=3.10"
 dependencies = [

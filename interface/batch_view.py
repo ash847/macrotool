@@ -137,17 +137,28 @@ def _run_batch(trades: list[str], make_flow, snapshot) -> list[dict]:
     return results
 
 
-def _build_pivot_rows(results: list[dict]) -> list[dict]:
+def _compute_batch_evals(results: list[dict]) -> list:
+    """Price + score every trade ONCE, right after the batch runs. Returned list is
+    index-aligned with `results` (None for failed / empty trades). Both the pivot
+    and the per-trade detail render from this cache, so Streamlit reruns (e.g.
+    toggling a pivot radio) don't re-price the whole batch."""
+    evals: list = []
+    for r in results:
+        flow = r.get("flow")
+        if r.get("error") or flow is None:
+            evals.append(None)
+            continue
+        evals.append(compute_structure_evaluation(flow, target_price(flow)))
+    return evals
+
+
+def _build_pivot_rows(results: list[dict], evals: list) -> list[dict]:
     """One row per (trade × variant) across the whole batch, for the cross-trade
     pivot. Each row carries the weighting effect (baseline / context / Δ), the
     P&L-driver decomposition, and a stable variant identity that aligns the same
     variant across trades. Gated-out variants simply don't appear for that trade."""
     rows: list[dict] = []
-    for r in results:
-        flow = r.get("flow")
-        if r.get("error") or flow is None:
-            continue
-        res = compute_structure_evaluation(flow, target_price(flow))
+    for r, res in zip(results, evals):
         if res is None:
             continue
         for rank, ve in enumerate(res.variants, start=1):
@@ -189,8 +200,8 @@ _FLAT_COLS: list[tuple[str, str, bool]] = [
 ]
 
 
-def _render_pivot(results: list[dict]) -> None:
-    rows = _build_pivot_rows(results)
+def _render_pivot(results: list[dict], evals: list) -> None:
+    rows = _build_pivot_rows(results, evals)
     if not rows:
         st.info("No priced variants to pivot across the batch.")
         return
@@ -250,7 +261,7 @@ def _render_pivot(results: list[dict]) -> None:
     )
 
 
-def _render_trade_analytics(flow, is_admin: bool, key_prefix: str) -> None:
+def _render_trade_analytics(flow, is_admin: bool, key_prefix: str, eval_result=None) -> None:
     ms = flow.market_state
     if not (ms and flow.selector_result and flow.selector_result.shortlist):
         st.warning("No eligible structures for this trade.")
@@ -279,7 +290,7 @@ def _render_trade_analytics(flow, is_admin: bool, key_prefix: str) -> None:
     loss_budget = LINEAR_NOTIONAL * stop_pct
 
     render_structure_variants(flow, is_call, target, stop_price, loss_budget, key_prefix=key_prefix)
-    render_structure_evaluation(flow, is_admin, target, key_prefix=key_prefix)
+    render_structure_evaluation(flow, is_admin, target, key_prefix=key_prefix, eval_result=eval_result)
 
 
 def render(make_flow, snapshot, is_admin: bool) -> None:
@@ -303,24 +314,29 @@ def render(make_flow, snapshot, is_admin: bool) -> None:
 
     if rerun or "batch_results" not in st.session_state:
         with st.spinner(f"Running {len(trades)} trade(s) through the engine…"):
-            st.session_state["batch_results"] = _run_batch(trades, make_flow, snapshot)
+            results = _run_batch(trades, make_flow, snapshot)
+            st.session_state["batch_results"] = results
+            # Price + score every trade ONCE here; cache so reruns (pivot toggles,
+            # expander interactions) read the cache instead of re-pricing.
+            st.session_state["batch_evals"] = _compute_batch_evals(results)
 
     results = st.session_state.get("batch_results", [])
     if not results:
         st.info("No trades to run. Add some to the batch JSON file.")
         return
+    evals = st.session_state.get("batch_evals", [None] * len(results))
 
     n_ok = sum(1 for r in results if r["error"] is None)
     st.caption(f"{n_ok}/{len(results)} ran cleanly.")
 
     st.subheader("Cross-trade pivot")
-    _render_pivot(results)
+    _render_pivot(results, evals)
 
     st.subheader("Per-trade detail")
-    for _idx, r in enumerate(results):
+    for _idx, (r, res) in enumerate(zip(results, evals)):
         label = r["title"] + ("   ❌" if r["error"] else "")
         with st.expander(label, expanded=False):
             if r["error"]:
                 st.error(f"Could not run this trade: {r['error']}")
                 continue
-            _render_trade_analytics(r["flow"], is_admin, key_prefix=f"batch{_idx}_")
+            _render_trade_analytics(r["flow"], is_admin, key_prefix=f"batch{_idx}_", eval_result=res)
