@@ -326,7 +326,19 @@ def _render_trade_analytics(flow, is_admin: bool, key_prefix: str, eval_result=N
     stop_price = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
     loss_budget = LINEAR_NOTIONAL * stop_pct
 
-    render_structure_variants(flow, is_call, target, stop_price, loss_budget, key_prefix=key_prefix)
+    # Context-weighted scenario P&L per variant (base ccy), keyed by stable identity,
+    # so the variants table can show it as a column.
+    _spnl_map = None
+    if eval_result is not None:
+        _spnl_map = {
+            (v.structure_id, v.variant_label): v.score.score_ccy
+            for v in eval_result.variants
+        }
+
+    render_structure_variants(
+        flow, is_call, target, stop_price, loss_budget,
+        key_prefix=key_prefix, scenario_pnl=_spnl_map,
+    )
     render_structure_evaluation(flow, is_admin, target, key_prefix=key_prefix, eval_result=eval_result)
 
 

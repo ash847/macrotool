@@ -233,7 +233,11 @@ def render_structure_variants(
     stop_price: float | None,
     loss_budget: float | None,
     key_prefix: str = "",
+    scenario_pnl: dict | None = None,
 ) -> None:
+    """``scenario_pnl`` (optional): {(structure_id, variant_label): score_ccy} — the
+    context-weighted scenario P&L in base ccy per variant. When supplied (Batch), a
+    'Scenario P&L' column is added to each variant table; Trade View omits it."""
     from analytics.structure_pricer import price_variants as _price_variants
 
     ms = flow.market_state
@@ -311,6 +315,9 @@ def render_structure_variants(
                     "Max loss":   f"{pv.max_loss_pct:.1%}  ({fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
                     "Payout/$1":  _payout_per_1,
                 }
+                if scenario_pnl is not None:
+                    _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
+                    r["Scenario P&L"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"
                 if _has_barrier:
                     r["Barrier"] = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
                 if _has_wing:
