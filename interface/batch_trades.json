@@ -1,5 +1,6 @@
 {
   "_comment": "Named batches for the Batch page. Each batch has a 'name' and a 'trades' list; each trade is '<tenor> <pair> <target-level>' (e.g. '3m USDBRL 5.60'). Tenor units: m (months), w (weeks), y (years). Direction is inferred from target vs the horizon forward. Pick a batch on the page, then click 'Run batch'. JSON deploys immediately on Streamlit Cloud (no version bump).",
+  "_contexts_note": "The 'Context — ...' batches each contain 6 trades (3 pair×tenor groups of 2) verified to fire that scenario-weighting context (first-match) against the current snapshot + repo context definitions. Only contexts reachable on real data are included; carry_capture / carry_momentum_extended / directional_with_carry / speculative_far / speculative_near / vol_dominated / high_vol do not fire (ordering preemption or no matching market state).",
   "batches": [
     {
       "name": "USDBRL big move",
@@ -38,6 +39,72 @@
         "6m EURUSD 0.98",
         "6m EURUSD 0.96",
         "6m EURUSD 0.94"
+      ]
+    },
+    {
+      "name": "Context — big_move",
+      "trades": [
+        "2w EURPLN 4.09",
+        "2w EURPLN 4.366",
+        "2w EURUSD 1.0416",
+        "2w EURUSD 1.125",
+        "2w GBPUSD 1.2273",
+        "2w GBPUSD 1.3175"
+      ]
+    },
+    {
+      "name": "Context — classic_carry",
+      "trades": [
+        "3m EURPLN 4.122",
+        "3m EURPLN 4.172",
+        "12m EURUSD 1.0222",
+        "12m EURUSD 1.0533",
+        "6m USDBRL 5.32",
+        "6m USDBRL 5.59"
+      ]
+    },
+    {
+      "name": "Context — counter_carry",
+      "trades": [
+        "2m USDTRY 42.29",
+        "2m USDTRY 43.55",
+        "3m USDTRY 43.78",
+        "3m USDTRY 45.39",
+        "6m USDTRY 48.31",
+        "6m USDTRY 50.83"
+      ]
+    },
+    {
+      "name": "Context — directional_low_carry",
+      "trades": [
+        "2m EURPLN 4.152",
+        "2m EURPLN 4.326",
+        "2m EURUSD 1.0585",
+        "2m EURUSD 1.1094",
+        "2m GBPUSD 1.2403",
+        "2m GBPUSD 1.2983"
+      ]
+    },
+    {
+      "name": "Context — long_dated",
+      "trades": [
+        "9m EURPLN 4.452",
+        "9m EURPLN 4.542",
+        "12m EURUSD 1.1525",
+        "12m EURUSD 1.1876",
+        "9m USDBRL 6.69",
+        "9m USDBRL 7.1"
+      ]
+    },
+    {
+      "name": "Context — short_dated",
+      "trades": [
+        "2w EURPLN 4.177",
+        "2w EURPLN 4.265",
+        "2w EURUSD 1.0676",
+        "2w EURUSD 1.0942",
+        "2w GBPUSD 1.2555",
+        "2w GBPUSD 1.2843"
       ]
     }
   ]
