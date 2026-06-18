@@ -591,21 +591,21 @@ def render_structure_evaluation(
     else:
         st.caption("⚙️ Weights profile: **global**")
 
-    # Verbal spec of the active context's scoring philosophy + driver glossary
-    # (from config, profile-aware). Both omitted gracefully if absent.
+    # Verbal spec of the active context's scoring philosophy + driver glossary, from
+    # the GLOBAL commentary store. Both omitted gracefully if absent.
     from knowledge_engine.scenario_weighter import (
         get_context_commentary as _get_comm,
         get_driver_glossary as _get_gloss,
     )
     _ctx_id = getattr(_base_fired, "id", None)
-    _comm = _get_comm(_ctx_id, _ue) if _ctx_id else {}
+    _comm = _get_comm(_ctx_id) if _ctx_id else {}
     if _comm.get("market_behavior") or _comm.get("trade_guidance"):
         with st.expander("About this context — scoring philosophy", expanded=False):
             if _comm.get("market_behavior"):
                 st.markdown(f"**Market behaviour** — {_comm['market_behavior']}")
             if _comm.get("trade_guidance"):
                 st.markdown(f"**Privileges** — {_comm['trade_guidance']}")
-    _gloss = _get_gloss(_ue)
+    _gloss = _get_gloss()
     if _gloss:
         with st.expander("What the P&L drivers mean", expanded=False):
             for _b in ("Carry", "Directional", "Adverse", "Vega"):

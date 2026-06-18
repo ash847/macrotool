@@ -195,23 +195,54 @@ def get_scenario_weights_source(user_email: str | None = None) -> str:
     return _weights_source.get(_GLOBAL_KEY, "local")
 
 
-def get_context_commentary(ctx_id: str | None, user_email: str | None = None) -> dict:
-    """Commentary ({market_behavior, trade_guidance}) for a base-weighting context id,
-    from the active profile's config (profile-aware). Empty dict if absent — commentary
-    is the verbal spec of that context's scoring philosophy; it travels with the weights."""
+# --- Context commentary: a GLOBAL store (shared across all profiles, NOT per-user) ---
+# The verbal spec of each context's scoring philosophy. Decoupled from the per-user
+# weights so it stays singular: Supabase key "context_commentary" → local JSON.
+_COMMENTARY_PATH = _REPO_ROOT / "knowledge" / "defaults" / "context_commentary.json"
+_COMMENTARY_KEY = "context_commentary"
+_commentary_cache: dict | None = None
+
+
+def load_context_commentary() -> dict:
+    """Global commentary store: {"contexts": {id: {market_behavior, trade_guidance}},
+    "driver_glossary": {...}}. Supabase (latest) → local JSON. Single global cache."""
+    global _commentary_cache
+    if _commentary_cache is not None:
+        return _commentary_cache
+    try:
+        from interface.supabase_logger import fetch_config_for_engine_with_meta
+        data, _src = fetch_config_for_engine_with_meta(_COMMENTARY_KEY)
+        if data:
+            _commentary_cache = data
+            return data
+    except Exception:
+        pass
+    try:
+        with open(_COMMENTARY_PATH) as f:
+            _commentary_cache = json.load(f)
+    except Exception:
+        _commentary_cache = {"contexts": {}, "driver_glossary": {}}
+    return _commentary_cache
+
+
+def clear_context_commentary_cache() -> None:
+    global _commentary_cache
+    _commentary_cache = None
+
+
+def get_context_commentary(ctx_id: str | None) -> dict:
+    """Commentary ({market_behavior, trade_guidance}) for a base-weighting context id, from
+    the GLOBAL store. Empty dict if absent. Global by design — the verbal spec of the
+    canonical scoring philosophy, shared across all profiles."""
     if not ctx_id:
         return {}
-    cfg = load_scenario_weights_config(user_email)
-    for ctx in cfg.get("base_weightings", []):
-        if ctx.get("id") == ctx_id:
-            return ctx.get("commentary", {}) or {}
-    return {}
+    return (load_context_commentary().get("contexts") or {}).get(ctx_id, {}) or {}
 
 
-def get_driver_glossary(user_email: str | None = None) -> dict:
+def get_driver_glossary() -> dict:
     """Plain-English glossary for the P&L driver buckets (Carry/Directional/Adverse/Vega),
-    from the active profile's config. Empty dict if absent."""
-    return load_scenario_weights_config(user_email).get("driver_glossary", {}) or {}
+    from the GLOBAL commentary store. Empty dict if absent."""
+    return load_context_commentary().get("driver_glossary", {}) or {}
 
 
 _FIELD_GETTERS = {
