@@ -195,6 +195,25 @@ def get_scenario_weights_source(user_email: str | None = None) -> str:
     return _weights_source.get(_GLOBAL_KEY, "local")
 
 
+def get_context_commentary(ctx_id: str | None, user_email: str | None = None) -> dict:
+    """Commentary ({market_behavior, trade_guidance}) for a base-weighting context id,
+    from the active profile's config (profile-aware). Empty dict if absent — commentary
+    is the verbal spec of that context's scoring philosophy; it travels with the weights."""
+    if not ctx_id:
+        return {}
+    cfg = load_scenario_weights_config(user_email)
+    for ctx in cfg.get("base_weightings", []):
+        if ctx.get("id") == ctx_id:
+            return ctx.get("commentary", {}) or {}
+    return {}
+
+
+def get_driver_glossary(user_email: str | None = None) -> dict:
+    """Plain-English glossary for the P&L driver buckets (Carry/Directional/Adverse/Vega),
+    from the active profile's config. Empty dict if absent."""
+    return load_scenario_weights_config(user_email).get("driver_glossary", {}) or {}
+
+
 _FIELD_GETTERS = {
     "target_z_abs":      lambda ms, prefs: abs(ms.target_z) if ms.target_z is not None else None,
     "carry_regime":      lambda ms, prefs: ms.carry_regime,

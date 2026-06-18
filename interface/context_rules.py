@@ -249,6 +249,26 @@ def _render_context_weights(cfg: dict, save_key: str = "scenario_definitions") -
     _render_weight_totals(ctx, cfg["baseline"])
     st.divider()
 
+    # Commentary — the verbal spec of this context's scoring philosophy. Edited here,
+    # alongside the grid, so words and weights stay in sync; persisted on the same Save.
+    st.markdown("**Commentary** — verbal spec of this weighting. Keep it in sync with the grid above.")
+    _comm = ctx.get("commentary", {}) or {}
+    _mb = st.text_area(
+        "Market behaviour", value=_comm.get("market_behavior", ""),
+        key=f"comm_mb_{save_key}_{ctx['id']}", height=90,
+        help="What the market tends to do in this regime (spot path, carry, vol, overshoot/undershoot).",
+    )
+    _tg = st.text_area(
+        "Privileges (trade guidance)", value=_comm.get("trade_guidance", ""),
+        key=f"comm_tg_{save_key}_{ctx['id']}", height=90,
+        help="What kinds of trades this weighting privileges — the verbalization of where the weight sits.",
+    )
+    if _mb.strip() or _tg.strip():
+        ctx["commentary"] = {"market_behavior": _mb.strip(), "trade_guidance": _tg.strip()}
+    else:
+        ctx.pop("commentary", None)
+    st.divider()
+
     if st.button("Save multipliers", type="primary", use_container_width=True):
         try:
             from interface.supabase_logger import save_config as _save

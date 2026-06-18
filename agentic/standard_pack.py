@@ -75,6 +75,7 @@ class RecommendedStructure:
     score_ccy: float | None = None   # scenario-weighted P&L the variant was ranked on
     major_risk: str = ""             # engine's canonical primary risk (from profiles)
     priced_structure: object | None = None   # product-model PricedStructure (legs first-class)
+    drivers: dict | None = None      # P&L driver split (Carry/Directional/Adverse/Vega), pct
 
 
 @dataclass
@@ -92,6 +93,7 @@ class StandardPack:
     recommended: list[RecommendedStructure]   # specific priced structures per family
     loss_budget: float | None = None          # base-ccy max-loss budget the trades are sized to
                                               # (= LINEAR_NOTIONAL × stop%, R:R-derived)
+    active_context: str | None = None         # fired scenario-weighting context id
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -144,6 +146,7 @@ def _recommend_ranked(
             else (evals[0] if evals else None)
         )
         if best is not None:
+            from knowledge_engine.scenario_scorer import driver_contribs
             out.append(RecommendedStructure(
                 structure_id=item.structure_id,
                 display_name=item.display_name,
@@ -156,8 +159,9 @@ def _recommend_ranked(
                     item.structure_id, best.variant.variant_label, ms, is_call,
                     target, surface, stop_price,
                 ),
+                drivers=driver_contribs(best.pm_score),
             ))
-    return out, loss_budget
+    return out, loss_budget, inputs.active_context
 
 
 def _price_recommended_fallback(
@@ -265,15 +269,16 @@ def build_pack(
     is_call = view.direction == "base_higher"
     recommended: list[RecommendedStructure] = []
     loss_budget: float | None = None
+    active_context: str | None = None
     if target is not None:
         try:
-            recommended, loss_budget = _recommend_ranked(
+            recommended, loss_budget, active_context = _recommend_ranked(
                 market_state, selector_result, target, is_call, surface,
                 primary_objective, trade_management, structure_constraint, target_rr,
                 user_email=user_email,
             )
         except Exception:
-            recommended, loss_budget = [], None
+            recommended, loss_budget, active_context = [], None, None
     if not recommended:
         recommended = _price_recommended_fallback(
             market_state, selector_result, target, is_call, surface
@@ -290,4 +295,5 @@ def build_pack(
         is_call=is_call,
         recommended=recommended,
         loss_budget=loss_budget,
+        active_context=active_context,
     )

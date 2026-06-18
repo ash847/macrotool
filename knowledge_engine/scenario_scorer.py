@@ -30,6 +30,32 @@ class ScoreResult:
     cells: list[CellBreakdown]
 
 
+# P&L-driver buckets over the scenario-grid columns. Every GRID_COL maps to exactly
+# one bucket, so a variant's driver contributions sum back to its weighted P&L (see
+# driver_contribs). "Carry" = the no-move (decay / roll-down) cell; "Adverse" = the
+# spot-anchored downside cells; "Vega" = the vol-shock column. Lives in the engine so
+# both the UI (structure_eval) and the agent pack (render) can share it.
+DRIVER_BUCKETS: dict[str, list[str]] = {
+    "Carry":       ["S"],
+    "Directional": ["t%→K", "K−½σ", "K", "K+½σ"],
+    "Adverse":     ["−½σ", "−1σ"],
+    "Vega":        ["Δvol"],
+}
+
+
+def driver_contribs(score: "ScoreResult") -> dict[str, float]:
+    """Decompose a ScoreResult's weighted P&L into driver buckets — the sum of
+    per-cell ``contrib_pct`` grouped by grid column. Exhaustive: the bucket totals
+    sum back to ``score.score_pct``."""
+    by_col: dict[str, float] = {}
+    for c in score.cells:
+        by_col[c.col] = by_col.get(c.col, 0.0) + c.contrib_pct
+    return {
+        bucket: sum(by_col.get(col, 0.0) for col in cols)
+        for bucket, cols in DRIVER_BUCKETS.items()
+    }
+
+
 def score_structure(
     scenario_rows: list[dict],
     multipliers: dict[str, float],

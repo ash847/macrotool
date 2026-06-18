@@ -31,10 +31,20 @@
   },
   "baseline": 1.0,
   "min_multiplier": 0.1,
+  "driver_glossary": {
+    "Carry": "Decay / roll-down — value from the forward grinding toward (or against) spot at unchanged spot (the 'no move' cell). Positive when the carry works for the view.",
+    "Directional": "Directional capture — value as spot progresses toward, reaches, or overshoots the target.",
+    "Adverse": "Adverse moves — P&L when spot moves the wrong way (half / full sigma against the view).",
+    "Vega": "Vol shock — P&L from a vol move at unchanged spot (isolated vega)."
+  },
   "base_weightings": [
     {
       "id": "classic_carry",
       "comment": "Baseline carry trade: carry-to-vol H or M, moderate target distance, with carry. PM preferences are handled separately as overlays.",
+      "commentary": {
+        "market_behavior": "Spot is sticky or slow-moving toward the target; the forward roll-down dominates and vol is not a main driver, though adverse moves can still happen. Overshoot is rare; undershoot is more likely.",
+        "trade_guidance": "Privilege trades that are decay-resistant, benefit from the carry, and accrue most of their value later in the life — low delta at the onset."
+      },
       "when": [
         {
           "field": "carry_regime",
@@ -60,6 +70,10 @@
     {
       "id": "big_move",
       "comment": "Large expected move (>1.25σ from forward), any carry, any direction. PM style overlays can further tilt this, but the base market state is simply that the trade is positioned for a meaningful displacement.",
+      "commentary": {
+        "market_behavior": "Positioned for a large, decisive displacement (>1.25σ from the forward). Reaching the target needs a sustained, conviction-driven move, and when these happen they often overshoot. The path matters less than reaching or exceeding the target.",
+        "trade_guidance": "Privilege trades with strong directional capture (high delta to the move) and upside if spot overshoots the target; cheap decay-resistance matters less than payoff on the move itself."
+      },
       "when": [
         {
           "field": "target_z_abs",
@@ -72,6 +86,10 @@
     {
       "id": "short_dated",
       "comment": "Tenor under 1 month: theta and pin risk dominate everything else. The terminal intrinsic value (EXPIRY) is what the PM should focus on — there is almost no time for path scenarios to develop independently from the final outcome. Early-touch scenarios are near-equivalent to expiry at this horizon and should be de-emphasised to avoid double-counting.",
+      "commentary": {
+        "market_behavior": "Short tenor (<1 month) — theta and pin risk dominate; there is little time for path scenarios to develop independently of the final outcome, so terminal intrinsic value is what matters.",
+        "trade_guidance": "Privilege trades whose value is the terminal payoff at the target with low time-decay drag; path-dependent and slow-accrual structures have little room to work."
+      },
       "when": [
         {
           "field": "T",
@@ -84,6 +102,10 @@
     {
       "id": "counter_carry",
       "comment": "High carry (regime 2) trading against the carry: the carry is a structural, continuous headwind. Every day the trade is open, theta and the forward drift both work against the position. The dominant risk is an adverse drift (WRONG_WAY) and a flat market that bleeds premium (NO_MOVE). Getting to the target requires the market to fight its own structural tendency — CORRECT_PATH is the hardest outcome to achieve.",
+      "commentary": {
+        "market_behavior": "Trading against a strong carry — theta and the forward drift are a continuous headwind every day the trade is open. The dominant risks are an adverse drift and a flat market that bleeds premium; reaching the target means fighting the market's structural tendency.",
+        "trade_guidance": "Privilege trades that limit bleed and stay robust to a slow adverse drift; cheap, decay-light structures with a defined cost are favoured over carry-dependent ones."
+      },
       "when": [
         {
           "field": "carry_regime",
@@ -179,6 +201,10 @@
     {
       "id": "directional_low_carry",
       "comment": "Noisy carry (regime 0): the carry signal is weak relative to vol. The trade is a pure directional bet without a structural drift to support it. Vol-driven mean reversion is a larger factor than in high-carry regimes. NO_MOVE is less meaningful (there is no carry bleed), and VOL_SENSITIVITY deserves more weight.",
+      "commentary": {
+        "market_behavior": "A pure directional bet with no structural drift to lean on; the carry signal is weak relative to vol, so vol-driven mean reversion matters more and a flat market does not bleed via carry. No-move is less meaningful here.",
+        "trade_guidance": "Privilege clean directional exposure to the target with manageable vega; carry-capture structures add little because there is no carry to harvest."
+      },
       "when": [
         {
           "field": "carry_regime",
@@ -191,6 +217,10 @@
     {
       "id": "long_dated",
       "comment": "Tenor over 6 months: there is a large window for the market to reach the target early and then drift away before expiry — a real risk for capped structures and spreads. EARLY_TARGET (touch-and-retrace) deserves elevated weight. Vol sensitivity also matters more because vol moves have more time to compound.",
+      "commentary": {
+        "market_behavior": "Long tenor (>6 months) — a large window for spot to reach the target early and then drift away before expiry, and for vol moves to compound. Early-touch-then-retrace is a real risk, especially for capped structures.",
+        "trade_guidance": "Privilege trades that lock in value on the path or hold up if the target is reached early and then given back; beware capped structures that only pay at expiry."
+      },
       "when": [
         {
           "field": "T",

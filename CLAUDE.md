@@ -234,6 +234,12 @@ Scenario weights (`scenario_definitions`) can be **forked per user** for a selec
 - **Cache:** `_weights_cache`/`_weights_source` are **keyed by resolved profile key**, not a single global. This is load-bearing — Streamlit Cloud runs one process for all sessions, so an unkeyed cache would bleed one user's weights to another. `clear_scenario_weights_cache(profile_key=None)` clears all or one.
 - **Threading:** `user_email` flows interface → engine via `flow.user_email` (set before `_run_engines`) and the `user_email=` param on `compute_family_weights`, `build_comparator_inputs`, and `build_recommendation_pack`. Trade View and Batch use the logged-in user's profile; the Agent path defaults to global for now (param plumbed through `build_pack`). Default `None` everywhere → global, so all existing callers are unchanged. Guard: `tests/test_personal_weights.py`.
 
+### Context commentary & P&L-driver decomposition
+
+Each base-weighting context carries a `commentary` (`{market_behavior, trade_guidance}`) — the **verbal spec of that context's scoring philosophy**. It lives **on the context object inside `scenario_definitions`** (not a separate file) so it tracks the weights, including per-user forks, and is edited co-located with the grid (Scenario Weightings → Base scenario grid tab, saved with the same Save). Loaders: `scenario_weighter.get_context_commentary(ctx_id, user_email)` and `get_driver_glossary(user_email)` (top-level `driver_glossary` over the four driver buckets).
+
+The commentary is the **lens** (which scenarios this regime privileges — the scenario-weighting layer only, *not* affinity gating); the **numbers** are the already-computed `driver_contribs(score)` split (Carry/Directional/Adverse/Vega — relabelled *decay / directional / adverse / vega* for users). `DRIVER_BUCKETS` + `driver_contribs` live in `knowledge_engine/scenario_scorer.py` (re-exported from `interface/structure_eval.py` for the UI). The agent pack (`agentic/render.py:render_pack`) carries a `CONTEXT GUIDANCE` block + a per-structure `drivers:` line so the LLM joins lens + numbers to explain *why* a regime favours a structure — **without** overriding the engine's ranked pick (system-prompt rule). Trade View / Batch surface the same as "About this context" + "What the P&L drivers mean" expanders. Guard: `tests/test_context_commentary.py`.
+
 ## Deployment
 
 GitHub: `ash847/macrotool` (private). Streamlit Community Cloud auto-redeploys on push to `main`. The `feature/security-hardening` branch deploys a separate app instance.

@@ -334,29 +334,9 @@ def render_structure_variants(
 # Structure evaluation (scenario-weighted P&L tables)
 # ---------------------------------------------------------------------------
 
-# P&L-driver buckets over the scenario-grid columns. Every GRID_COL maps to
-# exactly one bucket, so a variant's driver contributions sum back to its
-# weighted P&L (see driver_contribs). "Adverse" = the spot-anchored downside
-# cells; "Vega" = the vol-shock column.
-DRIVER_BUCKETS: dict[str, list[str]] = {
-    "Carry":       ["S"],
-    "Directional": ["t%→K", "K−½σ", "K", "K+½σ"],
-    "Adverse":     ["−½σ", "−1σ"],
-    "Vega":        ["Δvol"],
-}
-
-
-def driver_contribs(score) -> dict[str, float]:
-    """Decompose a ScoreResult's weighted P&L into driver buckets — the sum of
-    per-cell ``contrib_pct`` grouped by grid column. Exhaustive: the bucket
-    totals sum back to ``score.score_pct``."""
-    by_col: dict[str, float] = {}
-    for c in score.cells:
-        by_col[c.col] = by_col.get(c.col, 0.0) + c.contrib_pct
-    return {
-        bucket: sum(by_col.get(col, 0.0) for col in cols)
-        for bucket, cols in DRIVER_BUCKETS.items()
-    }
+# Driver decomposition now lives in the engine so the agent pack can share it.
+# Re-exported here for the existing UI imports (structure_eval, batch_view).
+from knowledge_engine.scenario_scorer import DRIVER_BUCKETS, driver_contribs  # noqa: E402,F401
 
 
 @dataclass
@@ -610,6 +590,27 @@ def render_structure_evaluation(
         st.caption(f"⚙️ Weights profile: **personal** — {_ue}")
     else:
         st.caption("⚙️ Weights profile: **global**")
+
+    # Verbal spec of the active context's scoring philosophy + driver glossary
+    # (from config, profile-aware). Both omitted gracefully if absent.
+    from knowledge_engine.scenario_weighter import (
+        get_context_commentary as _get_comm,
+        get_driver_glossary as _get_gloss,
+    )
+    _ctx_id = getattr(_base_fired, "id", None)
+    _comm = _get_comm(_ctx_id, _ue) if _ctx_id else {}
+    if _comm.get("market_behavior") or _comm.get("trade_guidance"):
+        with st.expander("About this context — scoring philosophy", expanded=False):
+            if _comm.get("market_behavior"):
+                st.markdown(f"**Market behaviour** — {_comm['market_behavior']}")
+            if _comm.get("trade_guidance"):
+                st.markdown(f"**Privileges** — {_comm['trade_guidance']}")
+    _gloss = _get_gloss(_ue)
+    if _gloss:
+        with st.expander("What the P&L drivers mean", expanded=False):
+            for _b in ("Carry", "Directional", "Adverse", "Vega"):
+                if _gloss.get(_b):
+                    st.markdown(f"**{_b}** — {_gloss[_b]}")
 
     _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
     _dir_lbl = "with-carry" if _ev_ms.with_carry else "counter-carry"

@@ -177,6 +177,7 @@ class ComparatorInputs:
     score_pairs_by_structure: dict[str, StructureScorePair]
     scenario_aggregates_by_structure: dict[str, ScenarioAggregates]
     variant_evaluations_by_structure: dict[str, list[VariantEvaluation]]
+    active_context: str | None = None   # fired base-weighting context id (for commentary)
 
 
 @dataclass(frozen=True)
@@ -652,6 +653,7 @@ def build_comparator_inputs(
         score_pairs_by_structure=score_pairs_by_structure,
         scenario_aggregates_by_structure=scenario_aggregates_by_structure,
         variant_evaluations_by_structure=variant_evaluations_by_structure,
+        active_context=(weighter.base_fired.id if getattr(weighter, "base_fired", None) else None),
     )
 
 

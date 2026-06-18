@@ -84,6 +84,20 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     if ms.target_z is not None:
         lines.append(f"  target_z(fwd)={ms.target_z:+.2f}σ  put_call={ms.put_call}")
 
+    # Context guidance — the verbal spec of how this regime is scored (the scenario-
+    # weighting lens). Relay when explaining WHY a structure suits the regime; it does
+    # not override the engine's ranked pick.
+    _ctx_id = getattr(pack, "active_context", None)
+    if _ctx_id:
+        from knowledge_engine.scenario_weighter import get_context_commentary
+        _comm = get_context_commentary(_ctx_id)
+        if _comm.get("market_behavior") or _comm.get("trade_guidance"):
+            lines.append(f"\nCONTEXT GUIDANCE — scoring lens for '{_ctx_id}' (relay when explaining the fit, not as an override):")
+            if _comm.get("market_behavior"):
+                lines.append(f"  Market behaviour: {_comm['market_behavior']}")
+            if _comm.get("trade_guidance"):
+                lines.append(f"  Privileges: {_comm['trade_guidance']}")
+
     if pack.recommended:
         lines.append(
             "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
@@ -104,6 +118,15 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             ccy = _ccy_summary(r.variant)
             if ccy:
                 lines.append("     " + ccy)
+            if r.drivers:
+                _d = r.drivers
+                lines.append("     drivers: " + " · ".join(
+                    f"{label} {_d.get(bucket, 0.0):+.2%}"
+                    for bucket, label in (
+                        ("Carry", "decay"), ("Directional", "directional"),
+                        ("Adverse", "adverse"), ("Vega", "vega"),
+                    )
+                ))
             # major_risk is intentionally NOT surfaced by default — it's a generic
             # family-level caveat the PM rarely wants unprompted. It stays in the
             # data and is rendered on request via render_recommended (price_structure).
