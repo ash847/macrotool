@@ -8,7 +8,7 @@ EM FX trade structuring & sizing tool for macro fund PMs. The target architectur
 .venv/bin/streamlit run interface/app.py   # UI
 .venv/bin/python demo.py                   # full pipeline without LLM
 .venv/bin/python demo.py --pair USDTRY --direction base_higher --horizon 60
-.venv/bin/python -m pytest                 # 373 tests
+.venv/bin/python -m pytest                 # 477 tests (1 pre-existing scorer failure)
 ```
 
 Python 3.13. Venv at `.venv/`. Requires `ANTHROPIC_API_KEY` (sidebar or secrets).
@@ -22,8 +22,9 @@ pricing/        Black-Scholes, forwards interpolation, scenario matrices
 knowledge/      JSON knowledge base (facts + tunable defaults)
 knowledge_engine/  Rule engine — scorer, sizing, critique, conventions
 config/         Layered config system with session override support
-conversation/   LLM state machine + prompt assembly + tracing
-interface/      Streamlit app, charts, Supabase logger, debug log
+conversation/   LLM state machine + prompt assembly + tracing (legacy INTAKE path)
+agentic/        Tool-calling Agent loop — system prompt, 2 tools, standard pack + render
+interface/      Streamlit app (Trade View / Agent / Kelly / Batch), charts, Supabase logger
 ```
 
 **The single most important rule: LLM narrates only. All numbers are pre-computed by the engine before the LLM is called.** The LLM sees structured text blocks, never raw data objects.
@@ -66,6 +67,17 @@ This remains the intended conversation architecture. The current Streamlit Trade
 - `compute_sizing()` → `SizingOutput`
 - `compute_flat_vol_distribution()`, `compute_smile_distribution()` (best-effort, non-fatal)
 - `evaluate_structure()` (critique mode only)
+
+## Agent page (agentic layer)
+
+The **Agent** nav page is the live LLM path (the legacy INTAKE state machine above is dormant on the visible UI). It's a provider-neutral **tool-calling loop** in `agentic/`:
+
+- `agent_flow.py` — `AgentFlow.advance(user_msg)` runs up to `max_rounds=6` API calls. Each call sends the static `SYSTEM_PROMPT` + `TOOL_SCHEMAS` + the growing message history; the model emits tool calls (Python runs them, the result is appended as a `tool_result`) or returns narration text (ends the turn).
+- `agent_llm.py` — the `ToolLLM` seam (`AnthropicToolLLM` + `FakeToolLLM` for no-API tests). Default model **`claude-sonnet-4-6`**, `MAX_TOKENS=2048`. System prompt ≈1.7K tokens, tools ≈0.7K, a rendered pack ≈0.6K → ~3K/call (~1.5% of a 200K window — lots of headroom).
+- `tools.py` — exactly **two tools**: `run_standard_pack` (Tier-1: LLM supplies the *view*, Python runs `build_pack`) and `price_structure` (Tier-2: prices one PM-named structure against the frozen pack; refuses if no pack yet).
+- `standard_pack.py: build_pack()` → `StandardPack`; `render.py: render_pack()` projects it to **labelled text** (VIEW, MARKET CONTEXT, CONTEXT GUIDANCE, RECOMMENDED STRUCTURES with per-leg breakdown + driver split, SIZING stop). The LLM narrates over this text and never sees raw objects.
+
+**Iron rule (system prompt):** the LLM orchestrates and narrates; **every number it states must come verbatim from a tool result.** Today's guardrails baked into the prompt + render: it does **not** state a Kelly/“optimal size” number (defers to the Kelly screen); it does **not** volunteer the engine `risk (engine)` line unless asked (fetched via `price_structure`); it may relay the `CONTEXT GUIDANCE` block + per-structure `drivers:` split to explain *why* a regime favours a structure but **never** overrides the engine's ranked pick. The Agent path currently uses **global** scenario weights (per-user profile not yet threaded into `build_pack`'s caller).
 
 ## Direction convention
 
@@ -183,6 +195,13 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
   - *Decision (this session):* hold off. The shipped guard is sufficient for the highest-value slice (skew-sensitive digitals). Before committing to SSVI, do the one-afternoon empirical scan of how often / at what strikes the live spline actually violates no-arb — that sizes the prize and sets fit tolerances.
 - **Generalize the pricing seam to a `PricingContext` (deferred).** The European-package work threads a `vol_fn` callable through individual pricer signatures. The longer-term ergonomic refactor is to pass one cohesive context object (or lean on `MarketState`) instead of N loose scalars + surface, across all pricers. Low-stakes (pure ergonomics, feature already works); no deadline.
 
+### Agent / commentary roadmap (deferred)
+
+- **Agent honours per-user weights.** `user_email` is plumbed through `build_pack` but the Agent tool caller passes `None` → the Agent uses global scenario weights. Thread the session user through `run_standard_pack` to make it profile-aware like Trade View / Batch.
+- **Larger / richer agent prompt with caching + an adherence eval.** The system prompt is ~1.7K tokens (≈1.5% of context) — huge headroom, but adherence does not scale with length. Prefer pushing situational knowledge into **tool results** (the model relays those verbatim) over a bigger always-on prompt; add Anthropic **prompt caching** on the static system+tools block; bump to **Opus** if behavioural complexity grows; stand up a `FakeToolLLM`-based adherence eval before materially enlarging the prompt.
+- **Commentary → scoring is descriptive only (by design).** The context commentary verbalizes the scenario-weighting lens but does **not** drive selection. If we later want a regime's stated philosophy to actually bias selection, that's the affinity-scores / scenario-weights layer — a separate change. Sync between weights and text is a manual discipline (co-located editor + the weight-totals readout are the aids); a future *staleness flag* (multipliers changed but commentary didn't) is optional.
+- **Dormant contexts.** Several base-weighting contexts never fire under first-match ordering (`carry_capture`, `carry_momentum_extended`, `directional_with_carry`, `speculative_far`) or have no matching market state in the snapshot (`vol_dominated`, `high_vol`, `speculative_near`). Making them reachable is an ordering/conditions change in `scenario_definitions`, not new code.
+
 ## Logging and observability
 
 - **Langfuse** — one trace per session, one generation per LLM call (step names: `INTAKE_view_extraction`, `INTAKE_validation`, `INTAKE_structure_rec`, `INTAKE_critique`, `DONE`). No-op safe if keys not set.
@@ -216,6 +235,15 @@ Implementation notes:
 
 - The Trade Rec linkage must stay variant-level, not family-level, because Kelly needs a fully specified payoff.
 - The payoff bridge in `interface/kelly_v2/pricing.py` should stay consistent with the structure pricer’s base-ccy payoff conventions, especially for digitals, seagulls, and zero-cost structures. **Note:** the European digital is now a base-ccy cash-or-nothing structure (fixed base-ccy payout, payoff-at-target 100%) — any Kelly digital payoff must match this, not the old `spot/target` basis. (`interface/kelly_v2/` is not present on every branch.)
+
+## Batch page
+
+`interface/batch_view.py` (admin nav) runs many trades through the deterministic engine at once, grouped per trade. **Input is a JSON file, `interface/batch_trades.json` — not an on-screen field.** Format: `{"batches": [{"name": "...", "trades": ["<tenor> <pair> <target-level>", ...]}]}` (dict-form and legacy single-`trades`/bare-list still parse as one "Batch"). Each trade is `"<tenor> <pair> <target>"` (tenor `m`/`w`/`y`; direction inferred from target vs the horizon forward); constraints are defaults, R:R 3.0, no LLM pack.
+
+- **Select-then-run:** a batch picker + "Run batch" button; **nothing runs until pressed** (no auto-run on panel select). Results are cached **per batch name** in session state, and each trade is priced/scored **once** (`_compute_batch_evals`) so pivot toggles / expander clicks don't re-price.
+- Per trade it shows the same analytics as Trade View: the **Structure variants** table (with a **Scenario P&L** column — context-weighted base-ccy P&L per variant, from the eval) and the full **Structure Evaluation** (incl. "About this context" + driver glossary). Plus a **cross-trade pivot** (one row per trade×variant with the P&L-driver decomposition, `_build_pivot_rows`).
+- Streamlit `st.dataframe` gotchas handled here: a `key_prefix` gives every table a unique key (same context table can repeat across trades → would otherwise collide), and a content-fit `height` avoids the inner-scrollbar wheel-trap (`_show_df` omits `height` when None — newer Streamlit rejects `height=None`).
+- Any snapshot pair is accepted; one bad trade can't kill the batch (per-trade try/except). `batch_trades.json` also ships "Context — …" batches, each 6 trades verified to fire a given scenario-weighting context.
 
 ## Config system
 
