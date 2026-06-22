@@ -252,17 +252,12 @@ def price(
     if long_leg is not None and not is_zero_cost and net_prem > 0:
         breakeven = long_leg.strike + (net_prem if long_is_call else -net_prem)
 
-    # Max loss: vanilla / 1x1 = net premium. Ratio spreads = the package's stressed-forward
-    # value (open tail beyond target), floored at the premium — reusing the legacy helper.
+    # Max loss = net premium for vanilla / 1x1 / ratio spreads (the open tail beyond the
+    # short strike is not capitalised into the sizing max-loss). Seagull is zero-cost, so
+    # its max loss is the stressed-forward (stop) package value.
     strikes = [pl.strike for pl in priced_legs]
     if fam in _RATIO_FAMILIES:
-        from analytics.structure_pricer import _today_package_value_pct
-        stress_fwd = target if target is not None else strikes[1]
-        ml = _today_package_value_pct(
-            structure_id=fam, strikes=strikes, fwd_today=stress_fwd, T=T, vol=vol,
-            r_d=r_d, r_f=r_f, spot=spot, is_call=long_is_call, surface=vm.surface,
-        )
-        max_loss_pct = max(ml, abs(prem_pct))
+        max_loss_pct = abs(prem_pct)
     elif fam == "seagull":
         if stop_price is not None:
             from analytics.structure_pricer import _today_package_value_pct

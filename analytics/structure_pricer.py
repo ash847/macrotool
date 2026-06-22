@@ -82,7 +82,6 @@ class _VolModel:
         return self._smile.vol_at_delta(delta if is_call else -delta, self._h)
 
 _VARIANTS_PATH = Path(__file__).parent.parent / "knowledge" / "defaults" / "structure_variants.json"
-_MAX_STRUCTURE_NOTIONAL = 500.0
 
 
 def _load_variants() -> dict:
@@ -193,9 +192,8 @@ def _size_variant(pv: PricedVariant, loss_budget: float) -> None:
     Leaves dollar fields as None if max_loss_pct is too small to size against.
     """
     if pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
-        notional = _MAX_STRUCTURE_NOTIONAL
-    else:
-        notional = min(loss_budget / pv.max_loss_pct, _MAX_STRUCTURE_NOTIONAL)
+        return  # ~zero max loss (e.g. zero-cost) can't be sized against a loss budget — leave unscaled
+    notional = loss_budget / pv.max_loss_pct   # no cap
     pv.structure_notional = notional
     pv.net_premium_ccy = pv.net_premium_pct * notional
     pv.max_loss_ccy = pv.max_loss_pct * notional
@@ -479,21 +477,9 @@ def _1x1p5(
             else None
         )
 
-        max_loss_pct = max(
-            _today_package_value_pct(
-                structure_id="1x1.5_spread",
-                strikes=[K1, K2],
-                fwd_today=(target if target is not None else K2),
-                T=T,
-                vol=vol,
-                r_d=r_d,
-                r_f=r_f,
-                spot=spot,
-                is_call=is_call,
-                surface=vm.surface,
-            ),
-            abs(prem_pct),
-        )
+        # Max loss = net premium paid (the open tail beyond the short strike is not
+        # capitalised into the sizing max-loss). Drives the notional via _size_variant.
+        max_loss_pct = abs(prem_pct)
 
         result.append(PricedVariant(
             variant_label=v["label"],
@@ -550,21 +536,8 @@ def _1x2(
             else None
         )
 
-        max_loss_pct = max(
-            _today_package_value_pct(
-                structure_id="1x2_spread",
-                strikes=[K1, K2],
-                fwd_today=(target if target is not None else K2),
-                T=T,
-                vol=vol,
-                r_d=r_d,
-                r_f=r_f,
-                spot=spot,
-                is_call=is_call,
-                surface=vm.surface,
-            ),
-            abs(prem_pct),
-        )
+        # Max loss = net premium paid (open tail beyond the short strike not capitalised).
+        max_loss_pct = abs(prem_pct)
 
         result.append(PricedVariant(
             variant_label=v["label"],

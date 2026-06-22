@@ -157,6 +157,36 @@ def variant_label_with_strikes(structure_id: str, pv) -> str:
     return label
 
 
+def _premium_headline(structure_id: str, pv, ms, is_call: bool, target, base_ccy: str) -> str:
+    """Total + per-leg premium for the variant headline.
+
+    Total premium comes from the variant (net). Per-leg premiums come from the
+    product model's unit premiums, signed so long legs read as a cost paid and
+    short legs as premium received; they sum to the net. Best-effort — the leg
+    breakdown is omitted if the product structure can't be built.
+    """
+    total = f"Premium: {pv.net_premium_pct:+.2%}"
+    if pv.net_premium_ccy is not None:
+        total += f" ({fmt_ccy(pv.net_premium_ccy, base_ccy)})"
+    parts = [total]
+    try:
+        from agentic.standard_pack import _priced_structure_for
+        ps = _priced_structure_for(
+            structure_id, pv.variant_label, ms, is_call, target,
+            getattr(ms, "surface", None), None,
+        )
+        legs = getattr(ps, "priced_legs", None) if ps is not None else None
+        if legs and ms.spot:
+            leg_pcts = [pl.notional * pl.unit_premium / ms.spot for pl in legs]
+            # Only show the per-leg split when it reconciles to the net premium —
+            # barrier / digital packages don't expose clean per-leg unit premiums.
+            if abs(sum(leg_pcts) - pv.net_premium_pct) < 5e-4:
+                parts.append("legs: " + " / ".join(f"{p:+.2%}" for p in leg_pcts))
+    except Exception:
+        pass
+    return "  ·  ".join(parts)
+
+
 def target_price(flow: ConversationFlow) -> float | None:
     if not (flow.view and flow.view.magnitude_pct):
         return None
@@ -724,6 +754,9 @@ def render_structure_evaluation(
             _variant_title += f"  ·  Notional: {_notional_str}"
         elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
             _variant_title += "  ·  Notional: unscaled"
+        _variant_title += "  ·  " + _premium_headline(
+            _ranked_entry["item"].structure_id, _pv0, _ev_ms, _ev_is_call, _ev_target, _ev_base,
+        )
         _base_pct = f"{_score_base.score_pct:.2%}"
         _base_ccy_str = (
             f"  ({fmt_ccy_label(_score_base.score_ccy, _ev_base)})"

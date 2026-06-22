@@ -486,35 +486,37 @@ class TestSizing:
         assert abs(v.payoff_at_target_ccy - 24.0) < 1e-9   # 0.12 * 200
 
     def test_size_variant_skips_zero_max_loss(self):
+        # ~zero max loss can't size against a loss budget → left unscaled (no cap fallback).
         from analytics.structure_pricer import _size_variant
         v = _vanilla_variant()
         v.max_loss_pct = 0.0
         _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional == 500.0
-        assert abs(v.net_premium_ccy - 10.0) < 1e-9
-        assert abs(v.max_loss_ccy - 0.0) < 1e-9
+        assert v.structure_notional is None
+        assert v.net_premium_ccy is None
+        assert v.max_loss_ccy is None
 
-    def test_size_variant_defaults_negative_premium_to_capped_notional(self):
+    def test_size_variant_zero_max_loss_negative_premium_unscaled(self):
         from analytics.structure_pricer import _size_variant
         v = _vanilla_variant(prem_pct=-0.003)
         v.max_loss_pct = 0.0
         _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional == 500.0
-        assert abs(v.net_premium_ccy + 1.5) < 1e-9
-        assert abs(v.max_loss_ccy - 0.0) < 1e-9
+        assert v.structure_notional is None
+        assert v.net_premium_ccy is None
+        assert v.max_loss_ccy is None
 
-    def test_size_variant_caps_very_low_premium_notional(self):
+    def test_size_variant_no_cap_low_premium(self):
+        # No notional cap: a low premium → a large notional (budget / max_loss).
         from analytics.structure_pricer import _size_variant
         v = _vanilla_variant(prem_pct=0.001)
         v.payoff_at_target_pct = 0.12
         _size_variant(v, loss_budget=4.0)
-        assert abs(v.structure_notional - 500.0) < 1e-9
-        assert abs(v.net_premium_ccy - 0.5) < 1e-9
-        assert abs(v.max_loss_ccy - 0.5) < 1e-9
-        assert abs(v.payoff_at_target_ccy - 60.0) < 1e-9
+        assert abs(v.structure_notional - 4000.0) < 1e-6   # 4.0 / 0.001, uncapped
+        assert abs(v.net_premium_ccy - 4.0) < 1e-9
+        assert abs(v.max_loss_ccy - 4.0) < 1e-9
+        assert abs(v.payoff_at_target_ccy - 480.0) < 1e-6
 
     def test_price_variants_passes_loss_budget(self):
-        """price_variants populates dollar fields when loss_budget given."""
+        """price_variants populates dollar fields when loss_budget given (no cap)."""
         from analytics.structure_pricer import price_variants
         from analytics.market_state import compute_market_state
         ms = compute_market_state(
@@ -526,13 +528,12 @@ class TestSizing:
         for pv in pvs:
             assert pv.structure_notional is not None
             assert pv.structure_notional > 0
-            assert pv.structure_notional <= 500.0
             assert pv.max_loss_ccy <= 4.0 + 1e-6
             # Premium $ = premium_pct * notional, where notional = budget / max_loss_pct.
             # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == max_loss_ccy.
             assert abs(pv.net_premium_ccy - pv.max_loss_ccy) < 1e-6
 
-    def test_price_variants_caps_cheap_1x2_base_leg_notional(self):
+    def test_price_variants_1x2_premium_sized_no_cap(self):
         from analytics.structure_pricer import price_variants
         from analytics.market_state import compute_market_state
         ms = compute_market_state(
@@ -541,7 +542,11 @@ class TestSizing:
         )
         pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True, loss_budget=4.0)
         assert pvs
-        assert any(pv.structure_notional is not None and pv.structure_notional <= 500.0 for pv in pvs)
+        for pv in pvs:
+            # Max loss = premium; notional = budget / max_loss, uncapped.
+            assert pv.max_loss_pct == pytest.approx(abs(pv.net_premium_pct))
+            if pv.structure_notional is not None:
+                assert pv.structure_notional == pytest.approx(4.0 / pv.max_loss_pct)
 
     def test_price_variants_no_budget_leaves_fields_none(self):
         ms = compute_market_state(
@@ -576,7 +581,9 @@ class TestSizing:
 
 
 class TestVariantMaxLossDefinitions:
-    def test_one_by_two_uses_today_target_package_value_floor(self):
+    def test_one_by_two_max_loss_is_premium(self):
+        # Max loss = net premium (the open tail beyond the short strike is not
+        # capitalised into the sizing max-loss).
         ms = compute_market_state(
             spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
             target=5.30, direction="base_higher",
@@ -584,14 +591,9 @@ class TestVariantMaxLossDefinitions:
         pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True)
         assert pvs
         for pv in pvs:
-            scenario_spot = 5.30 * math.exp(-(ms.r_d - ms.r_f) * ms.T)
-            today_value_pct = abs(
-                call_mtm(scenario_spot, pv.strikes[0], ms.T, ms.vol, ms.r_d, ms.r_f)
-                - 2.0 * call_mtm(scenario_spot, pv.strikes[1], ms.T, ms.vol, ms.r_d, ms.r_f)
-            ) / ms.spot
-            assert pv.max_loss_pct == pytest.approx(max(today_value_pct, abs(pv.net_premium_pct)))
+            assert pv.max_loss_pct == pytest.approx(abs(pv.net_premium_pct))
 
-    def test_one_by_one_point_five_uses_today_target_package_value_floor(self):
+    def test_one_by_one_point_five_max_loss_is_premium(self):
         ms = compute_market_state(
             spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
             target=5.30, direction="base_higher",
@@ -599,12 +601,7 @@ class TestVariantMaxLossDefinitions:
         pvs = price_variants(ms, "1x1.5_spread", target=5.30, is_call=True)
         assert pvs
         for pv in pvs:
-            scenario_spot = 5.30 * math.exp(-(ms.r_d - ms.r_f) * ms.T)
-            today_value_pct = abs(
-                call_mtm(scenario_spot, pv.strikes[0], ms.T, ms.vol, ms.r_d, ms.r_f)
-                - 1.5 * call_mtm(scenario_spot, pv.strikes[1], ms.T, ms.vol, ms.r_d, ms.r_f)
-            ) / ms.spot
-            assert pv.max_loss_pct == pytest.approx(max(today_value_pct, abs(pv.net_premium_pct)))
+            assert pv.max_loss_pct == pytest.approx(abs(pv.net_premium_pct))
 
     def test_seagull_uses_today_stop_package_value(self):
         ms = compute_market_state(
