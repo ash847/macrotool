@@ -41,7 +41,7 @@ def _anchor_label(anchor) -> str:
     return f"K={anchor.value:.4f}"
 
 
-def _legs_breakdown(ps, base_notional: float | None = None) -> list[str]:
+def _legs_breakdown(ps, base_notional: float | None = None, ccy: str = "") -> list[str]:
     """Explicit per-leg lines from a product-model PricedStructure — each leg's side /
     anchor / right / strike + the ACTUAL sized notional (leg ratio × the structure's sized
     base notional). The leg ratio (1, 1.5, …) is the structure name, not the notional."""
@@ -54,7 +54,7 @@ def _legs_breakdown(ps, base_notional: float | None = None) -> list[str]:
         instr = "Digital " if pl.leg.instrument.value == "digital" else ""
         head = f"      {side} {_anchor_label(pl.leg.anchor)} {instr}{right} @ {pl.strike:.4f}"
         if base_notional is not None:
-            head += f"  · notional ≈{abs(pl.notional) * base_notional:,.0f}"
+            head += f"  · notional ≈{abs(pl.notional) * base_notional:,.0f} {ccy}".rstrip()
         lines.append(head)
     if ps.barrier is not None:
         lines.append(f"      knock-out barrier @ {ps.barrier:.4f}")
@@ -65,6 +65,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     """Render the deterministic standard pack as labelled text for the agent."""
     ms = pack.market_state
     direction = "Long" if view.direction == "base_higher" else "Short"
+    base_ccy = view.pair[:3]   # ccy1 — all base-ccy amounts below are in this currency
     lines: list[str] = []
 
     lines.append(
@@ -117,7 +118,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         if pack.loss_budget is not None:
             lines.append(
                 f"  (each variant sized so its max loss = the loss budget "
-                f"{pack.loss_budget:,.2f} base ccy, on a 100-unit linear notional, R:R-derived)"
+                f"{pack.loss_budget:,.2f} {base_ccy}, on a 100-unit linear notional, R:R-derived)"
             )
         top = pack.recommended[:_TOP_N]
         for r in top:
@@ -125,8 +126,8 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
                 f"  {r.rank}. {r.display_name} — {r.variant.variant_label} [{r.structure_id}]"
             )
             lines.append("     " + _variant_summary(r.variant))
-            lines.extend(_legs_breakdown(r.priced_structure, r.variant.structure_notional))
-            ccy = _ccy_summary(r.variant)
+            lines.extend(_legs_breakdown(r.priced_structure, r.variant.structure_notional, base_ccy))
+            ccy = _ccy_summary(r.variant, base_ccy)
             if ccy:
                 lines.append("     " + ccy)
             # Qualitative, IP-clean findings — what the scoring *learned* about this
@@ -192,15 +193,15 @@ def _findings_lines(tags, indent: str = "     ") -> list[str]:
     return out
 
 
-def _ccy_summary(v) -> str | None:
-    """Base-ccy notional/premium/max-loss on the standard linear-notional basis
-    (sized so max loss = the R:R-derived loss budget — same as the Trade View
-    variants table). None when the variant wasn't dollar-sized."""
+def _ccy_summary(v, ccy: str = "base ccy") -> str | None:
+    """Notional/premium/max-loss in the pair's base currency, on the standard
+    linear-notional basis (sized so max loss = the R:R-derived loss budget — same
+    as the Trade View variants table). None when the variant wasn't sized."""
     if v.structure_notional is None:
         return None
     return (
-        f"sized: notional≈{v.structure_notional:,.0f}  premium≈{v.net_premium_ccy:,.0f}  "
-        f"max_loss≈{v.max_loss_ccy:,.0f} (base ccy, linear-notional basis)"
+        f"sized: notional≈{v.structure_notional:,.0f} {ccy}  premium≈{v.net_premium_ccy:,.0f} {ccy}  "
+        f"max_loss≈{v.max_loss_ccy:,.0f} {ccy} (linear-notional basis)"
     )
 
 
@@ -225,7 +226,7 @@ def _variant_summary(v) -> str:
     return "  ".join(parts)
 
 
-def render_priced_structure(ps: PricedStructure, attributes=frozenset()) -> str:
+def render_priced_structure(ps: PricedStructure, attributes=frozenset(), base_ccy: str = "base ccy") -> str:
     """Render a single PM-requested priced structure (Tier-2 result).
 
     ``attributes`` are the IP-clean findings computed against the frozen pack so
@@ -234,8 +235,8 @@ def render_priced_structure(ps: PricedStructure, attributes=frozenset()) -> str:
     """
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
-    lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None), v.structure_notional))
-    ccy = _ccy_summary(v)
+    lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None), v.structure_notional, base_ccy))
+    ccy = _ccy_summary(v, base_ccy)
     if ccy:
         lines.append("  " + ccy)
     lines.extend(_findings_lines(attributes, indent="  "))
@@ -244,14 +245,14 @@ def render_priced_structure(ps: PricedStructure, attributes=frozenset()) -> str:
     return "\n".join(lines)
 
 
-def render_recommended(rec) -> str:
+def render_recommended(rec, base_ccy: str = "base ccy") -> str:
     """Render a recommended (already-priced) structure pulled from the pack."""
     lines = [
         f"RECOMMENDED {rec.display_name} — {rec.variant.variant_label} [{rec.structure_id}]",
         "  " + _variant_summary(rec.variant),
     ]
-    lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None), rec.variant.structure_notional))
-    ccy = _ccy_summary(rec.variant)
+    lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None), rec.variant.structure_notional, base_ccy))
+    ccy = _ccy_summary(rec.variant, base_ccy)
     if ccy:
         lines.append("  " + ccy)
     lines.extend(_findings_lines(getattr(rec, "attributes", frozenset()), indent="  "))

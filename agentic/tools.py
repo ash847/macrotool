@@ -214,6 +214,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
         )
 
     request = args.get("request", "")
+    base_ccy = session.view.pair[:3] if session.view is not None else "base ccy"
 
     # Family-only request (e.g. "1x1.5 spread", "the digital") → return the
     # already-priced recommended construction from the pack, don't demand strikes.
@@ -221,7 +222,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
     if fam_only is not None:
         rec = next((r for r in session.pack.recommended if r.structure_id == fam_only), None)
         if rec is not None:
-            return render_recommended(rec), False
+            return render_recommended(rec, base_ccy), False
 
     ms = session.pack.market_state
     try:
@@ -250,5 +251,5 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             is_call=session.pack.is_call, target=session.pack.target,
             smile=getattr(ms, "surface", None), weights=session.pack.scenario_weights,
         )
-        return render_priced_structure(result, tags), False
+        return render_priced_structure(result, tags, base_ccy), False
     return "Unexpected pricing result.", True
