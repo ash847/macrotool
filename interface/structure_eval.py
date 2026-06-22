@@ -551,15 +551,13 @@ def render_structure_evaluation(
         col_label as _sc_col_label,
         valid_grid_rows as _valid_grid_rows,
     )
-    from conversation.explanation_context import (
-        render_explanation_pack_overview as _render_expl_overview,
-        render_structure_comparisons as _render_structure_comparisons,
-        render_variant_comparisons as _render_variant_comparisons,
-    )
     from knowledge_engine.comparator import (
-        VariantEvaluation as _VariantEvaluation,
-        build_recommendation_pack as _build_expl_pack,
         summarize_scenario_rows as _summarize_scenario_rows,
+    )
+    from knowledge_engine.structure_attributes import (
+        attributes as _attributes,
+        deciding_axis as _deciding_axis,
+        render_findings as _render_findings,
     )
 
     _ev_ms = _res.ms
@@ -661,60 +659,46 @@ def render_structure_evaluation(
             st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
 
     if is_admin:
+        # Scoring findings — the IP-clean qualitative characterization the agent
+        # narrates over (no scores / weights / methodology). This is the SAME
+        # attribute vocabulary the Agent page uses; shown here as the commentary
+        # input that replaced the old comparator explanation pack.
         try:
-            _expl_variants = {
-                _s["item"].structure_id: [_v["pv"] for _v in _s["variants"]]
-                for _s in _ev_structs
-            }
-            _expl_scores = {
-                _s["item"].structure_id: _s["variants"][0]["score"]
-                for _s in _ev_structs
-            }
-            _expl_variant_evals = {
-                _s["item"].structure_id: [
-                    _VariantEvaluation(
-                        variant=_v["pv"],
-                        rows=_v["rows"],
-                        base_score=_v["score_base"],
-                        pm_score=_v["score"],
-                        aggregates=_summarize_scenario_rows(_v["rows"]),
-                    )
-                    for _v in _s["variants"]
-                ]
-                for _s in _ev_structs
-            }
-            _expl_pack = _build_expl_pack(
-                _ev_ms,
-                flow.selector_result,
-                _expl_variants,
-                _expl_scores,
-                variant_evaluations_by_structure=_expl_variant_evals,
-                user_email=getattr(flow, "user_email", None),
+            _find_rows = []          # (score_ccy, display_name, tags)
+            _axis_aggs = []          # (score_ccy, aggregates)
+            for _s in _ev_structs:
+                _best = max(
+                    _s["variants"],
+                    key=lambda v: v["score"].score_ccy if v["score"].score_ccy is not None else float("-inf"),
+                )
+                _aggs = _summarize_scenario_rows(_best["rows"])
+                _tags = _attributes(_s["item"].structure_id, _best["score"], _aggs)
+                _sc = _best["score"].score_ccy
+                _find_rows.append((_sc, _s["item"].display_name, _tags))
+                _axis_aggs.append((_sc, _aggs))
+            _key = lambda x: x[0] if x[0] is not None else float("-inf")
+            _find_rows.sort(key=_key, reverse=True)
+            _axis_aggs.sort(key=_key, reverse=True)
+            _deciding = (
+                _deciding_axis(_axis_aggs[0][1], _axis_aggs[1][1])
+                if len(_axis_aggs) >= 2 else None
             )
-            from conversation.explanation_context import render_explanation_pack as _render_full_pack
-            from interface.advisor_chat import build_chat_system_prompt as _build_chat_system
-            _full_pack_text = _render_full_pack(_expl_pack)
-            with st.expander("Full LLM prompt", expanded=False):
-                st.code(_build_chat_system(_full_pack_text), language="text")
-            with st.expander("Explanation pack preview", expanded=False):
-                st.code(_render_expl_overview(_expl_pack), language="text")
-                if _expl_pack.variant_comparisons:
-                    with st.expander("Variant comparisons", expanded=False):
-                        st.code(
-                            _render_variant_comparisons(_expl_pack.variant_comparisons),
-                            language="text",
-                        )
-                if _expl_pack.comparisons:
-                    with st.expander("Structure comparisons", expanded=False):
-                        st.code(
-                            _render_structure_comparisons(list(_expl_pack.comparisons.values())),
-                            language="text",
-                        )
-                if not _expl_pack.variant_comparisons and not _expl_pack.comparisons:
-                    st.caption("No comparator sections available for this pack.")
+            _findings_text = _render_findings(
+                [(_name, _tags) for _, _name, _tags in _find_rows],
+                deciding=_deciding,
+            )
+            with st.expander("Scoring findings (LLM commentary input)", expanded=False):
+                st.caption(
+                    "Qualitative characterization the agent narrates over — no scores, "
+                    "weights, or scoring methodology. Same vocabulary as the Agent page."
+                )
+                if _findings_text:
+                    st.code(_findings_text, language="text")
+                else:
+                    st.caption("No findings available for this view.")
         except Exception as _e:
-            with st.expander("Explanation pack preview", expanded=False):
-                st.caption(f"Unable to build explanation pack preview: {_e}")
+            with st.expander("Scoring findings (LLM commentary input)", expanded=False):
+                st.caption(f"Unable to build scoring findings: {_e}")
 
     _all_ranked = sorted(
         [

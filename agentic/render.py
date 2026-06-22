@@ -7,12 +7,23 @@ agent can cite the right source, and they surface only computed numbers.
 
 from __future__ import annotations
 
+import re
+
 from agentic.price_structure import PricedStructure, PricingUnavailable
 from agentic.standard_pack import StandardPack
 from analytics.product_model import AnchorKind
 from knowledge_engine.models import TradeView
 
 _TOP_N = 3   # recommended structures shown by default; rest surfaced only on request
+
+# The engine rationale carries a trailing "[scores on: <affinity dimensions>]" /
+# "[penalised by: ...]" suffix — that is scoring METHODOLOGY (IP). Strip it before the
+# LLM sees it; keep only the plain description. The full version stays in the admin UI.
+_RATIONALE_METHOD_SUFFIX = re.compile(r"\s*\[(?:scores on|penalised by)[^\]]*\]")
+
+
+def _clean_rationale(text: str) -> str:
+    return _RATIONALE_METHOD_SUFFIX.sub("", text or "").strip()
 
 
 def _anchor_label(anchor) -> str:
@@ -118,30 +129,31 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             ccy = _ccy_summary(r.variant)
             if ccy:
                 lines.append("     " + ccy)
-            if r.drivers:
-                _d = r.drivers
-                lines.append("     drivers: " + " · ".join(
-                    f"{label} {_d.get(bucket, 0.0):+.2%}"
-                    for bucket, label in (
-                        ("Carry", "decay"), ("Directional", "directional"),
-                        ("Adverse", "adverse"), ("Vega", "vega"),
-                    )
-                ))
+            # Qualitative, IP-clean findings — what the scoring *learned* about this
+            # structure, with no scores / weights / methodology. The raw driver split
+            # (r.drivers) stays server-side; it only DERIVES these tags.
+            lines.extend(_findings_lines(r.attributes))
             # major_risk is intentionally NOT surfaced by default — it's a generic
             # family-level caveat the PM rarely wants unprompted. It stays in the
             # data and is rendered on request via render_recommended (price_structure).
-            lines.append(f"     — {r.rationale}")
+            lines.append(f"     — {_clean_rationale(r.rationale)}")
         extra = len(pack.recommended) - len(top)
         if extra > 0:
             lines.append(
                 f"  (+{extra} more structures considered — list them only if the PM asks.)"
+            )
+        if pack.deciding_axis:
+            lines.append(
+                f"  WHAT SEPARATED THE TOP PICK: {pack.deciding_axis}. "
+                "(Use to explain the choice; synthesize the findings into a view — "
+                "do not list them mechanically, and state no score.)"
             )
     else:
         # No representative priced (e.g. no target supplied) — fall back to families.
         lines.append("\nSTRUCTURE SHORTLIST (scored families):")
         for s in pack.selector_result.shortlist:
             tag = " (overlay)" if s.is_exotic else ""
-            lines.append(f"  {s.rank}. {s.display_name} [{s.structure_id}]{tag} — {s.rationale}")
+            lines.append(f"  {s.rank}. {s.display_name} [{s.structure_id}]{tag} — {_clean_rationale(s.rationale)}")
         if not pack.selector_result.shortlist:
             lines.append("  (no eligible structures for this view)")
 
@@ -159,6 +171,25 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         lines.append("\nDISTRIBUTIONS: available (smile + flat) for scenario context.")
 
     return "\n".join(lines)
+
+
+def _findings_lines(tags, indent: str = "     ") -> list[str]:
+    """Per-structure qualitative findings (edges / caveats) from attribute tags.
+
+    IP-clean by construction: only phrasebook glosses, no numbers or method.
+    """
+    if not tags:
+        return []
+    from knowledge_engine.structure_attributes import ATTRIBUTES
+    ordered = [t for t in ATTRIBUTES if t in tags]
+    edges = [ATTRIBUTES[t].gloss for t in ordered if ATTRIBUTES[t].polarity == "edge"]
+    caveats = [ATTRIBUTES[t].gloss for t in ordered if ATTRIBUTES[t].polarity in ("caveat", "neutral")]
+    out = []
+    if edges:
+        out.append(f"{indent}findings — edges:   " + "; ".join(edges))
+    if caveats:
+        out.append(f"{indent}findings — caveats: " + "; ".join(caveats))
+    return out
 
 
 def _ccy_summary(v) -> str | None:
@@ -194,14 +225,20 @@ def _variant_summary(v) -> str:
     return "  ".join(parts)
 
 
-def render_priced_structure(ps: PricedStructure) -> str:
-    """Render a single PM-requested priced structure (Tier-2 result)."""
+def render_priced_structure(ps: PricedStructure, attributes=frozenset()) -> str:
+    """Render a single PM-requested priced structure (Tier-2 result).
+
+    ``attributes`` are the IP-clean findings computed against the frozen pack so
+    a PM-named (off-menu) structure is characterized in the same vocabulary as
+    the recommended set — the LLM can then contrast it by diffing the findings.
+    """
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
     lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None), v.structure_notional))
     ccy = _ccy_summary(v)
     if ccy:
         lines.append("  " + ccy)
+    lines.extend(_findings_lines(attributes, indent="  "))
     if ps.warnings:
         lines.append("  warnings: " + "; ".join(ps.warnings))
     return "\n".join(lines)
@@ -217,9 +254,10 @@ def render_recommended(rec) -> str:
     ccy = _ccy_summary(rec.variant)
     if ccy:
         lines.append("  " + ccy)
+    lines.extend(_findings_lines(getattr(rec, "attributes", frozenset()), indent="  "))
     if rec.major_risk:
         lines.append(f"  risk (engine): {rec.major_risk}")
-    lines.append(f"  — {rec.rationale}")
+    lines.append(f"  — {_clean_rationale(rec.rationale)}")
     return "\n".join(lines)
 
 

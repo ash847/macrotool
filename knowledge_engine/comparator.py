@@ -178,6 +178,8 @@ class ComparatorInputs:
     scenario_aggregates_by_structure: dict[str, ScenarioAggregates]
     variant_evaluations_by_structure: dict[str, list[VariantEvaluation]]
     active_context: str | None = None   # fired base-weighting context id (for commentary)
+    weights: dict[str, float] = field(default_factory=dict)   # resolved PM scenario weights
+                                                              # (reused by Tier-2 to score a PM structure)
 
 
 @dataclass(frozen=True)
@@ -654,6 +656,7 @@ def build_comparator_inputs(
         scenario_aggregates_by_structure=scenario_aggregates_by_structure,
         variant_evaluations_by_structure=variant_evaluations_by_structure,
         active_context=(weighter.base_fired.id if getattr(weighter, "base_fired", None) else None),
+        weights=dict(weighter.weights),
     )
 
 

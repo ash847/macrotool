@@ -46,7 +46,6 @@ from interface.structure_eval import (
     render_structure_variants,
     render_structure_evaluation,
 )
-from interface.advisor_chat import render_advisor_chat
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
@@ -156,8 +155,6 @@ if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
 if "clarification" not in st.session_state:
     st.session_state.clarification = ""
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
 if "pref_primary_objective" not in st.session_state:
     st.session_state.pref_primary_objective = "Balanced"
 if "pref_structure_constraint" not in st.session_state:
@@ -205,7 +202,6 @@ with st.sidebar:
                 st.session_state.submitted = False
                 st.session_state.last_prompt = ""
                 st.session_state.clarification = ""
-                st.session_state.chat_history = []
             st.session_state.page = label
             st.rerun()
 
@@ -1101,9 +1097,6 @@ else:
         and target_price(flow) is not None
     ):
         render_structure_evaluation(flow, IS_ADMIN, target_price(flow))
-
-    # Advisor chat
-    render_advisor_chat(flow)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:

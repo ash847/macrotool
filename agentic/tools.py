@@ -242,5 +242,13 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
         return render_unavailable(result), False
     if isinstance(result, PricedStructure):
         session.priced.append(result)
-        return render_priced_structure(result), False
+        # Characterize the off-menu structure in the same IP-clean vocabulary as the
+        # recommended set (scored against the frozen pack) so the LLM can contrast it.
+        from agentic.price_structure import characterize_against_pack
+        tags = characterize_against_pack(
+            result.variant, result.request.family, ms,
+            is_call=session.pack.is_call, target=session.pack.target,
+            smile=getattr(ms, "surface", None), weights=session.pack.scenario_weights,
+        )
+        return render_priced_structure(result, tags), False
     return "Unexpected pricing result.", True

@@ -1,44 +1,29 @@
 """
-Conversation flow state machine.
+Trade-View engine container.
 
-This module represents the target conversational architecture. The current
-Streamlit Trade View UI can also run a structured silent path that bypasses
-`advance()` and calls the deterministic engine directly while we validate the
-plumbing, but follow-up/conversation behavior still lives here.
+Historically this module held a conversational LLM state machine (INTAKE →
+VALIDATION → … → DONE). That legacy chat path has been retired — the live
+conversational surface is the **Agent** page (``agentic/``). What remains here is
+the deterministic engine container the Trade View / Batch screens use: it holds
+the view + snapshot + config and runs the engine chain via
+``agentic.standard_pack.build_pack``.
 
-States:
-  INTAKE         → PM provides view in natural language; LLM extracts [VIEW: {...}] tag
-  VALIDATION     → LLM contextualises view against market (auto-triggered after intake)
-  STRUCTURE_REC  → LLM explains structure shortlist and scenario matrix
-  SIZING         → LLM narrates Kelly sizing, stop, tranches, TPs
-  ENTRY_EXIT     → LLM produces complete trade memo
-  CRITIQUE       → LLM evaluates PM's supplied structure (critique mode only)
-  DONE           → Follow-up Q&A with full context
-
-Usage:
-    flow = ConversationFlow()
-    for chunk in flow.advance("I'm long USDBRL, high conviction..."):
-        print(chunk, end="", flush=True)
-    # After generator exhausted, flow.step has advanced
+``Step`` is kept for the chart-selection helpers in ``interface/charts.py``.
+``MacroToolClient`` is retained only so the sidebar "Test LLM connection" button
+can reach a provider client; it is not used by the engine path.
 """
 
 from __future__ import annotations
 
-import json
-import re
 from enum import Enum
-from typing import Any, Generator
+from typing import Any
 
 from config.loader import load_config
-from config.override_detector import extract_overrides
-from config.resolver import resolve as resolve_config
 from config.schema import ResolvedConfig, SessionOverrides
 from data.snapshot_loader import load_snapshot
 from data.schema import CurrencySnapshot, MarketSnapshot
-from knowledge_engine.conventions import resolve as resolve_conventions
 from knowledge_engine.critique_engine import evaluate_structure
-from analytics.distributions import interpolate_atm_vol
-from analytics.market_state import MarketState, compute_market_state
+from analytics.market_state import MarketState
 from knowledge_engine.models import (
     CritiqueOutput,
     SizingOutput,
@@ -46,20 +31,10 @@ from knowledge_engine.models import (
     TradeView,
 )
 from knowledge_engine.sizing_engine import compute_sizing
-from knowledge_engine.structure_scorer import score_structures
-from analytics.distributions import (
-    compute_flat_vol_distribution,
-    compute_smile_distribution,
-    compute_maturity_histogram,
-)
 from analytics.models import PriceDistribution, MaturityHistogram
 
 from conversation.client import MacroToolClient
-import conversation.tracing as _tracing
-from conversation import context_builder
-from agentic.standard_pack import build_pack, target_from_reference
-
-_COMPARATOR_LINEAR_NOTIONAL = 100.0
+from agentic.standard_pack import build_pack, target_from_reference  # re-exported for back-compat
 
 
 class Step(str, Enum):
@@ -72,15 +47,11 @@ class Step(str, Enum):
     DONE = "DONE"
 
 
-_VIEW_TAG = re.compile(r'\[VIEW:\s*(\{.*?\})\]', re.DOTALL)
-
-
 class ConversationFlow:
-    """
-    Manages conversation state for a single PM session.
+    """Holds Trade-View session state and runs the deterministic engine chain.
 
-    Call advance(user_message) to get a generator of text chunks.
-    The generator must be fully consumed before calling advance() again.
+    The Streamlit Trade View screen sets the view/preferences on this object and
+    calls ``_run_engines()`` directly (no LLM in the loop on that screen).
     """
 
     def __init__(
@@ -91,6 +62,8 @@ class ConversationFlow:
         model: str | None = None,
         credentials: Any | None = None,
     ):
+        # Retained only for the sidebar "Test LLM connection" button; the engine
+        # path below never calls the client.
         self._client = MacroToolClient(
             api_key=api_key,
             provider=provider,
@@ -98,10 +71,8 @@ class ConversationFlow:
             credentials=credentials,
         )
         self._snapshot: MarketSnapshot = snapshot or load_snapshot()
-        self._session_span = _tracing.new_session_span("macrotool-session")
 
         self.step: Step = Step.INTAKE
-        self.messages: list[dict] = []
         self.session_overrides = SessionOverrides()
 
         self.cfg: ResolvedConfig = load_config()
@@ -119,32 +90,10 @@ class ConversationFlow:
         self.flat_distribution: PriceDistribution | None = None
         self.smile_distribution: PriceDistribution | None = None
         self.maturity_histogram: MaturityHistogram | None = None
-        self.explanation_pack_context: str | None = None
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def advance(self, user_message: str) -> Generator[str, None, None]:
-        """
-        Process a PM message. Yields text chunks as they stream.
-
-        The generator must be fully exhausted for state to be correctly updated.
-        After exhaustion, self.step reflects the new state.
-        """
-        self.messages.append({"role": "user", "content": user_message})
-
-        if self.step == Step.INTAKE:
-            yield from self._run_intake()
-        elif self.step == Step.STRUCTURE_REC:
-            yield from self._run_structure_rec()
-        elif self.step in (Step.DONE, Step.CRITIQUE):
-            yield from self._run_followup()
 
     def reset(self) -> None:
-        """Start a new conversation."""
+        """Reset to an empty session (new Trade View)."""
         self.step = Step.INTAKE
-        self.messages = []
         self.session_overrides = SessionOverrides()
         self.cfg = load_config()
         self.target_rr = None
@@ -161,191 +110,17 @@ class ConversationFlow:
         self.flat_distribution = None
         self.smile_distribution = None
         self.maturity_histogram = None
-        self.explanation_pack_context = None
 
     # ------------------------------------------------------------------
-    # Step handlers
+    # Engine path
     # ------------------------------------------------------------------
-
-    def _run_intake(self) -> Generator[str, None, None]:
-        """INTAKE: extract VIEW tag, then immediately narrate market context.
-
-        All API calls use the original messages list (ending with the user turn)
-        so we never send a conversation ending with an assistant message.
-        Combined response is recorded once at the end.
-        """
-        system = context_builder.build_intake_prompt(self._snapshot)
-
-        # First call: extract VIEW — stream but don't record yet
-        first_text = ""
-        for chunk in self._stream_traced(self.messages, system, "INTAKE_view_extraction"):
-            first_text += chunk
-            yield chunk
-
-        view = _parse_view_tag(first_text)
-
-        if view is None:
-            # LLM asked for clarification — record and stay in INTAKE
-            clean, _ = extract_overrides(first_text)
-            self.messages.append({"role": "assistant", "content": clean.strip()})
-            return
-
-        # VIEW parsed — run knowledge engine
-        self.view = view
-        self.ccy = self._snapshot.get(view.pair)
-        self._run_engines()
-        try:
-            self._session_span.update(
-                tags=[view.pair, view.mode],
-                metadata={"pair": view.pair, "mode": view.mode, "direction": view.direction},
-            )
-        except Exception:
-            pass
-
-        # Emit view confirmation as first visible line
-        direction_label = "Long" if view.direction == "base_higher" else "Short"
-        conf = f"**View:** {direction_label} {view.pair} · {view.horizon_days}d"
-        if view.magnitude_pct is not None:
-            target_lvl = target_from_reference(
-                self.market_state.fwd if self.market_state is not None else self.ccy.spot,
-                view.direction,
-                view.magnitude_pct,
-            )
-            conf += f" · target {target_lvl:.4f}"
-        yield "\n\n" + conf + "\n\n"
-
-        # Second call: validation — messages still ends with user turn (correct)
-
-        validation_system = context_builder.build_validation_prompt(
-            view, self.ccy, self.selector_result,
-            self.flat_distribution, self.smile_distribution, self.maturity_histogram,
-            target_rr=self.target_rr,
-        )
-        second_text = ""
-        for chunk in self._stream_traced(self.messages, validation_system, "INTAKE_validation"):
-            second_text += chunk
-            yield chunk
-
-        if view.mode == "critique":
-            # Third call: critique — still using original messages
-            yield "\n\n"
-            critique_system = context_builder.build_critique_prompt(
-                view, self.ccy, self.selector_result, self.sizing, self.critique
-            )
-            third_text = ""
-            for chunk in self._stream_traced(self.messages, critique_system, "INTAKE_critique"):
-                third_text += chunk
-                yield chunk
-            combined = first_text + "\n\n" + second_text + "\n\n" + third_text
-            self.step = Step.DONE
-        else:
-            # Third call: structure recommendation — no PM input needed
-            yield "\n\n---\n\n"
-            structure_system = context_builder.build_structure_rec_prompt(
-                view, self.ccy, self.selector_result, target_rr=self.target_rr,
-            )
-            third_text = ""
-            for chunk in self._stream_traced(self.messages, structure_system, "INTAKE_structure_rec"):
-                third_text += chunk
-                yield chunk
-            combined = first_text + "\n\n" + second_text + "\n\n" + third_text
-            self.step = Step.DONE
-
-        # Record the full combined response once
-        clean, _ = extract_overrides(combined)
-        clean = _VIEW_TAG.sub("", clean).strip()
-        self.messages.append({"role": "assistant", "content": clean})
-
-    def _run_structure_rec(self) -> Generator[str, None, None]:
-        system = context_builder.build_structure_rec_prompt(
-            self.view, self.ccy, self.selector_result, target_rr=self.target_rr,
-        )
-        yield from self._stream_and_record(system)
-        self._apply_pref_changes()
-        self.step = Step.SIZING
-
-    def _run_sizing(self) -> Generator[str, None, None]:
-        # Re-compute sizing in case prefs changed
-        self._recompute_sizing()
-        system = context_builder.build_sizing_prompt(
-            self.view, self.ccy, self.selector_result, self.sizing
-        )
-        yield from self._stream_and_record(system)
-        self._apply_pref_changes()
-        self.step = Step.ENTRY_EXIT
-
-    def _run_entry_exit(self) -> Generator[str, None, None]:
-        system = context_builder.build_entry_exit_prompt(
-            self.view, self.ccy, self.selector_result, self.sizing
-        )
-        yield from self._stream_and_record(system)
-        self._apply_pref_changes()
-        self.step = Step.DONE
-
-    def _run_followup(self) -> Generator[str, None, None]:
-        system = context_builder.build_followup_prompt(
-            self.view,
-            self.ccy,
-            self.selector_result,
-            self.sizing,
-            self.critique,
-            explanation_context=self.explanation_pack_context,
-        )
-        yield from self._stream_and_record(system)
-        self._apply_pref_changes()
-        # Stay in DONE
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _stream_and_record(self, system: str) -> Generator[str, None, None]:
-        """Stream a response and append the cleaned text to message history."""
-        full_text = ""
-        for chunk in self._stream_traced(self.messages, system, self.step.value):
-            full_text += chunk
-            yield chunk
-
-        clean_text, _ = extract_overrides(full_text)
-        clean_text = _VIEW_TAG.sub("", clean_text).strip()
-        self.messages.append({"role": "assistant", "content": clean_text})
-
-    def _stream_traced(
-        self, messages: list[dict], system: str, step_name: str
-    ) -> Generator[str, None, None]:
-        """Stream a response, logging it as a Langfuse generation."""
-        gen = _tracing.new_generation(
-            name=step_name,
-            model=f"{self._client.provider}:{self._client.model}",
-            input={"system": system, "messages": messages, "provider": self._client.provider},
-            session_span=self._session_span,
-        )
-        full_text = ""
-        for chunk in self._client.stream(messages, system):
-            full_text += chunk
-            yield chunk
-        gen.update(output=full_text)
-        gen.end()
-        _tracing.flush()
-
-    def _apply_pref_changes(self) -> None:
-        """Parse PREF_CHANGE tags from last response and re-resolve config."""
-        _, overrides = extract_overrides(self._client.last_response)
-        for override in overrides:
-            self.session_overrides.apply(
-                override.field_path,
-                override.value,
-                override.scope,
-                override.raw_text,
-            )
-        if overrides:
-            self.cfg = resolve_config(self.cfg, None, self.session_overrides)
 
     def _run_engines(self) -> None:
-        """Compute MarketState, run structure scorer, sizing, distributions, and (if critique) critique engine.
+        """Compute MarketState, run structure scorer, sizing, distributions, and
+        (critique mode) the critique engine.
 
-        The core deterministic chain is delegated to ``agentic.standard_pack.build_pack``
-        so the agent loop and this state machine share one implementation.
+        The deterministic chain is delegated to ``agentic.standard_pack.build_pack``
+        so the Trade View screen and the Agent loop share one implementation.
         """
         pack = build_pack(
             self.view,
@@ -368,7 +143,7 @@ class ConversationFlow:
                 self.sizing,
             )
         else:
-            self._build_explanation_pack_context()
+            self.critique = None
 
     def _recompute_sizing(self) -> None:
         """Re-run sizing after a config change (e.g., PREF_CHANGE)."""
@@ -376,103 +151,3 @@ class ConversationFlow:
             top = self.selector_result.shortlist[0] if self.selector_result.shortlist else None
             if top:
                 self.sizing = compute_sizing(self.view, self.ccy, top, self.cfg)
-
-    def _build_explanation_pack_context(self) -> None:
-        """Build the deterministic recommendation explanation pack for follow-up mode.
-
-        Best-effort only: if comparator inputs cannot be built, follow-up still works
-        with the existing trade context blocks.
-        """
-        self.explanation_pack_context = None
-        if not (self.view and self.ccy and self.market_state and self.selector_result):
-            return
-        if self.view.mode != "recommend":
-            return
-
-        target = target_from_reference(
-            self.market_state.fwd,
-            self.view.direction,
-            self.view.magnitude_pct,
-        )
-        if target is None or not self.target_rr or self.target_rr <= 0:
-            return
-
-        move_pct = abs(target - self.market_state.fwd) / self.market_state.fwd
-        stop_pct = move_pct / self.target_rr
-        stop_price = (
-            self.market_state.fwd * (1 - stop_pct)
-            if self.view.direction == "base_higher"
-            else self.market_state.fwd * (1 + stop_pct)
-        )
-        loss_budget = _COMPARATOR_LINEAR_NOTIONAL * stop_pct
-
-        try:
-            from conversation.explanation_context import render_explanation_pack
-            from knowledge_engine.comparator import PMPreferences, build_comparator_inputs, build_recommendation_pack
-
-            prefs = PMPreferences(
-                primary_objective=self.primary_objective,
-                trade_management=self.trade_management,
-                structure_constraint=self.structure_constraint,
-            )
-            # Reuse the surface the market state was priced against, so entry
-            # pricing and scenario MtM use the identical surface.
-            smile = getattr(self.market_state, "surface", None)
-            comparator_inputs = build_comparator_inputs(
-                self.market_state,
-                self.selector_result,
-                target=target,
-                is_call=self.view.direction == "base_higher",
-                stop_price=stop_price,
-                loss_budget=loss_budget,
-                preferences=prefs,
-                smile=smile,
-                user_email=self.user_email,
-            )
-            pack = build_recommendation_pack(
-                self.market_state,
-                self.selector_result,
-                comparator_inputs.priced_variants_by_structure,
-                comparator_inputs.pm_scores_by_structure,
-                preferences=prefs,
-                variant_evaluations_by_structure=comparator_inputs.variant_evaluations_by_structure,
-                user_email=self.user_email,
-            )
-            self.explanation_pack_context = render_explanation_pack(pack)
-        except Exception:
-            self.explanation_pack_context = None
-
-
-
-# ---------------------------------------------------------------------------
-# Tag parsing
-# ---------------------------------------------------------------------------
-
-def _parse_view_tag(text: str) -> TradeView | None:
-    """Extract and parse a [VIEW: {...}] tag from LLM output."""
-    match = _VIEW_TAG.search(text)
-    if not match:
-        return None
-
-    try:
-        data = json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return None
-
-    required = {"pair", "direction", "direction_conviction", "horizon_days"}
-    if not required.issubset(data):
-        return None
-
-    return TradeView(
-        pair=data["pair"],
-        direction=data["direction"],
-        direction_conviction=data["direction_conviction"],
-        timing_conviction=data.get("timing_conviction", "medium"),
-        horizon_days=int(data["horizon_days"]),
-        magnitude_pct=data.get("magnitude_pct"),
-        budget_usd=data.get("budget_usd"),
-        max_loss_usd=data.get("max_loss_usd"),
-        catalyst=data.get("catalyst"),
-        mode=data.get("mode", "recommend"),
-        pm_structure_description=data.get("pm_structure_description"),
-    )

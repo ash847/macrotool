@@ -126,6 +126,44 @@ def price_structure(
     )
 
 
+def characterize_against_pack(
+    variant,
+    family: str,
+    ms: MarketState,
+    *,
+    is_call: bool,
+    target: float | None,
+    smile: object,
+    weights: dict | None,
+) -> frozenset:
+    """IP-clean qualitative tags for a PM-named structure, scored against the
+    *frozen* pack (same scenario grid + same resolved weights). Mirrors the
+    pack-build path so an off-menu structure lands in the identical vocabulary.
+
+    Best-effort: returns an empty set if the structure can't be scenario-scored
+    (e.g. no target, or no resolved weights on the pack).
+    """
+    if target is None or not weights:
+        return frozenset()
+    try:
+        from analytics.scenario_generator import generate_scenarios
+        from analytics.scenario_pricer import price_scenarios
+        from knowledge_engine.scenario_scorer import score_structure
+        from knowledge_engine.comparator import summarize_scenario_rows
+        from knowledge_engine.structure_attributes import attributes
+
+        trade_inputs = {
+            "spot": ms.spot, "forward": ms.fwd, "implied_vol": ms.vol,
+            "tenor_years": ms.T, "target": target, "r_d": ms.r_d, "r_f": ms.r_f,
+        }
+        scenarios = generate_scenarios(trade_inputs)
+        rows = price_scenarios(variant, family, scenarios, trade_inputs, is_call, surface=smile)
+        pm_score = score_structure(rows, weights)
+        return attributes(family, pm_score, summarize_scenario_rows(rows))
+    except Exception:
+        return frozenset()
+
+
 def _unavailable_detail(family: str, target: float | None, warnings: list[str]) -> str:
     if warnings:
         return "; ".join(warnings)
