@@ -280,11 +280,11 @@
         "target_z_abs_max": 1.5
       },
       "target_z_abs": {
-        "no_target": 0.0,
-        "near": 2.0,
-        "moderate": 0.5,
-        "extended": 0.0,
-        "far": 0.0
+        "no_target": 0.01,
+        "near": 2.01,
+        "moderate": 0.51,
+        "extended": 0.01,
+        "far": 0.01
       },
       "carry_regime": {
         "0": 0.0,
