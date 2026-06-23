@@ -118,7 +118,8 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         if pack.loss_budget is not None:
             lines.append(
                 f"  (each variant sized so its max loss = the loss budget "
-                f"{pack.loss_budget:,.2f} {base_ccy}, on a 100-unit linear notional, R:R-derived)"
+                f"{pack.loss_budget:,.2f} {base_ccy}, on a 100-unit linear notional, R:R-derived; "
+                f"notional capped at 1,000 units, and net-credit structures fixed at 1,000)"
             )
         top = pack.recommended[:_TOP_N]
         for r in top:

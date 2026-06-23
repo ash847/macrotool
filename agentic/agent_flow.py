@@ -59,7 +59,9 @@ you don't believe in anyway"). Do not presume what the PM believes, wants, or fe
 
 Sizing / notionals: the recommended structures are already sized on a standard linear-
 notional basis (each sized so its max loss = the loss budget, which is LINEAR_NOTIONAL × the
-R:R-derived stop %). The notional / premium / max-loss are in the pack, denominated in the
+R:R-derived stop %), with the structure notional capped at 10× the linear notional; net-credit
+structures (no premium to bound the loss) are fixed at 10× the linear notional. The notional /
+premium / max-loss are in the pack, denominated in the
 pair's BASE currency — the pack prints the actual currency code next to each amount (e.g.
 "notional≈519 USD", "premium≈1 EUR"). Quote the amount WITH that currency code; never say
 "base currency" or "base ccy" to the PM — state the real currency shown. Do not invent a

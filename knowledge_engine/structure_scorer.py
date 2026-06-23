@@ -32,6 +32,7 @@ _CONSTRAINT_GATED_STRUCTURES = {
         "rko",
         "european_rko",
         "european_digital_rko",
+        "1x2x1_spread",
     },
     "Avoid tail-risky structures": {
         "seagull",

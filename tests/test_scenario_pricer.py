@@ -485,38 +485,44 @@ class TestSizing:
         assert abs(v.max_loss_ccy - 4.0) < 1e-9            # = loss_budget
         assert abs(v.payoff_at_target_ccy - 24.0) < 1e-9   # 0.12 * 200
 
-    def test_size_variant_skips_zero_max_loss(self):
-        # ~zero max loss can't size against a loss budget → left unscaled (no cap fallback).
+    def test_size_variant_zero_max_loss_positive_premium_caps(self):
+        # Positive premium but ~zero max loss → notional lands on the 10× cap.
         from analytics.structure_pricer import _size_variant
-        v = _vanilla_variant()
+        v = _vanilla_variant()   # default positive premium
         v.max_loss_pct = 0.0
-        _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional is None
-        assert v.net_premium_ccy is None
-        assert v.max_loss_ccy is None
+        _size_variant(v, loss_budget=4.0)   # linear_notional defaults to 100 → cap 1000
+        assert abs(v.structure_notional - 1000.0) < 1e-9
+        assert v.max_loss_ccy == 0.0   # 0.0 * 1000
 
-    def test_size_variant_zero_max_loss_negative_premium_unscaled(self):
+    def test_size_variant_negative_premium_fixed_at_cap(self):
+        # Net credit: notional fixed at 10× linear notional regardless of max_loss_pct.
         from analytics.structure_pricer import _size_variant
         v = _vanilla_variant(prem_pct=-0.003)
-        v.max_loss_pct = 0.0
+        v.max_loss_pct = 0.003
         _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional is None
-        assert v.net_premium_ccy is None
-        assert v.max_loss_ccy is None
+        assert abs(v.structure_notional - 1000.0) < 1e-9      # 10 × 100
+        assert abs(v.net_premium_ccy - (-3.0)) < 1e-9         # -0.003 × 1000 (credit)
+        assert abs(v.max_loss_ccy - 3.0) < 1e-9               # 0.003 × 1000
 
-    def test_size_variant_no_cap_low_premium(self):
-        # No notional cap: a low premium → a large notional (budget / max_loss).
+    def test_size_variant_caps_low_premium(self):
+        # Low premium → loss_budget / max_loss would overshoot; notional caps at 10×.
         from analytics.structure_pricer import _size_variant
         v = _vanilla_variant(prem_pct=0.001)
         v.payoff_at_target_pct = 0.12
-        _size_variant(v, loss_budget=4.0)
-        assert abs(v.structure_notional - 4000.0) < 1e-6   # 4.0 / 0.001, uncapped
-        assert abs(v.net_premium_ccy - 4.0) < 1e-9
-        assert abs(v.max_loss_ccy - 4.0) < 1e-9
-        assert abs(v.payoff_at_target_ccy - 480.0) < 1e-6
+        _size_variant(v, loss_budget=4.0)   # 4.0 / 0.001 = 4000 > cap 1000
+        assert abs(v.structure_notional - 1000.0) < 1e-6     # capped
+        assert abs(v.net_premium_ccy - 1.0) < 1e-9           # 0.001 × 1000
+        assert abs(v.max_loss_ccy - 1.0) < 1e-9
+        assert abs(v.payoff_at_target_ccy - 120.0) < 1e-6    # 0.12 × 1000
+
+    def test_size_variant_respects_custom_linear_notional(self):
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant(prem_pct=0.001)
+        _size_variant(v, loss_budget=4.0, linear_notional=250.0)   # cap = 2500
+        assert abs(v.structure_notional - 2500.0) < 1e-6
 
     def test_price_variants_passes_loss_budget(self):
-        """price_variants populates dollar fields when loss_budget given (no cap)."""
+        """price_variants populates dollar fields when loss_budget given (capped)."""
         from analytics.structure_pricer import price_variants
         from analytics.market_state import compute_market_state
         ms = compute_market_state(
@@ -533,7 +539,7 @@ class TestSizing:
             # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == max_loss_ccy.
             assert abs(pv.net_premium_ccy - pv.max_loss_ccy) < 1e-6
 
-    def test_price_variants_1x2_premium_sized_no_cap(self):
+    def test_price_variants_1x2_premium_sized_capped(self):
         from analytics.structure_pricer import price_variants
         from analytics.market_state import compute_market_state
         ms = compute_market_state(
@@ -542,11 +548,15 @@ class TestSizing:
         )
         pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True, loss_budget=4.0)
         assert pvs
+        cap = 10.0 * 100.0   # 10× linear notional
         for pv in pvs:
-            # Max loss = premium; notional = budget / max_loss, uncapped.
             assert pv.max_loss_pct == pytest.approx(abs(pv.net_premium_pct))
-            if pv.structure_notional is not None:
-                assert pv.structure_notional == pytest.approx(4.0 / pv.max_loss_pct)
+            if pv.net_premium_pct < 0:
+                # Net credit → notional fixed at the cap.
+                assert pv.structure_notional == pytest.approx(cap)
+            else:
+                # Net debit → budget / max_loss, capped at 10× linear notional.
+                assert pv.structure_notional == pytest.approx(min(4.0 / pv.max_loss_pct, cap))
 
     def test_price_variants_no_budget_leaves_fields_none(self):
         ms = compute_market_state(

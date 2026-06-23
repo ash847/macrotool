@@ -43,6 +43,16 @@
     {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10},
     {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10}
   ],
+  "1x2x1_spread": [
+    {"label": "ATMF / 2× target / wing",              "long_type": "atmf"},
+    {"label": "½σ toward target / 2× target / wing",  "long_type": "half_sigma", "min_target_z": 0.5},
+    {"label": "ATMF / 25Δ / wing", "long_delta": 0.50, "short_delta": 0.25},
+    {"label": "25Δ / 10Δ / wing",  "long_delta": 0.25, "short_delta": 0.10},
+    {"label": "25Δ / 15Δ / wing",  "long_delta": 0.25, "short_delta": 0.15},
+    {"label": "40Δ / 20Δ / wing",  "long_delta": 0.40, "short_delta": 0.20},
+    {"label": "30Δ / 10Δ / wing",  "long_delta": 0.30, "short_delta": 0.10},
+    {"label": "20Δ / 10Δ / wing",  "long_delta": 0.20, "short_delta": 0.10}
+  ],
 
   "european_rko": [
     {"label": "ATMF / 25Δ", "long_delta": 0.50, "barrier": 0.25},

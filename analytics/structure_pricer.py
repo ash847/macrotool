@@ -117,6 +117,7 @@ def price_variants(
     is_call: bool = True,
     stop_price: float | None = None,
     loss_budget: float | None = None,
+    linear_notional: float = 100.0,
     smile: "SmileInterpolator | None" = None,
     warnings: list[str] | None = None,
     variants_override: list[dict] | None = None,
@@ -165,6 +166,8 @@ def price_variants(
         result = _1x1p5(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "1x2_spread":
         result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
+    elif structure_id == "1x2x1_spread":
+        result = _1x2x1(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "european_rko":
         result = _european_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings)
     elif structure_id == "seagull":
@@ -178,25 +181,37 @@ def price_variants(
 
     if loss_budget is not None and loss_budget > 0:
         for pv in result:
-            _size_variant(pv, loss_budget)
+            _size_variant(pv, loss_budget, linear_notional)
 
     return result
 
 
-def _size_variant(pv: PricedVariant, loss_budget: float) -> None:
+def _size_variant(pv: PricedVariant, loss_budget: float, linear_notional: float = 100.0) -> None:
     """Populate dollar-equivalent fields on a PricedVariant given a loss budget.
 
-    Scales the structure so its max loss (% of spot) equals loss_budget (in base
-    ccy units), subject to a cap on the base-leg notional for very cheap
-    structures. All other dollar amounts are derived from the resulting notional.
-    Leaves dollar fields as None if max_loss_pct is too small to size against.
+    Sizing rule (premium-aware), with the structure's 1x-leg notional
+    (``structure_notional``) capped/floored relative to the linear notional:
+
+    - **Net credit** (``net_premium_pct < 0``): premium can't bound the loss, so
+      loss-budget division is meaningless. Fix the 1x-leg notional at
+      ``10 × linear_notional``.
+    - **Net debit / zero-cost** (``net_premium_pct >= 0``): size so max loss
+      equals the loss budget (``loss_budget / max_loss_pct``), but **cap** the
+      notional at ``10 × linear_notional``. A ~zero max loss (the denominator
+      would blow up) lands directly on the cap.
+
+    All other dollar amounts are derived linearly from the resulting notional.
     """
-    if pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
-        return  # ~zero max loss (e.g. zero-cost) can't be sized against a loss budget — leave unscaled
-    notional = loss_budget / pv.max_loss_pct   # no cap
+    cap = 10.0 * linear_notional
+    if pv.net_premium_pct < 0:
+        notional = cap
+    elif pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
+        notional = cap
+    else:
+        notional = min(loss_budget / pv.max_loss_pct, cap)
     pv.structure_notional = notional
     pv.net_premium_ccy = pv.net_premium_pct * notional
-    pv.max_loss_ccy = pv.max_loss_pct * notional
+    pv.max_loss_ccy = pv.max_loss_pct * notional if pv.max_loss_pct is not None else None
     if pv.payoff_at_target_pct is not None:
         pv.payoff_at_target_ccy = pv.payoff_at_target_pct * notional
 
@@ -542,6 +557,85 @@ def _1x2(
         result.append(PricedVariant(
             variant_label=v["label"],
             strikes=[K1, K2],
+            barrier=None,
+            net_premium_pct=prem_pct,
+            breakeven=breakeven,
+            payoff_at_target_pct=payoff_pct,
+            rr_at_target=rr,
+            max_loss_pct=max_loss_pct,
+            wing_ratio=None,
+            is_zero_cost=is_zero_cost,
+        ))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 1x2x1  (butterfly: the 1x2 with a long wing that caps the open tail)
+# ---------------------------------------------------------------------------
+
+def _1x2x1(
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm
+) -> list[PricedVariant]:
+    """Butterfly built from the 1x2's two strikes plus an equidistant long wing.
+
+    Strikes: long 1× K1, short 2× K2, long 1× K3 with K3 = 2·K2 − K1 (so the
+    strike spacing is symmetric: K3−K2 = K2−K1). The third long leg caps the
+    1x2's open tail beyond K2, so max loss = net premium paid (a long butterfly's
+    expiry payoff is non-negative). K1/K2 come from the same resolver the 1x2
+    uses, so every 1x2 variant has a matching 1x2x1.
+    """
+    result = []
+    for v in variants:
+        resolved = _resolve_ratio_spread_strikes(
+            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target, vm=vm
+        )
+        if resolved is None:
+            continue
+        K1, K2, v1, v2 = resolved
+        K3 = 2.0 * K2 - K1          # equidistant long wing
+        if K3 <= 0:
+            continue
+        v3 = vm.at_strike(K3)
+
+        if is_call:
+            prem1 = black76_call(F, K1, T, v1, DF)
+            prem2 = black76_call(F, K2, T, v2, DF)
+            prem3 = black76_call(F, K3, T, v3, DF)
+        else:
+            prem1 = black76_put(F, K1, T, v1, DF)
+            prem2 = black76_put(F, K2, T, v2, DF)
+            prem3 = black76_put(F, K3, T, v3, DF)
+
+        net_prem = prem1 - 2.0 * prem2 + prem3
+        prem_pct = net_prem / spot
+        is_zero_cost = abs(net_prem) < 0.0001 * spot
+
+        breakeven = None
+        if not is_zero_cost and net_prem > 0:
+            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
+
+        payoff_pct = None
+        if target is not None:
+            if is_call:
+                gross = (max(target - K1, 0.0) - 2.0 * max(target - K2, 0.0)
+                         + max(target - K3, 0.0))
+            else:
+                gross = (max(K1 - target, 0.0) - 2.0 * max(K2 - target, 0.0)
+                         + max(K3 - target, 0.0))
+            payoff_pct = gross / target
+        rr = (
+            payoff_pct / prem_pct
+            if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
+            else None
+        )
+
+        # Long butterfly: expiry payoff is non-negative, so max loss = net premium
+        # paid (the wing caps the 1x2's open tail). Clamp at 0 for a (rare) credit.
+        max_loss_pct = max(prem_pct, 0.0)
+
+        result.append(PricedVariant(
+            variant_label=v["label"],
+            strikes=[K1, K2, K3],
             barrier=None,
             net_premium_pct=prem_pct,
             breakeven=breakeven,

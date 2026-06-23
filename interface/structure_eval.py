@@ -96,6 +96,10 @@ def variant_display_label(structure_id: str, pv) -> str:
         direction = "call" if _is_call_spread(pv) else "put"
         return f"{ratio} Ratio {direction} spread"
 
+    if structure_id == "1x2x1_spread" and len(pv.strikes) >= 3:
+        direction = "call" if _is_call_spread(pv) else "put"
+        return f"1x2x1 Butterfly ({direction})"
+
     if structure_id == "seagull" and len(pv.strikes) >= 3:
         wing_ratio = pv.wing_ratio if pv.wing_ratio is not None else 1.0
         is_call_spread = _is_call_spread(pv)
@@ -284,7 +288,8 @@ def render_structure_variants(
         try:
             _pvs = _price_variants(
                 ms, _item.structure_id, target=target, is_call=is_call,
-                stop_price=stop_price, loss_budget=loss_budget, smile=_smile, warnings=_warns,
+                stop_price=stop_price, loss_budget=loss_budget, linear_notional=LINEAR_NOTIONAL,
+                smile=_smile, warnings=_warns,
             )
         except Exception as _e:
             st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
@@ -488,7 +493,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
             pvs = _pv_fn(
                 ms, item.structure_id,
                 target=target, is_call=is_call,
-                stop_price=stop, loss_budget=loss_budget,
+                stop_price=stop, loss_budget=loss_budget, linear_notional=LINEAR_NOTIONAL,
                 smile=smile,
             )
         except Exception:

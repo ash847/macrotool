@@ -81,6 +81,27 @@ def build_structure(family: str, variant: dict, is_call: bool) -> Structure | No
             return None
         return Structure(family, legs, label)
 
+    if family == "1x2x1_spread":
+        # Butterfly: the 1x2's two legs (+1 / −2) plus a long wing (+1) at
+        # K3 = 2·K2 − K1. The wing's strike is derived from the resolved base
+        # strikes at price time, so its anchor here is a placeholder (the short
+        # leg's) that price() overrides.
+        if "long_delta" in variant and "short_delta" in variant:
+            long_anchor = Anchor(AnchorKind.DELTA, variant["long_delta"])
+            short_anchor = Anchor(AnchorKind.DELTA, variant["short_delta"])
+        elif variant.get("long_type") == "atmf":
+            long_anchor, short_anchor = Anchor(AnchorKind.ATMF), Anchor(AnchorKind.TARGET)
+        elif variant.get("long_type") == "half_sigma":
+            long_anchor, short_anchor = Anchor(AnchorKind.HALF_SIGMA), Anchor(AnchorKind.TARGET)
+        else:
+            return None
+        legs = (
+            Leg(Instrument.VANILLA, right, +1.0, long_anchor),
+            Leg(Instrument.VANILLA, right, -2.0, short_anchor),
+            Leg(Instrument.VANILLA, right, +1.0, short_anchor),  # wing; strike set in price()
+        )
+        return Structure(family, legs, label)
+
     if family == "seagull":
         opp = Right.PUT if is_call else Right.CALL
         legs = (
@@ -211,6 +232,15 @@ def price(
         unit = black76_call(F, K, T, v, DF) if is_call else black76_put(F, K, T, v, DF)
         priced_legs.append(PricedLeg(leg, K, v, unit))
 
+    # Butterfly wing: derive K3 = 2·K2 − K1 from the resolved base strikes and
+    # reprice the placeholder wing leg at its own (smile) vol.
+    if fam == "1x2x1_spread" and len(priced_legs) == 3:
+        K3 = 2.0 * priced_legs[1].strike - priced_legs[0].strike
+        is_call3 = priced_legs[2].leg.right == Right.CALL
+        v3 = vm.at_strike(K3)
+        unit3 = black76_call(F, K3, T, v3, DF) if is_call3 else black76_put(F, K3, T, v3, DF)
+        priced_legs[2] = PricedLeg(priced_legs[2].leg, K3, v3, unit3)
+
     # Solved leg notionals: the seagull wing is sized to fund the structure to zero cost.
     wing_ratio = None
     if fam == "seagull" and len(priced_legs) == 3:
@@ -258,6 +288,9 @@ def price(
     strikes = [pl.strike for pl in priced_legs]
     if fam in _RATIO_FAMILIES:
         max_loss_pct = abs(prem_pct)
+    elif fam == "1x2x1_spread":
+        # Long butterfly: expiry payoff non-negative → max loss = net premium paid.
+        max_loss_pct = max(prem_pct, 0.0)
     elif fam == "seagull":
         if stop_price is not None:
             from analytics.structure_pricer import _today_package_value_pct

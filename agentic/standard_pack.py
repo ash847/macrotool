@@ -132,6 +132,7 @@ def _recommend_ranked(
         ms, selector_result,
         target=target, is_call=is_call,
         stop_price=stop_price, loss_budget=loss_budget,
+        linear_notional=_COMPARATOR_LINEAR_NOTIONAL,
         preferences=PMPreferences(
             primary_objective=primary_objective,
             trade_management=trade_management,
