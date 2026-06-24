@@ -104,7 +104,9 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         from knowledge_engine.scenario_weighter import get_context_commentary
         _comm = get_context_commentary(_ctx_id)
         if _comm.get("market_behavior") or _comm.get("trade_guidance"):
-            lines.append(f"\nCONTEXT GUIDANCE — scoring lens for '{_ctx_id}' (relay when explaining the fit, not as an override):")
+            lines.append("\nCONTEXT GUIDANCE — the scoring lens for the current regime. Paraphrase this in your own"
+                         " words to explain the fit; do NOT state any internal regime/label name. It explains the"
+                         " engine's ranking, it never overrides it:")
             if _comm.get("market_behavior"):
                 lines.append(f"  Market behaviour: {_comm['market_behavior']}")
             if _comm.get("trade_guidance"):
