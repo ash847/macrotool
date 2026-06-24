@@ -46,6 +46,7 @@ from pricing.digital_rko import digital_rko_call, digital_rko_put
 from pricing.european_rko import european_rko_call, european_rko_put
 
 if TYPE_CHECKING:
+    from analytics.sizing import SizingSpec
     from analytics.vol_surface import SmileInterpolator
 
 
@@ -118,6 +119,7 @@ def price_variants(
     stop_price: float | None = None,
     loss_budget: float | None = None,
     linear_notional: float = 100.0,
+    sizing_spec: "SizingSpec | None" = None,
     smile: "SmileInterpolator | None" = None,
     warnings: list[str] | None = None,
     variants_override: list[dict] | None = None,
@@ -179,11 +181,61 @@ def price_variants(
     else:
         return []
 
-    if loss_budget is not None and loss_budget > 0:
+    # Sizing seam. Kelly mode (sizing_spec.method == "kelly") sizes each variant to its
+    # growth-optimal bet under the PM's distribution; otherwise the fixed-loss path (today's
+    # behaviour) sizes to the loss budget. Default sizing_spec=None ⇒ fixed-loss, so every
+    # existing caller is byte-for-byte unchanged.
+    if sizing_spec is not None and sizing_spec.method == "kelly" and sizing_spec.has_distribution():
+        _size_variants_kelly(result, structure_id, is_call, spot, r_f, T, sizing_spec, linear_notional)
+    elif loss_budget is not None and loss_budget > 0:
         for pv in result:
             _size_variant(pv, loss_budget, linear_notional)
 
     return result
+
+
+def _apply_notional(pv: PricedVariant, notional: float) -> None:
+    """Populate the base-ccy dollar fields linearly from a sized notional."""
+    pv.structure_notional = notional
+    pv.net_premium_ccy = pv.net_premium_pct * notional
+    pv.max_loss_ccy = pv.max_loss_pct * notional if pv.max_loss_pct is not None else None
+    if pv.payoff_at_target_pct is not None:
+        pv.payoff_at_target_ccy = pv.payoff_at_target_pct * notional
+
+
+def _size_variants_kelly(
+    result: list[PricedVariant],
+    structure_id: str,
+    is_call: bool,
+    spot: float,
+    r_f: float,
+    T: float,
+    sizing_spec: "SizingSpec",
+    linear_notional: float,
+) -> None:
+    """Kelly sizing: N = min(λ · x* · W, cap) per variant, x* from the PM distribution.
+
+    Per-notional P&L `π(S) = DF_f·payoff(S) − net_premium` is integrated against the
+    distribution; the payoff comes from the engine-layer bridge. Unsupported families
+    (bridge raises) are left unsized rather than crashing the run."""
+    import numpy as np
+    from analytics.payoffs import base_ccy_payoff_for_trade_rec
+    from analytics.sizing import kelly_notional, per_notional_pnl
+
+    probs = np.asarray(sizing_spec.kelly_probs, dtype=float)
+    bins = np.asarray(sizing_spec.kelly_bins, dtype=float)
+    df_f = math.exp(-r_f * T)
+    cap = 10.0 * linear_notional
+    for pv in result:
+        try:
+            payoff = base_ccy_payoff_for_trade_rec(
+                structure_id, strikes=pv.strikes, barrier=pv.barrier,
+                is_call=is_call, entry_spot=spot, wing_ratio=pv.wing_ratio,
+            )
+            pnl = per_notional_pnl(payoff(bins), pv.net_premium_pct, discount_factor=df_f)
+            _apply_notional(pv, kelly_notional(probs, pnl, sizing_spec, cap))
+        except (ValueError, ZeroDivisionError):
+            continue  # unsupported family / degenerate — leave unsized
 
 
 def _size_variant(pv: PricedVariant, loss_budget: float, linear_notional: float = 100.0) -> None:
@@ -209,11 +261,7 @@ def _size_variant(pv: PricedVariant, loss_budget: float, linear_notional: float 
         notional = cap
     else:
         notional = min(loss_budget / pv.max_loss_pct, cap)
-    pv.structure_notional = notional
-    pv.net_premium_ccy = pv.net_premium_pct * notional
-    pv.max_loss_ccy = pv.max_loss_pct * notional if pv.max_loss_pct is not None else None
-    if pv.payoff_at_target_pct is not None:
-        pv.payoff_at_target_ccy = pv.payoff_at_target_pct * notional
+    _apply_notional(pv, notional)
 
 
 def _spot_for_forward_today(fwd_today: float, T: float, r_d: float, r_f: float) -> float:

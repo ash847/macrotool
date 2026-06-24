@@ -546,6 +546,7 @@ def build_comparator_inputs(
     stop_price: float | None,
     loss_budget: float | None,
     linear_notional: float = 100.0,
+    sizing_spec: object | None = None,
     preferences: PMPreferences | None = None,
     smile: object | None = None,
     user_email: str | None = None,
@@ -605,6 +606,7 @@ def build_comparator_inputs(
                 stop_price=stop_price,
                 loss_budget=loss_budget,
                 linear_notional=linear_notional,
+                sizing_spec=sizing_spec,
                 smile=smile,
             )
         except Exception:
