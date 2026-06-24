@@ -226,6 +226,34 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
 - **Kelly widget values must be re-read from `st.session_state` after rendering.** This prevents Streamlit `+/-` edits from updating the visible input while leaving charts / edge / Kelly on stale values.
 - **Kelly baseline reseeding must only happen on real context changes.** Re-seed on source-mode switch, pair/tenor change, or Trade Rec selection change; do not re-seed on ordinary reruns.
 
+## Sizing methods — fixed loss vs Kelly (`feature/kelly-sizing`)
+
+Variants can be sized two ways, toggled in Trade View (`SizingSpec` in `analytics/sizing.py`,
+carried on `flow.sizing_spec`; default `fixed_loss` ⇒ unchanged behaviour):
+
+- **Fixed loss** — every variant scaled to the same max loss (`loss_budget = LINEAR_NOTIONAL ×
+  stop%`, R:R-derived). Today's behaviour.
+- **Kelly** — each variant sized to its growth-optimal bet under the PM's distribution:
+  `N = min(λ · x* · W, cap)`, where `x* = argmax_x Σ p·ln(1 + x·π)` over the **per-notional**
+  P&L `π = DF·payoff − net_premium` (`kelly_fraction_per_notional`). The per-notional basis
+  (not the premium-basis `(payoff−cost)/cost` of `kelly_v2/kelly.py`) generalises to
+  spreads/zero-cost/net-credit and the ruin bound caps tail leverage — superseding the deferred
+  "size on scenario worst-case loss" fix.
+
+**Load-bearing invariant:** `score_ccy = structure_notional · score_pct`, and `score_ccy` ranks
+variants everywhere — so the sizing method only changes `structure_notional`; the scenario
+scoring machinery is untouched. The fractional-Kelly `λ` is a pure multiplier, so the **ranking
+is invariant to λ** except where the 10× notional cap binds asymmetrically (the only flip
+driver; guarded by `tests/test_kelly_ranking_stability.py`).
+
+- **Payoff bridge** lives in `analytics/payoffs.py` (engine layer, pure); `kelly_v2/pricing.py`
+  re-exports it. european_digital is base-ccy cash-or-nothing (1.0 ITM), `1x2x1_spread` added.
+- **Distribution source:** sizing uses the PM's distribution (Kelly), scoring uses the
+  scenario-grid weights — two deliberate lenses. The Trade-View default seeds a **view-implied**
+  lognormal (`view_implied_distribution`, blended fwd→target by conviction, adjustable bins).
+- **CLI:** `kelly_demo.py --pair USDTRY --magnitude 6 --lambda 0.5` prints fixed vs Kelly
+  notionals side by side. Agent path stays fixed-loss (its no-Kelly-number guardrail intact).
+
 ## Kelly screen
 
 `interface/kelly_v2/` now supports two user entry modes:

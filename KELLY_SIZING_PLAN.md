@@ -5,9 +5,15 @@ Engine + UI feature. Adds a **sizing-method toggle** so variants can be sized ei
 variant sized to its growth-optimal bet given the PM's subjective distribution). Standalone
 build doc; execute against this when green-lit.
 
-**Status: IN PROGRESS (autonomous build).** Branch `feature/kelly-sizing` (reuses the retired
-spot-anchored worktree). Scope this pass: **Trade View + Batch only**; the Agent stays
-fixed-loss (guardrail untouched). Commit + push per phase; no PR / merge to main / deploy.
+**Status: BUILT (engine + Trade View UI), pending manual UI verification.** Branch
+`feature/kelly-sizing`. Phases 1–5 landed and pushed. Done: per-notional Kelly primitive +
+payoff bridge in `analytics/` (Phase 1); `SizingSpec` seam in `price_variants`/comparator
+(Phase 2); view-implied distribution + ranking-stability sweep (Phase 3); Trade View toggle +
+UI helpers + `flow.sizing_spec` (Phase 4); `kelly_demo.py` CLI comparison (Phase 5). **Remaining:**
+(a) manual visual verification of the Streamlit widgets (toggle/metrics swap/banner per §8);
+(b) full CDF/PDF fixed-range elicitation embed in Trade View (currently seeded from the view —
+the bin-count control is wired; interactive elicitation lives on the Kelly screen); (c) Batch
+Kelly UI (engine supports it; the sweep evidence is in tests). Agent stays fixed-loss.
 
 **Decisions (resolved):** D1 relocate the payoff bridge + Kelly math into `analytics/` (pure),
 re-export from `kelly_v2` for back-compat — keeps `analytics/` free of `interface/` deps.
