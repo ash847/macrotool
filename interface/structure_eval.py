@@ -289,6 +289,7 @@ def render_structure_variants(
             _pvs = _price_variants(
                 ms, _item.structure_id, target=target, is_call=is_call,
                 stop_price=stop_price, loss_budget=loss_budget, linear_notional=LINEAR_NOTIONAL,
+                sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=_smile, warnings=_warns,
             )
         except Exception as _e:
@@ -494,6 +495,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
                 ms, item.structure_id,
                 target=target, is_call=is_call,
                 stop_price=stop, loss_budget=loss_budget, linear_notional=LINEAR_NOTIONAL,
+                sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=smile,
             )
         except Exception:

@@ -77,6 +77,7 @@ class ConversationFlow:
 
         self.cfg: ResolvedConfig = load_config()
         self.target_rr: float | None = None
+        self.sizing_spec = None  # analytics.sizing.SizingSpec; None ⇒ fixed-loss (default)
         self.structure_constraint: str = "No restriction"
         self.primary_objective: str = "Balanced"
         self.trade_management: str = "Standard hold"
@@ -97,6 +98,7 @@ class ConversationFlow:
         self.session_overrides = SessionOverrides()
         self.cfg = load_config()
         self.target_rr = None
+        self.sizing_spec = None
         self.structure_constraint = "No restriction"
         self.primary_objective = "Balanced"
         self.trade_management = "Standard hold"

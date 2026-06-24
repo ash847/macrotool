@@ -46,6 +46,7 @@ from interface.structure_eval import (
     render_structure_variants,
     render_structure_evaluation,
 )
+from interface.kelly_sizing_ui import build_sizing_spec, meaning_banner
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
@@ -153,6 +154,14 @@ if "page" not in st.session_state:
     st.session_state.page = "Trade View"
 if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
+if "sizing_method" not in st.session_state:
+    st.session_state.sizing_method = "fixed_loss"   # "fixed_loss" | "kelly"
+if "kelly_lambda" not in st.session_state:
+    st.session_state.kelly_lambda = 0.5
+if "kelly_conviction" not in st.session_state:
+    st.session_state.kelly_conviction = "medium"
+if "kelly_n_bins" not in st.session_state:
+    st.session_state.kelly_n_bins = 41
 if "clarification" not in st.session_state:
     st.session_state.clarification = ""
 if "pref_primary_objective" not in st.session_state:
@@ -216,16 +225,46 @@ with st.sidebar:
         _init_kelly_state()
         _render_kelly_sidebar()
     else:
-        st.markdown("Risk / Reward target")
+        st.markdown("Sizing method")
         with st.container(border=True):
-            st.session_state.target_rr = st.slider(
-                "Risk 1 to make",
-                min_value=1.5,
-                max_value=10.0,
-                value=st.session_state.target_rr,
-                step=0.5,
-                format="%.1f×",
+            _size_label = st.radio(
+                "Size variants by",
+                ["Fixed loss", "Kelly"],
+                index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
+                horizontal=True,
+                key="sizing_method_label",
             )
+            st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
+
+            if st.session_state.sizing_method == "fixed_loss":
+                st.session_state.target_rr = st.slider(
+                    "Risk 1 to make",
+                    min_value=1.5,
+                    max_value=10.0,
+                    value=st.session_state.target_rr,
+                    step=0.5,
+                    format="%.1f×",
+                )
+            else:
+                st.session_state.kelly_lambda = st.slider(
+                    "Fractional Kelly (λ)", min_value=0.1, max_value=1.0,
+                    value=float(st.session_state.get("kelly_lambda", 0.5)), step=0.05,
+                    help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
+                )
+                st.session_state.kelly_conviction = st.select_slider(
+                    "Conviction", options=["low", "medium", "high"],
+                    value=st.session_state.get("kelly_conviction", "medium"),
+                    help="How strongly your view leans to the target (seeds the edge distribution).",
+                )
+                st.session_state.kelly_n_bins = int(st.number_input(
+                    "Distribution bins", min_value=5, max_value=101,
+                    value=int(st.session_state.get("kelly_n_bins", 41)), step=2,
+                    help="Resolution of the terminal-spot distribution.",
+                ))
+                st.caption(
+                    "Edge seeded from your view (target + conviction). Full CDF / fixed-range "
+                    "PDF elicitation lives on the Kelly Sizing screen."
+                )
 
         st.divider()
 
@@ -976,21 +1015,44 @@ else:
 
         _move_pct = _stop_pct = _stop_price = _loss_budget = None
         _base_ccy_top = flow.view.pair[:3]
+        # Build the sizing spec (Kelly vs fixed loss) and stash on the flow so the
+        # variants table + Structure Evaluation size consistently.
+        flow.sizing_spec = build_sizing_spec(
+            {
+                "sizing_method": st.session_state.get("sizing_method", "fixed_loss"),
+                "target_rr": flow.target_rr or st.session_state.target_rr,
+                "kelly_lambda": st.session_state.get("kelly_lambda", 0.5),
+                "conviction": st.session_state.get("kelly_conviction", "medium"),
+                "kelly_n_bins": st.session_state.get("kelly_n_bins", 41),
+                "bankroll": LINEAR_NOTIONAL,
+            },
+            ms=ms,
+            target=_target,
+        )
+        _kelly_mode = flow.sizing_spec is not None and flow.sizing_spec.method == "kelly"
         if _target is not None:
             _move_pct = abs(_target - ms.fwd) / ms.fwd
             _stop_pct = _move_pct / flow.target_rr
             _stop_price = ms.fwd * (1 - _stop_pct) if _is_call else ms.fwd * (1 + _stop_pct)
             _loss_budget = LINEAR_NOTIONAL * _stop_pct
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
-            c2.metric(f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}", help="move_to_target / R:R — acceptable reversal from fwd before stopping out")
-            c3.metric("Stop price", f"{_stop_price:.4f}", help="fwd level implying the stop loss")
-            c4.metric(
-                "Loss budget",
-                fmt_ccy(_loss_budget, _base_ccy_top),
-                help=f"Linear notional {fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top)} × stop %. "
-                     "Each structure variant is sized so its max loss equals this.",
-            )
+            if _kelly_mode:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
+                c2.metric("Bankroll (W)", fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top),
+                          help="Nominal bankroll; Kelly notionals are λ·f*·W, comparable across variants.")
+                c3.metric("Fractional Kelly (λ)", f"{flow.sizing_spec.kelly_lambda:.2f}",
+                          help="Scales every variant equally — does not change the ranking.")
+            else:
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
+                c2.metric(f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}", help="move_to_target / R:R — acceptable reversal from fwd before stopping out")
+                c3.metric("Stop price", f"{_stop_price:.4f}", help="fwd level implying the stop loss")
+                c4.metric(
+                    "Loss budget",
+                    fmt_ccy(_loss_budget, _base_ccy_top),
+                    help=f"Linear notional {fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top)} × stop %. "
+                         "Each structure variant is sized so its max loss equals this.",
+                )
 
         st.subheader("Structure scores")
         _sc_pref = st.session_state.get("pref_structure_constraint", "No restriction")
@@ -1053,6 +1115,7 @@ else:
         styled = display_df.style.map(_color, subset=_score_cols)
         st.dataframe(styled, use_container_width=True)
 
+        st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
         render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget)
 
     # Feedback form (only after a view is active)
