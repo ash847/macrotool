@@ -15,11 +15,15 @@ the principled replacement for the deferred "size on scenario worst-case loss" f
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 from scipy.optimize import minimize_scalar
+
+# Conviction → weight toward the target (vs the forward) for the view-implied seed.
+_CONVICTION_WEIGHT = {"low": 0.33, "medium": 0.66, "high": 1.0}
 
 DEFAULT_BANKROLL = 100.0          # nominal W; == interface LINEAR_NOTIONAL for scale continuity
 DEFAULT_KELLY_LAMBDA = 0.5        # fractional-Kelly multiplier (full Kelly is fragile)
@@ -90,3 +94,37 @@ def kelly_notional(probs, pnl_per_notional, spec: SizingSpec, cap: float) -> flo
     """Comparative Kelly notional: `min(λ · x* · W, cap)`."""
     x_star = kelly_fraction_per_notional(probs, pnl_per_notional)
     return min(spec.kelly_lambda * x_star * spec.bankroll, cap)
+
+
+def view_implied_distribution(
+    spot: float,
+    fwd: float,
+    vol: float,
+    T: float,
+    target: float,
+    conviction: str = "medium",
+    n_bins: int = 41,
+    sigma_extent: float = 4.0,
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """A real-world (edged) terminal-spot distribution synthesised from the PM's view.
+
+    A lognormal whose log-centre is blended between the forward and the target by
+    conviction (`high` → fully at the target), with width `vol·√T`. Because the
+    centre sits off the forward, it carries directional edge — so Kelly will size a
+    bet (unlike the risk-neutral/market-implied distribution, which has zero edge).
+    Used as the low-friction default seed and for the Batch ranking sweep. Returns
+    `(probs, bins)` as plain tuples — the shape `SizingSpec` carries."""
+    if target <= 0 or fwd <= 0 or spot <= 0:
+        raise ValueError("spot/fwd/target must be positive")
+    w = _CONVICTION_WEIGHT.get(conviction, 0.66)
+    sig = max(vol * math.sqrt(max(T, 1e-9)), 1e-6)
+    ln_center = (1.0 - w) * math.log(fwd) + w * math.log(target)
+    bins = np.linspace(
+        math.exp(ln_center - sigma_extent * sig),
+        math.exp(ln_center + sigma_extent * sig),
+        n_bins,
+    )
+    z = (np.log(bins) - ln_center) / sig
+    dens = np.exp(-0.5 * z * z) / bins            # lognormal pdf shape
+    probs = dens / dens.sum()
+    return tuple(float(p) for p in probs), tuple(float(b) for b in bins)
