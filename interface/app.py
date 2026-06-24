@@ -47,6 +47,7 @@ from interface.structure_eval import (
     render_structure_evaluation,
 )
 from interface.kelly_sizing_ui import build_sizing_spec, meaning_banner
+from interface.kelly_inline import render_kelly_elicitation
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
@@ -262,8 +263,8 @@ with st.sidebar:
                     help="Resolution of the terminal-spot distribution.",
                 ))
                 st.caption(
-                    "Edge seeded from your view (target + conviction). Full CDF / fixed-range "
-                    "PDF elicitation lives on the Kelly Sizing screen."
+                    "Conviction seeds your edge distribution; refine it (CDF / fixed-range PDF, "
+                    "bin count) on the main page below."
                 )
 
         st.divider()
@@ -1015,6 +1016,12 @@ else:
 
         _move_pct = _stop_pct = _stop_price = _loss_budget = None
         _base_ccy_top = flow.view.pair[:3]
+        # Kelly mode: render the edge elicitation on this page (the standalone Kelly
+        # screen stays separate). It writes kelly_probs/kelly_bins to session_state,
+        # which build_sizing_spec then consumes.
+        if st.session_state.get("sizing_method", "fixed_loss") == "kelly" and _target is not None:
+            with st.container(border=True):
+                render_kelly_elicitation(ms, _target, st.session_state.get("kelly_conviction", "medium"))
         # Build the sizing spec (Kelly vs fixed loss) and stash on the flow so the
         # variants table + Structure Evaluation size consistently.
         flow.sizing_spec = build_sizing_spec(
@@ -1024,6 +1031,8 @@ else:
                 "kelly_lambda": st.session_state.get("kelly_lambda", 0.5),
                 "conviction": st.session_state.get("kelly_conviction", "medium"),
                 "kelly_n_bins": st.session_state.get("kelly_n_bins", 41),
+                "kelly_probs": st.session_state.get("kelly_probs"),
+                "kelly_bins": st.session_state.get("kelly_bins"),
                 "bankroll": LINEAR_NOTIONAL,
             },
             ms=ms,
