@@ -10,10 +10,11 @@ build doc; execute against this when green-lit.
 payoff bridge in `analytics/` (Phase 1); `SizingSpec` seam in `price_variants`/comparator
 (Phase 2); view-implied distribution + ranking-stability sweep (Phase 3); Trade View toggle +
 UI helpers + `flow.sizing_spec` (Phase 4); `kelly_demo.py` CLI comparison (Phase 5). **Remaining:**
-(a) manual visual verification of the Streamlit widgets (toggle/metrics swap/banner per §8);
-(b) full CDF/PDF fixed-range elicitation embed in Trade View (currently seeded from the view —
-the bin-count control is wired; interactive elicitation lives on the Kelly screen); (c) Batch
-Kelly UI (engine supports it; the sweep evidence is in tests). Agent stays fixed-loss.
+(a) manual visual verification of the Streamlit widgets (toggle/metrics swap/banner/elicitation
+per §8); (c) Batch Kelly UI (engine supports it; the sweep evidence is in tests). **(b) DONE:**
+on-page CDF + fixed-range-PDF elicitation in Trade View (`interface/kelly_inline.py`), seeded
+from the view-implied dist, reused-not-forked from `kelly_v2` (the standalone Kelly screen is
+untouched). Agent stays fixed-loss.
 
 **Decisions (resolved):** D1 relocate the payoff bridge + Kelly math into `analytics/` (pure),
 re-export from `kelly_v2` for back-compat — keeps `analytics/` free of `interface/` deps.
