@@ -1,6 +1,6 @@
 [project]
 name = "macrotool"
-version = "0.1.62+no-ctx-names"
+version = "0.1.63+agent-score-order"
 description = "EM FX Trade Structuring & Sizing Tool"
 requires-python = ">=3.10"
 dependencies = [

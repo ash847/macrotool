@@ -193,6 +193,13 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         return render_pack(cached, view) + "\n\n(reused cached pack — view unchanged)"
 
     ccy = session.snapshot.get(view.pair)
+    # NOTE (deferred — fix after the Kelly integration work on the separate worktree
+    # lands): the agent uses GLOBAL scenario weights (no user_email), the session's
+    # default PM preferences (Balanced / Standard hold / No restriction), and the
+    # session target_rr. Trade View / Batch instead use the logged-in user's personal
+    # weights profile and the PM-preference widgets, so their rankings can differ from
+    # the agent's. Thread user_email + PM prefs (+ aligned target_rr) through here once
+    # Kelly is merged so all surfaces rank identically.
     pack = build_pack(
         view, ccy, session.cfg,
         structure_constraint=session.structure_constraint,
