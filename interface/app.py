@@ -226,47 +226,8 @@ with st.sidebar:
         _init_kelly_state()
         _render_kelly_sidebar()
     else:
-        st.markdown("Sizing method")
-        with st.container(border=True):
-            _size_label = st.radio(
-                "Size variants by",
-                ["Fixed loss", "Kelly"],
-                index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
-                horizontal=True,
-                key="sizing_method_label",
-            )
-            st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
-
-            if st.session_state.sizing_method == "fixed_loss":
-                st.session_state.target_rr = st.slider(
-                    "Risk 1 to make",
-                    min_value=1.5,
-                    max_value=10.0,
-                    value=st.session_state.target_rr,
-                    step=0.5,
-                    format="%.1f×",
-                )
-            else:
-                st.session_state.kelly_lambda = st.slider(
-                    "Fractional Kelly (λ)", min_value=0.1, max_value=1.0,
-                    value=float(st.session_state.get("kelly_lambda", 0.5)), step=0.05,
-                    help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
-                )
-                st.session_state.kelly_conviction = st.select_slider(
-                    "Conviction", options=["low", "medium", "high"],
-                    value=st.session_state.get("kelly_conviction", "medium"),
-                    help="How strongly your view leans to the target (seeds the edge distribution).",
-                )
-                st.session_state.kelly_n_bins = int(st.number_input(
-                    "Distribution bins", min_value=5, max_value=101,
-                    value=int(st.session_state.get("kelly_n_bins", 41)), step=2,
-                    help="Resolution of the terminal-spot distribution.",
-                ))
-                st.caption(
-                    "Conviction seeds your edge distribution; refine it (CDF / fixed-range PDF, "
-                    "bin count) on the main page below."
-                )
-
+        # Sizing controls (Fixed loss vs Kelly + R:R / edge distribution) live in the
+        # main Trade View panel now — see the "Sizing" section there.
         st.divider()
 
         active_provider = get_llm_provider()
@@ -1016,12 +977,45 @@ else:
 
         _move_pct = _stop_pct = _stop_price = _loss_budget = None
         _base_ccy_top = flow.view.pair[:3]
-        # Kelly mode: render the edge elicitation on this page (the standalone Kelly
-        # screen stays separate). It writes kelly_probs/kelly_bins to session_state,
-        # which build_sizing_spec then consumes.
-        if st.session_state.get("sizing_method", "fixed_loss") == "kelly" and _target is not None:
-            with st.container(border=True):
-                render_kelly_elicitation(ms, _target, st.session_state.get("kelly_conviction", "medium"))
+        # Sizing controls (moved from the sidebar): the Fixed loss vs Kelly toggle and
+        # its mode-specific inputs. Kelly renders the edge distribution inline here (the
+        # standalone Kelly screen stays separate); it writes kelly_probs/kelly_bins to
+        # session_state, which build_sizing_spec then consumes.
+        st.subheader("Sizing")
+        with st.container(border=True):
+            _size_label = st.radio(
+                "Size variants by", ["Fixed loss", "Kelly"],
+                index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
+                horizontal=True, key="sizing_method_label",
+            )
+            st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
+
+            if st.session_state.sizing_method == "fixed_loss":
+                st.session_state.target_rr = st.slider(
+                    "Risk 1 to make", min_value=1.5, max_value=10.0,
+                    value=st.session_state.target_rr, step=0.5, format="%.1f×",
+                )
+            else:
+                _kc1, _kc2, _kc3 = st.columns(3)
+                st.session_state.kelly_lambda = _kc1.slider(
+                    "Fractional Kelly (λ)", min_value=0.1, max_value=1.0,
+                    value=float(st.session_state.get("kelly_lambda", 0.5)), step=0.05,
+                    help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
+                )
+                st.session_state.kelly_conviction = _kc2.select_slider(
+                    "Conviction", options=["low", "medium", "high"],
+                    value=st.session_state.get("kelly_conviction", "medium"),
+                    help="How strongly your view leans to the target (seeds the edge distribution).",
+                )
+                st.session_state.kelly_n_bins = int(_kc3.number_input(
+                    "Distribution bins", min_value=5, max_value=101,
+                    value=int(st.session_state.get("kelly_n_bins", 41)), step=2,
+                    help="Resolution of the terminal-spot distribution.",
+                ))
+                if _target is not None:
+                    render_kelly_elicitation(ms, _target, st.session_state.get("kelly_conviction", "medium"))
+                else:
+                    st.info("Set a target to size with Kelly — using fixed loss until then.")
         # Build the sizing spec (Kelly vs fixed loss) and stash on the flow so the
         # variants table + Structure Evaluation size consistently.
         flow.sizing_spec = build_sizing_spec(
