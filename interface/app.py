@@ -296,6 +296,73 @@ def _build_prompt_summary(pair: str, direction: str, horizon_days: int, target: 
     return f"{direction_label} {pair}, target {target:.4f}, {horizon_days}d"
 
 
+def _preview_market_numbers():
+    """Lightweight (spot, fwd, vol, T) + target from the CURRENT trade-form values,
+    for seeding the Kelly elicitation BEFORE the trade is run. Same snapshot/forward/
+    vol the engine uses on submit, so the seed matches. Returns (ms_like, target) or
+    (None, None) if the form isn't usable yet."""
+    try:
+        from types import SimpleNamespace
+        from pricing.forwards import rate_context_for_snapshot
+        from analytics.distributions import interpolate_atm_vol
+        pair = st.session_state.get("trade_form_pair")
+        ccy = flow._snapshot.get(pair) if pair else None
+        horizon_days = dict(_HORIZON_OPTIONS).get(st.session_state.get("trade_form_horizon"))
+        target = st.session_state.get("trade_form_target")
+        if ccy is None or not horizon_days or not target:
+            return None, None
+        T = horizon_days / 365.0
+        rate_ctx = rate_context_for_snapshot(ccy, T)
+        ms_like = SimpleNamespace(
+            spot=ccy.spot, fwd=rate_ctx.forward, vol=interpolate_atm_vol(ccy, horizon_days), T=T,
+        )
+        return ms_like, float(target)
+    except Exception:
+        return None, None
+
+
+def _render_sizing_section(ms_like, target) -> None:
+    """The Fixed loss vs Kelly toggle + its inputs. Rendered below the trade form so a
+    toggle change updates the controls/distribution in place. ``ms_like`` may be a
+    preview (pre-submit, from the form) or the real MarketState; Kelly elicitation
+    only renders when ms_like + target are available."""
+    st.subheader("Sizing")
+    with st.container(border=True):
+        _size_label = st.radio(
+            "Size variants by", ["Fixed loss", "Kelly"],
+            index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
+            horizontal=True, key="sizing_method_label",
+        )
+        st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
+
+        if st.session_state.sizing_method == "fixed_loss":
+            st.session_state.target_rr = st.slider(
+                "Risk 1 to make", min_value=1.5, max_value=10.0,
+                value=st.session_state.target_rr, step=0.5, format="%.1f×",
+            )
+        else:
+            _kc1, _kc2, _kc3 = st.columns(3)
+            st.session_state.kelly_lambda = _kc1.slider(
+                "Fractional Kelly (λ)", min_value=0.1, max_value=1.0,
+                value=float(st.session_state.get("kelly_lambda", 0.5)), step=0.05,
+                help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
+            )
+            st.session_state.kelly_conviction = _kc2.select_slider(
+                "Conviction", options=["low", "medium", "high"],
+                value=st.session_state.get("kelly_conviction", "medium"),
+                help="How strongly your view leans to the target (seeds the edge distribution).",
+            )
+            st.session_state.kelly_n_bins = int(_kc3.number_input(
+                "Distribution bins", min_value=5, max_value=101,
+                value=int(st.session_state.get("kelly_n_bins", 41)), step=2,
+                help="Resolution of the terminal-spot distribution.",
+            ))
+            if ms_like is not None and target is not None:
+                render_kelly_elicitation(ms_like, target, st.session_state.get("kelly_conviction", "medium"))
+            else:
+                st.info("Pick a pair, horizon and target above to elicit your Kelly edge distribution.")
+
+
 def _submit_structured_view(pair: str, direction: str, horizon_days: int, target: float) -> str | None:
     direction_label = "base higher" if direction == "base_higher" else "base lower"
     prompt = f"pair={pair}; direction={direction_label}; target={target:.4f}; horizon_days={horizon_days}"
@@ -926,47 +993,6 @@ else:
         st.markdown("### Enter trade view")
         st.caption("Select the pair, direction, horizon, and target level.")
 
-    # ── Sizing (Fixed loss vs Kelly) — always visible on the Trade View page (like
-    #    the old sidebar control). The Kelly edge distribution renders inline once a
-    #    trade is priced; build_sizing_spec (in the results block) consumes the result.
-    st.subheader("Sizing")
-    with st.container(border=True):
-        _size_label = st.radio(
-            "Size variants by", ["Fixed loss", "Kelly"],
-            index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
-            horizontal=True, key="sizing_method_label",
-        )
-        st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
-
-        if st.session_state.sizing_method == "fixed_loss":
-            st.session_state.target_rr = st.slider(
-                "Risk 1 to make", min_value=1.5, max_value=10.0,
-                value=st.session_state.target_rr, step=0.5, format="%.1f×",
-            )
-        else:
-            _kc1, _kc2, _kc3 = st.columns(3)
-            st.session_state.kelly_lambda = _kc1.slider(
-                "Fractional Kelly (λ)", min_value=0.1, max_value=1.0,
-                value=float(st.session_state.get("kelly_lambda", 0.5)), step=0.05,
-                help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
-            )
-            st.session_state.kelly_conviction = _kc2.select_slider(
-                "Conviction", options=["low", "medium", "high"],
-                value=st.session_state.get("kelly_conviction", "medium"),
-                help="How strongly your view leans to the target (seeds the edge distribution).",
-            )
-            st.session_state.kelly_n_bins = int(_kc3.number_input(
-                "Distribution bins", min_value=5, max_value=101,
-                value=int(st.session_state.get("kelly_n_bins", 41)), step=2,
-                help="Resolution of the terminal-spot distribution.",
-            ))
-            _sz_ms = flow.market_state
-            _sz_tgt = target_price(flow) if flow.view else None
-            if _sz_ms is not None and _sz_tgt is not None:
-                render_kelly_elicitation(_sz_ms, _sz_tgt, st.session_state.get("kelly_conviction", "medium"))
-            else:
-                st.info("Enter a trade with a target to elicit your Kelly edge distribution.")
-
     # Structure recommendation
     if flow.market_state and flow.selector_result and flow.selector_result.shortlist:
         st.divider()
@@ -1254,3 +1280,10 @@ else:
             if clarification:
                 st.session_state.clarification = clarification
             st.rerun()
+
+        # Sizing controls below the trade form — toggling Fixed loss / Kelly updates
+        # the inputs (and the Kelly edge distribution) right here, seeded from the
+        # current form values. The chosen method/distribution flow into the engine on
+        # "Run trade view" via session_state.
+        _prev_ms, _prev_tgt = _preview_market_numbers()
+        _render_sizing_section(_prev_ms, _prev_tgt)
