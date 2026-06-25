@@ -71,7 +71,7 @@ def _renormalise(n: int) -> None:
         st.session_state[_KP + f"bucket_{i}"] = int(rounded[i])
 
 
-def render_kelly_elicitation(ms, target: float | None = None):
+def render_kelly_elicitation(ms, target: float | None = None, direction: str | None = None):
     """Render the elicitation block (inputs + chart + means); return (probs, bins) or (None, None)."""
     # Market-implied baseline = lognormal centred at the forward (ATM vol). Both the
     # baseline series and the elicitation inputs seed from this, so at inception the
@@ -160,4 +160,21 @@ def render_kelly_elicitation(ms, target: float | None = None):
     c_mk.metric("Market-implied mean", f"{mk_mean:.4f}",
                 help="Market baseline through the same elicitation — the starting point you move from.")
     c_el.metric("Your elicited mean", f"{el_mean:.4f}", delta=f"{el_mean - mk_mean:+.4f}")
+
+    # Directional-consistency hint: warn only when the elicited mean sits clearly on
+    # the opposite side of the forward from the trade direction (deadband = 10% of a
+    # 1σ move, so a roughly-flat view doesn't nag). Advisory — Kelly still does the
+    # actual sizing (an adverse mean → small/zero size, shown per-variant).
+    if direction in ("base_higher", "base_lower"):
+        deadband = 0.10 * ms.vol * (ms.T ** 0.5) * ms.fwd
+        is_long = direction == "base_higher"
+        against = (is_long and el_mean < ms.fwd - deadband) or \
+                  ((not is_long) and el_mean > ms.fwd + deadband)
+        if against:
+            side = "long (base higher)" if is_long else "short (base lower)"
+            lean = "below" if is_long else "above"
+            st.warning(
+                f"⚠ Your distribution's mean ({el_mean:.4f}) is {lean} the forward "
+                f"({ms.fwd:.4f}) — against this {side} view. Kelly will size this small or to zero."
+            )
     return probs, bins

@@ -321,7 +321,7 @@ def _preview_market_numbers():
         return None, None
 
 
-def _render_sizing_section(ms_like, target) -> None:
+def _render_sizing_section(ms_like, target, direction=None) -> None:
     """The Fixed loss vs Kelly toggle + its inputs. Rendered below the trade form so a
     toggle change updates the controls/distribution in place. ``ms_like`` may be a
     preview (pre-submit, from the form) or the real MarketState; Kelly elicitation
@@ -347,7 +347,7 @@ def _render_sizing_section(ms_like, target) -> None:
                 help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
             )
             if ms_like is not None:
-                render_kelly_elicitation(ms_like, target)
+                render_kelly_elicitation(ms_like, target, direction)
             else:
                 st.info("Pick a pair and horizon above to elicit your Kelly edge distribution.")
 
@@ -1191,66 +1191,72 @@ else:
         st.session_state.clarification = ""
 
     if not flow.view:
-        with st.form("trade_view_form", clear_on_submit=False):
-            _pair_options = list(flow._snapshot.currencies.keys())
-            _default_pair = "USDBRL" if "USDBRL" in _pair_options else _pair_options[0]
-            _dir_label_default = "Lower"
-            _horizon_days_default = _HORIZON_OPTIONS[2][1]
-            _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
-            _default_horizon_label = next(
-                label for label, days in _HORIZON_OPTIONS if days == _horizon_days_default
+        # Live inputs (not wrapped in st.form) so changing a pair/horizon/target
+        # re-runs immediately and the Kelly distribution below updates without a click.
+        _pair_options = list(flow._snapshot.currencies.keys())
+        _default_pair = "USDBRL" if "USDBRL" in _pair_options else _pair_options[0]
+        _dir_label_default = "Lower"
+        _horizon_days_default = _HORIZON_OPTIONS[2][1]
+        _horizon_labels = [label for label, _ in _HORIZON_OPTIONS]
+        _default_horizon_label = next(
+            label for label, days in _HORIZON_OPTIONS if days == _horizon_days_default
+        )
+        if st.session_state.trade_form_pair not in _pair_options:
+            st.session_state.trade_form_pair = _default_pair
+        if st.session_state.trade_form_direction not in _DIRECTION_OPTIONS:
+            st.session_state.trade_form_direction = _dir_label_default
+        if st.session_state.trade_form_horizon not in _horizon_labels:
+            st.session_state.trade_form_horizon = _default_horizon_label
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            form_pair = st.selectbox("Pair", _pair_options, key="trade_form_pair")
+        with c2:
+            form_direction_label = st.selectbox(
+                "Direction",
+                list(_DIRECTION_OPTIONS.keys()),
+                key="trade_form_direction",
             )
-            if st.session_state.trade_form_pair not in _pair_options:
-                st.session_state.trade_form_pair = _default_pair
-            if st.session_state.trade_form_direction not in _DIRECTION_OPTIONS:
-                st.session_state.trade_form_direction = _dir_label_default
-            if st.session_state.trade_form_horizon not in _horizon_labels:
-                st.session_state.trade_form_horizon = _default_horizon_label
+        with c3:
+            form_horizon_label = st.selectbox("Horizon", _horizon_labels, key="trade_form_horizon")
+        with c4:
+            form_target = st.number_input(
+                "Target",
+                min_value=0.0001,
+                step=0.0001,
+                format="%.4f",
+                key="trade_form_target",
+            )
 
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                form_pair = st.selectbox("Pair", _pair_options, key="trade_form_pair")
-            with c2:
-                form_direction_label = st.selectbox(
-                    "Direction",
-                    list(_DIRECTION_OPTIONS.keys()),
-                    key="trade_form_direction",
-                )
-            with c3:
-                form_horizon_label = st.selectbox("Horizon", _horizon_labels, key="trade_form_horizon")
-            with c4:
-                form_target = st.number_input(
-                    "Target",
-                    min_value=0.0001,
-                    step=0.0001,
-                    format="%.4f",
-                    key="trade_form_target",
-                )
+        st.markdown("**Trade preferences**")
+        st.caption("These preferences are applied in the deterministic engine path. The conversational LLM path remains silent on this screen for now.")
 
-            st.markdown("**Trade preferences**")
-            st.caption("These preferences are applied in the deterministic engine path. The conversational LLM path remains silent on this screen for now.")
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            form_primary_objective = st.selectbox(
+                "Primary objective",
+                _PRIMARY_OBJECTIVE_OPTIONS,
+                index=_PRIMARY_OBJECTIVE_OPTIONS.index(st.session_state.pref_primary_objective),
+            )
+        with p2:
+            form_structure_constraint = st.selectbox(
+                "Structure constraint",
+                _STRUCTURE_CONSTRAINT_OPTIONS,
+                index=_STRUCTURE_CONSTRAINT_OPTIONS.index(st.session_state.pref_structure_constraint),
+            )
+        with p3:
+            form_trade_management = st.selectbox(
+                "Trade management style",
+                _TRADE_MANAGEMENT_OPTIONS,
+                index=_TRADE_MANAGEMENT_OPTIONS.index(st.session_state.pref_trade_management),
+            )
 
-            p1, p2, p3 = st.columns(3)
-            with p1:
-                form_primary_objective = st.selectbox(
-                    "Primary objective",
-                    _PRIMARY_OBJECTIVE_OPTIONS,
-                    index=_PRIMARY_OBJECTIVE_OPTIONS.index(st.session_state.pref_primary_objective),
-                )
-            with p2:
-                form_structure_constraint = st.selectbox(
-                    "Structure constraint",
-                    _STRUCTURE_CONSTRAINT_OPTIONS,
-                    index=_STRUCTURE_CONSTRAINT_OPTIONS.index(st.session_state.pref_structure_constraint),
-                )
-            with p3:
-                form_trade_management = st.selectbox(
-                    "Trade management style",
-                    _TRADE_MANAGEMENT_OPTIONS,
-                    index=_TRADE_MANAGEMENT_OPTIONS.index(st.session_state.pref_trade_management),
-                )
+        # Sizing controls + Kelly distribution, live below the inputs.
+        _prev_ms, _prev_tgt = _preview_market_numbers()
+        _prev_dir = _DIRECTION_OPTIONS.get(st.session_state.get("trade_form_direction"), "base_higher")
+        _render_sizing_section(_prev_ms, _prev_tgt, _prev_dir)
 
-            submitted = st.form_submit_button("Run trade view", type="primary", use_container_width=True)
+        submitted = st.button("Run trade view", type="primary", use_container_width=True)
 
         if submitted:
             flow.target_rr = st.session_state.target_rr
@@ -1269,10 +1275,3 @@ else:
             if clarification:
                 st.session_state.clarification = clarification
             st.rerun()
-
-        # Sizing controls below the trade form — toggling Fixed loss / Kelly updates
-        # the inputs (and the Kelly edge distribution) right here, seeded from the
-        # current form values. The chosen method/distribution flow into the engine on
-        # "Run trade view" via session_state.
-        _prev_ms, _prev_tgt = _preview_market_numbers()
-        _render_sizing_section(_prev_ms, _prev_tgt)
