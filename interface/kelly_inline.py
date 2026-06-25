@@ -95,6 +95,9 @@ def render_kelly_elicitation(ms, target: float | None = None):
         quantiles = _QUANTILE_PRESETS[n]
         cdf = np.cumsum(bp)
         seed = [float(np.interp(q, cdf, bb)) for q in quantiles]
+        # Market reference = the baseline through the SAME elicitation, so at inception
+        # (inputs == seed) the reference mean equals the elicited mean.
+        seed_dist = elicit_from_cdf_anchors(seed, list(quantiles), n_bins=_N_BINS)
         cols = st.columns(n)
         prices: list[float] = []
         for i, (q, c) in enumerate(zip(quantiles, cols)):
@@ -113,6 +116,10 @@ def render_kelly_elicitation(ms, target: float | None = None):
         boundaries = sigma_boundaries_to_prices(default_sigma_boundaries(n), forward=ms.fwd,
                                                 sigma=ms.vol, tenor_years=ms.T)
         seed_pct = _seed_bucket_pct(bp, bb, boundaries)
+        # Market reference through the SAME elicitation (see CDF branch).
+        seed_dist = elicit_from_pdf_buckets(
+            list(boundaries), list(seed_pct / max(seed_pct.sum(), 1)), n_bins=_N_BINS,
+        )
         cols = st.columns(n)
         probs_pct: list[int] = []
         for i in range(n):
@@ -145,9 +152,12 @@ def render_kelly_elicitation(ms, target: float | None = None):
     st.session_state.kelly_probs = probs
     st.session_state.kelly_bins = bins
 
-    mk_mean = float(np.dot(bp, bb))
+    # Market reference uses the same elicitation lens as the elicited curve, so the
+    # delta is purely the PM's move (zero at inception, not a truncation artefact).
+    mk_mean = float(np.dot(seed_dist.probs, seed_dist.bins))
     el_mean = float(np.dot(np.array(probs), np.array(bins)))
     c_mk, c_el = st.columns(2)
-    c_mk.metric("Market-implied mean", f"{mk_mean:.4f}")
+    c_mk.metric("Market-implied mean", f"{mk_mean:.4f}",
+                help="Market baseline through the same elicitation — the starting point you move from.")
     c_el.metric("Your elicited mean", f"{el_mean:.4f}", delta=f"{el_mean - mk_mean:+.4f}")
     return probs, bins
