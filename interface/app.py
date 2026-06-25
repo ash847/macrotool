@@ -341,21 +341,15 @@ def _render_sizing_section(ms_like, target) -> None:
                 value=st.session_state.target_rr, step=0.5, format="%.1f×",
             )
         else:
-            _kc1, _kc2 = st.columns(2)
-            st.session_state.kelly_lambda = _kc1.slider(
+            st.session_state.kelly_lambda = st.slider(
                 "Fractional Kelly (λ)", min_value=0.1, max_value=1.0,
                 value=float(st.session_state.get("kelly_lambda", 0.5)), step=0.05,
                 help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
             )
-            st.session_state.kelly_conviction = _kc2.select_slider(
-                "Conviction", options=["low", "medium", "high"],
-                value=st.session_state.get("kelly_conviction", "medium"),
-                help="How strongly your view leans to the target (seeds the edge distribution).",
-            )
-            if ms_like is not None and target is not None:
-                render_kelly_elicitation(ms_like, target, st.session_state.get("kelly_conviction", "medium"))
+            if ms_like is not None:
+                render_kelly_elicitation(ms_like, target)
             else:
-                st.info("Pick a pair, horizon and target above to elicit your Kelly edge distribution.")
+                st.info("Pick a pair and horizon above to elicit your Kelly edge distribution.")
 
 
 def _submit_structured_view(pair: str, direction: str, horizon_days: int, target: float) -> str | None:

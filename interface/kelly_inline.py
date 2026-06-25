@@ -1,11 +1,15 @@
 """Inline Kelly edge elicitation for the Trade View page.
 
 Mirrors the Kelly Sizing screen's elicitation (CDF quantiles / fixed-range PDF
-buckets, with a bucket-count dropdown and the same Altair charts), but inline on
-Trade View — writing the result to ``st.session_state.kelly_probs / kelly_bins``
-(consumed by ``build_sizing_spec``). Reuses the pure elicitation functions + the
-chart renderers; the standalone Kelly screen is untouched. Inputs seed from the
-view-implied distribution and re-seed on context change (or via reset).
+buckets, bucket-count dropdown, the same Altair charts, the 100% checksum), but
+inline on Trade View — writing the result to ``st.session_state.kelly_probs /
+kelly_bins`` (consumed by ``build_sizing_spec``). Reuses the pure elicitation
+functions + chart renderers; the standalone Kelly screen is untouched.
+
+The **market-implied** distribution (lognormal at the forward, ATM vol) is the
+baseline AND the seed — so at inception the elicited distribution equals the
+market one; the PM moves mass to express their edge. Re-seeds on context change
+or via the "Reset to market baseline" button.
 """
 from __future__ import annotations
 
@@ -36,31 +40,54 @@ _N_BINS = 400          # output resolution of the discretised distribution (matc
 _KP = "tvk_"           # session-key prefix, isolated from the Kelly screen
 
 
-def _seed_bucket_masses(bp: np.ndarray, bb: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
+def _largest_remainder_round(values: np.ndarray, total: int = 100) -> np.ndarray:
+    """Round to integers summing exactly to `total` (largest-remainder)."""
+    v = np.asarray(values, dtype=float)
+    out = np.zeros(v.size, dtype=int)
+    if v.sum() <= 0:
+        if v.size:
+            out[v.size // 2] = total
+        return out
+    scaled = v / v.sum() * total
+    floor = np.floor(scaled).astype(int)
+    for i in np.argsort(-(scaled - floor))[: int(total - floor.sum())]:
+        floor[i] += 1
+    return floor
+
+
+def _seed_bucket_pct(bp: np.ndarray, bb: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
+    """Integer % per bucket from the baseline mass, summing to 100."""
     masses = np.array([
         float(bp[(bb >= boundaries[i]) & (bb < boundaries[i + 1])].sum())
         for i in range(len(boundaries) - 1)
     ])
-    return (masses / masses.sum() * 100.0) if masses.sum() > 0 else masses
+    return _largest_remainder_round(masses, 100)
 
 
-def render_kelly_elicitation(ms, target: float, conviction: str):
-    """Render the elicitation block (inputs + chart); return (probs, bins) or (None, None)."""
-    base_probs, base_bins = view_implied_distribution(ms.spot, ms.fwd, ms.vol, ms.T, target, conviction)
-    bp, bb = np.array(base_probs), np.array(base_bins)
-    # Market-implied baseline (centred at the forward) — the chart's reference series.
-    mk_probs, mk_bins = view_implied_distribution(ms.spot, ms.fwd, ms.vol, ms.T, ms.fwd, conviction)
-    baseline = Distribution(bins=np.array(mk_bins), probs=np.array(mk_probs))
+def _renormalise(n: int) -> None:
+    raw = np.array([float(st.session_state[_KP + f"bucket_{i}"]) for i in range(n)])
+    rounded = _largest_remainder_round(raw, 100)
+    for i in range(n):
+        st.session_state[_KP + f"bucket_{i}"] = int(rounded[i])
+
+
+def render_kelly_elicitation(ms, target: float | None = None):
+    """Render the elicitation block (inputs + chart + means); return (probs, bins) or (None, None)."""
+    # Market-implied baseline = lognormal centred at the forward (ATM vol). Both the
+    # baseline series and the elicitation inputs seed from this, so at inception the
+    # elicited distribution matches the market one.
+    mk_probs, mk_bins = view_implied_distribution(ms.spot, ms.fwd, ms.vol, ms.T, ms.fwd)
+    bp, bb = np.array(mk_probs), np.array(mk_bins)
+    baseline = Distribution(bins=bb, probs=bp)
 
     st.markdown("**Your edge — terminal-spot distribution**")
     c_mode, c_n = st.columns([2, 1])
     mode = c_mode.radio("Input style", [_CDF, _PDF], horizontal=True, key=_KP + "mode")
     n = int(c_n.selectbox("Buckets", _N_OPTIONS, index=0, key=_KP + "n"))
 
-    # Re-seed inputs when the market/view context or shape changes, or on explicit reset.
-    sig = (round(ms.fwd, 6), round(ms.vol, 6), round(target, 6), conviction, mode, n)
+    sig = (round(ms.fwd, 6), round(ms.vol, 6), round(ms.T, 6), mode, n)
     reseed = st.session_state.get(_KP + "sig") != sig
-    if st.button("Reset to view-implied", key=_KP + "reset"):
+    if st.button("Reset to market baseline", key=_KP + "reset"):
         reseed = True
     st.session_state[_KP + "sig"] = sig
 
@@ -85,19 +112,26 @@ def render_kelly_elicitation(ms, target: float, conviction: str):
     else:
         boundaries = sigma_boundaries_to_prices(default_sigma_boundaries(n), forward=ms.fwd,
                                                 sigma=ms.vol, tenor_years=ms.T)
-        masses = _seed_bucket_masses(bp, bb, boundaries)
+        seed_pct = _seed_bucket_pct(bp, bb, boundaries)
         cols = st.columns(n)
-        probs_in: list[float] = []
+        probs_pct: list[int] = []
         for i in range(n):
             k = _KP + f"bucket_{i}"
             if reseed or k not in st.session_state:
-                st.session_state[k] = round(float(masses[i]), 1) if i < len(masses) else 0.0
-            probs_in.append(cols[i].number_input(f"{boundaries[i]:.2f}", min_value=0.0, step=1.0, key=k))
-        tot = sum(probs_in)
-        if tot <= 0:
-            st.warning("Bucket probabilities must sum to more than 0.")
+                st.session_state[k] = int(seed_pct[i]) if i < len(seed_pct) else 0
+            probs_pct.append(int(cols[i].number_input(
+                f"{boundaries[i]:.2f}", min_value=0, max_value=100, step=1, format="%d", key=k,
+            )))
+        total = int(sum(probs_pct))
+        if total == 100:
+            st.success("Bucket probabilities sum to 100% ✓")
+        else:
+            m_col, b_col = st.columns([3, 1])
+            m_col.warning(f"Bucket probabilities sum to {total}%, not 100% (off by {total - 100:+d}%).")
+            b_col.button("Renormalise to 100%", key=_KP + "renorm", on_click=_renormalise, args=(n,))
+        if total <= 0:
             return None, None
-        probs_norm = np.array([p / tot for p in probs_in])
+        probs_norm = np.array(probs_pct, dtype=float) / total
         try:
             dist = elicit_from_pdf_buckets(list(boundaries), list(probs_norm), n_bins=_N_BINS)
         except ValueError as e:
@@ -110,7 +144,10 @@ def render_kelly_elicitation(ms, target: float, conviction: str):
     bins = tuple(float(b) for b in dist.bins)
     st.session_state.kelly_probs = probs
     st.session_state.kelly_bins = bins
-    mean_spot = float(np.dot(np.array(probs), np.array(bins)))
-    lean = "bullish" if mean_spot > ms.fwd else "bearish"
-    st.caption(f"Implied mean spot {mean_spot:.4f} vs forward {ms.fwd:.4f} ({lean} edge).")
+
+    mk_mean = float(np.dot(bp, bb))
+    el_mean = float(np.dot(np.array(probs), np.array(bins)))
+    c_mk, c_el = st.columns(2)
+    c_mk.metric("Market-implied mean", f"{mk_mean:.4f}")
+    c_el.metric("Your elicited mean", f"{el_mean:.4f}", delta=f"{el_mean - mk_mean:+.4f}")
     return probs, bins
