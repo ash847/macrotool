@@ -28,7 +28,7 @@ import pandas as pd
 
 from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
-from interface.security import current_user_email, is_admin_user, require_login
+from interface.security import can_see, current_user_email, is_admin_user, require_login, user_role
 from interface.llm_config import (
     get_llm_provider,
     get_provider_api_key,
@@ -102,6 +102,7 @@ _inject_secrets()
 require_login()
 USER_EMAIL = current_user_email()
 IS_ADMIN = is_admin_user()
+ROLE = user_role()   # "admin" | "tester" — gates nav + Trade View output blocks
 
 from conversation import tracing as _tracing
 _tracing._init_client()
@@ -193,12 +194,15 @@ with st.sidebar:
     st.button("Sign out", on_click=st.logout, use_container_width=True)
     st.divider()
 
-    user_nav_labels = ("Trade View", "Agent", "Kelly Sizing")
-    nav_labels = (
-        user_nav_labels + ("Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log")
-        if IS_ADMIN
-        else user_nav_labels
-    )
+    # Testers get a limited nav: Trade View + Kelly Sizing only. They reach the agent
+    # via the in-context chat at the bottom of Trade View, not the standalone Agent tab.
+    if IS_ADMIN:
+        nav_labels = (
+            "Trade View", "Agent", "Kelly Sizing",
+            "Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log",
+        )
+    else:
+        nav_labels = ("Trade View", "Kelly Sizing")
     for label in nav_labels:
         active = st.session_state.page == label
         if st.button(
@@ -893,11 +897,107 @@ def _render_agent() -> None:
     _render_agent_diagnostic(st.session_state.agent_flow.session)
 
 
+def _trade_chat_signature(flow) -> tuple:
+    """Everything that defines the loaded trade + the prefs that shape its pack. When
+    this changes, the seeded chat resets to the new trade."""
+    view = flow.view
+    return (
+        view.pair,
+        view.direction,
+        view.horizon_days,
+        round(view.magnitude_pct or 0.0, 4),
+        round(target_price(flow) or 0.0, 6),
+        st.session_state.pref_structure_constraint,
+        st.session_state.pref_primary_objective,
+        st.session_state.pref_trade_management,
+        round(flow.target_rr, 3),
+    )
+
+
+def _render_trade_chat(flow) -> None:
+    """In-context chat pre-loaded with the current Trade View trade (task 1). Mirrors
+    the Agent tab but seeded from this trade's pack, so the PM asks about *this* trade
+    without restating it. Canned opener — no API call until the PM actually asks."""
+    from agentic.agent_flow import AgentFlow
+    from agentic.agent_llm import AnthropicToolLLM, DEFAULT_MODEL
+    from agentic.seed import DEFAULT_OPENING, seed_session_from_pack
+    from agentic.session import AgentSession
+    from agentic.standard_pack import build_pack
+    from config.loader import load_config
+
+    st.divider()
+    st.subheader("Ask about this trade")
+
+    provider = get_llm_provider()
+    if provider != "anthropic":
+        st.caption(f"Chat needs the Anthropic provider (active: {provider_label(provider)}).")
+        return
+    api_key = get_provider_api_key("anthropic")
+    if not api_key:
+        st.caption("Chat unavailable — no Anthropic API key configured.")
+        return
+
+    view = flow.view
+    sig = _trade_chat_signature(flow)
+    if st.session_state.get("tv_chat_sig") != sig:
+        try:
+            ccy = flow._snapshot.get(view.pair)
+            pack = build_pack(
+                view, ccy, load_config(),
+                structure_constraint=st.session_state.pref_structure_constraint,
+                primary_objective=st.session_state.pref_primary_objective,
+                trade_management=st.session_state.pref_trade_management,
+                target_rr=flow.target_rr,
+                user_email=USER_EMAIL,
+            )
+            session = AgentSession(
+                snapshot=flow._snapshot,
+                cfg=load_config(),
+                structure_constraint=st.session_state.pref_structure_constraint,
+                primary_objective=st.session_state.pref_primary_objective,
+                trade_management=st.session_state.pref_trade_management,
+                target_rr=flow.target_rr,
+            )
+            seed_session_from_pack(session, view, pack)
+            llm = AnthropicToolLLM(
+                api_key=api_key,
+                model=get_provider_model("anthropic") or DEFAULT_MODEL,
+            )
+            st.session_state.tv_chat_flow = AgentFlow(llm, session)
+            st.session_state.tv_chat = [("assistant", DEFAULT_OPENING)]
+            st.session_state.tv_chat_sig = sig
+        except Exception as e:
+            log_error("trade_chat_seed", e)
+            st.caption(f"Chat unavailable — {type(e).__name__}.")
+            return
+
+    for role, text in st.session_state.tv_chat:
+        with st.chat_message(role):
+            st.markdown(text)
+
+    if prompt := st.chat_input(
+        "Ask about this trade — e.g. why the 1x1.5? what's the risk?",
+        key="trade_chat_input",
+    ):
+        st.session_state.tv_chat.append(("user", prompt))
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                try:
+                    reply = st.session_state.tv_chat_flow.advance(prompt)
+                except Exception as e:
+                    log_error("trade_chat_advance", e)
+                    reply = f"⚠️ {type(e).__name__}: {e}"
+            st.markdown(reply)
+        st.session_state.tv_chat.append(("assistant", reply))
+
+
 # ---------------------------------------------------------------------------
 # Page routing
 # ---------------------------------------------------------------------------
 
-if st.session_state.page not in ("Trade View", "Agent", "Kelly Sizing") and not IS_ADMIN:
+if not IS_ADMIN and st.session_state.page not in ("Trade View", "Kelly Sizing"):
     st.session_state.page = "Trade View"
     st.rerun()
 
@@ -933,24 +1033,25 @@ else:
     _brief_path = Path(__file__).parent / "testing_brief.json"
     try:
         _brief = json.loads(_brief_path.read_text())
-        with st.expander(f"Testing brief — {_brief.get('updated', '')}", expanded=not flow.view):
-            st.markdown(f"**Focus:** {_brief['focus']}")
-            col_try, col_skip = st.columns(2)
-            with col_try:
-                st.markdown("**Try these**")
-                for item in _brief.get("try_these", []):
-                    st.caption(f"• {item}")
-            with col_skip:
-                st.markdown("**Ignore for now**")
-                for item in _brief.get("ignore_for_now", []):
-                    st.caption(f"• {item}")
+        if can_see("testing_brief", ROLE):
+            with st.expander(f"Testing brief — {_brief.get('updated', '')}", expanded=not flow.view):
+                st.markdown(f"**Focus:** {_brief['focus']}")
+                col_try, col_skip = st.columns(2)
+                with col_try:
+                    st.markdown("**Try these**")
+                    for item in _brief.get("try_these", []):
+                        st.caption(f"• {item}")
+                with col_skip:
+                    st.markdown("**Ignore for now**")
+                    for item in _brief.get("ignore_for_now", []):
+                        st.caption(f"• {item}")
     except Exception:
         pass
 
     if flow.view and "last_prompt" in st.session_state and st.session_state.last_prompt:
         st.info(f"**View:** {st.session_state.last_prompt}")
 
-    if flow.flat_distribution and flow.smile_distribution:
+    if can_see("view_charts", ROLE) and flow.flat_distribution and flow.smile_distribution:
         _target = target_price(flow)
 
         col_fan, col_hist = st.columns(2)
@@ -990,46 +1091,49 @@ else:
         h = flow.view.horizon_days
         _is_call = flow.view.direction == "base_higher"
         _target = target_price(flow)
-        st.subheader("Market state")
+        _show_market_state = can_see("market_state", ROLE)
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Spot", f"{ms.spot:.4f}")
-        c2.metric("Forward", f"{ms.fwd:.4f}")
-        c3.metric("ATM Vol", f"{ms.vol:.1%}")
-        c4.metric("Horizon", f"{h}d")
+        if _show_market_state:
+            st.subheader("Market state")
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
-        c1.metric("Carry c", f"{ms.c:+.3f}")
-        c2.metric("Carry regime", regime_label[ms.carry_regime])
-        if ms.target_z_spot is not None:
-            c3.metric("Target z (vs spot)", f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})")
-        else:
-            c3.metric("Target z (vs spot)", "—")
-        if ms.target_z is not None:
-            c4.metric("Target z (vs fwd)", f"{ms.target_z:+.2f}σ  ({ms.put_call})")
-        else:
-            c4.metric("Target z (vs fwd)", "—")
-        if ms.atmfsratio is not None:
-            c5.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
-        else:
-            c5.metric("ATM fwd ratio", "—")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Spot", f"{ms.spot:.4f}")
+            c2.metric("Forward", f"{ms.fwd:.4f}")
+            c3.metric("ATM Vol", f"{ms.vol:.1%}")
+            c4.metric("Horizon", f"{h}d")
 
-        _pair = flow.view.pair
-        _base, _quote = _pair[:3], _pair[3:]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric(f"r {_base}", f"{ms.r_f:.2%}")
-        c2.metric(f"r {_quote} (implied)", f"{ms.r_d:.2%}")
-        try:
-            v25dc = interpolate_vol(flow.ccy, h, "25DC")
-            v25dp = interpolate_vol(flow.ccy, h, "25DP")
-            rr  = v25dc - v25dp
-            fly = 0.5 * (v25dc + v25dp) - ms.vol
-            c3.metric("25d RR", f"{rr:+.2%}", help=f"25DC {v25dc:.2%} / ATM {ms.vol:.2%} / 25DP {v25dp:.2%}")
-            c4.metric("25d Fly", f"{fly:+.2%}", help=f"0.5×(25DC+25DP) − ATM  |  synthetic data")
-        except Exception:
-            c3.metric("25d RR", "—")
-            c4.metric("25d Fly", "—")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
+            c1.metric("Carry c", f"{ms.c:+.3f}")
+            c2.metric("Carry regime", regime_label[ms.carry_regime])
+            if ms.target_z_spot is not None:
+                c3.metric("Target z (vs spot)", f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})")
+            else:
+                c3.metric("Target z (vs spot)", "—")
+            if ms.target_z is not None:
+                c4.metric("Target z (vs fwd)", f"{ms.target_z:+.2f}σ  ({ms.put_call})")
+            else:
+                c4.metric("Target z (vs fwd)", "—")
+            if ms.atmfsratio is not None:
+                c5.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
+            else:
+                c5.metric("ATM fwd ratio", "—")
+
+            _pair = flow.view.pair
+            _base, _quote = _pair[:3], _pair[3:]
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(f"r {_base}", f"{ms.r_f:.2%}")
+            c2.metric(f"r {_quote} (implied)", f"{ms.r_d:.2%}")
+            try:
+                v25dc = interpolate_vol(flow.ccy, h, "25DC")
+                v25dp = interpolate_vol(flow.ccy, h, "25DP")
+                rr  = v25dc - v25dp
+                fly = 0.5 * (v25dc + v25dp) - ms.vol
+                c3.metric("25d RR", f"{rr:+.2%}", help=f"25DC {v25dc:.2%} / ATM {ms.vol:.2%} / 25DP {v25dp:.2%}")
+                c4.metric("25d Fly", f"{fly:+.2%}", help=f"0.5×(25DC+25DP) − ATM  |  synthetic data")
+            except Exception:
+                c3.metric("25d RR", "—")
+                c4.metric("25d Fly", "—")
 
         _move_pct = _stop_pct = _stop_price = _loss_budget = None
         _base_ccy_top = flow.view.pair[:3]
@@ -1051,95 +1155,100 @@ else:
         )
         _kelly_mode = flow.sizing_spec is not None and flow.sizing_spec.method == "kelly"
         if _target is not None:
+            # Compute unconditionally — the variants table below needs these even when
+            # the market-state display is hidden for a tester.
             _move_pct = abs(_target - ms.fwd) / ms.fwd
             _stop_pct = _move_pct / flow.target_rr
             _stop_price = ms.fwd * (1 - _stop_pct) if _is_call else ms.fwd * (1 + _stop_pct)
             _loss_budget = LINEAR_NOTIONAL * _stop_pct
-            if _kelly_mode:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
-                c2.metric("Bankroll (W)", fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top),
-                          help="Nominal bankroll; Kelly notionals are λ·f*·W, comparable across variants.")
-                c3.metric("Fractional Kelly (λ)", f"{flow.sizing_spec.kelly_lambda:.2f}",
-                          help="Scales every variant equally — does not change the ranking.")
-            else:
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
-                c2.metric(f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}", help="move_to_target / R:R — acceptable reversal from fwd before stopping out")
-                c3.metric("Stop price", f"{_stop_price:.4f}", help="fwd level implying the stop loss")
-                c4.metric(
-                    "Loss budget",
-                    fmt_ccy(_loss_budget, _base_ccy_top),
-                    help=f"Linear notional {fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top)} × stop %. "
-                         "Each structure variant is sized so its max loss equals this.",
-                )
+            if _show_market_state:
+                if _kelly_mode:
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
+                    c2.metric("Bankroll (W)", fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top),
+                              help="Nominal bankroll; Kelly notionals are λ·f*·W, comparable across variants.")
+                    c3.metric("Fractional Kelly (λ)", f"{flow.sizing_spec.kelly_lambda:.2f}",
+                              help="Scales every variant equally — does not change the ranking.")
+                else:
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
+                    c2.metric(f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}", help="move_to_target / R:R — acceptable reversal from fwd before stopping out")
+                    c3.metric("Stop price", f"{_stop_price:.4f}", help="fwd level implying the stop loss")
+                    c4.metric(
+                        "Loss budget",
+                        fmt_ccy(_loss_budget, _base_ccy_top),
+                        help=f"Linear notional {fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top)} × stop %. "
+                             "Each structure variant is sized so its max loss equals this.",
+                    )
 
-        st.subheader("Structure scores")
-        _sc_pref = st.session_state.get("pref_structure_constraint", "No restriction")
-        rows = get_scoring_detail(ms, structure_constraint=_sc_pref)
-        _show_constraint = (_sc_pref != "No restriction")
-        table_data = []
-        for r in rows:
-            dims = r["dimensions"]
-            eligible = r["eligible"]
-            def _s(dim):
-                return dims[dim]["score"] if eligible else None
-            row = {
-                "Structure":      r["display_name"],
-                "Target Z (spot)": _s("target_z_abs"),
-                "Carry regime":   _s("carry_regime"),
-                "ATM/FS ratio":   _s("atmfsratio"),
-                "Carry align":    _s("carry_alignment"),
-                "Constraint":     _s("structure_constraint"),
-                "Total":          r["total_score"] if eligible else None,
-                "Overlay":        r["overlay_only"],
-                "Eligible":       eligible,
-            }
-            table_data.append(row)
+        if can_see("scores_table", ROLE):
+            st.subheader("Structure scores")
+            _sc_pref = st.session_state.get("pref_structure_constraint", "No restriction")
+            rows = get_scoring_detail(ms, structure_constraint=_sc_pref)
+            _show_constraint = (_sc_pref != "No restriction")
+            table_data = []
+            for r in rows:
+                dims = r["dimensions"]
+                eligible = r["eligible"]
+                def _s(dim):
+                    return dims[dim]["score"] if eligible else None
+                row = {
+                    "Structure":      r["display_name"],
+                    "Target Z (spot)": _s("target_z_abs"),
+                    "Carry regime":   _s("carry_regime"),
+                    "ATM/FS ratio":   _s("atmfsratio"),
+                    "Carry align":    _s("carry_alignment"),
+                    "Constraint":     _s("structure_constraint"),
+                    "Total":          r["total_score"] if eligible else None,
+                    "Overlay":        r["overlay_only"],
+                    "Eligible":       eligible,
+                }
+                table_data.append(row)
 
-        score_df = pd.DataFrame(table_data)
-        score_df = score_df.sort_values(
-            ["Eligible", "Total"], ascending=[False, False]
-        ).reset_index(drop=True)
-        score_df.index = score_df.index + 1
+            score_df = pd.DataFrame(table_data)
+            score_df = score_df.sort_values(
+                ["Eligible", "Total"], ascending=[False, False]
+            ).reset_index(drop=True)
+            score_df.index = score_df.index + 1
 
-        def _color(val):
-            if val is None or (isinstance(val, float) and pd.isna(val)):
-                return "color: #aaa"
-            try:
-                v = float(val)
-            except (TypeError, ValueError):
-                return ""
-            if v > 0:
-                return "color: #1a7a1a; font-weight: bold"
-            if v < 0:
-                return "color: #b00000; font-weight: bold"
-            return "color: #888"
+            def _color(val):
+                if val is None or (isinstance(val, float) and pd.isna(val)):
+                    return "color: #aaa"
+                try:
+                    v = float(val)
+                except (TypeError, ValueError):
+                    return ""
+                if v > 0:
+                    return "color: #1a7a1a; font-weight: bold"
+                if v < 0:
+                    return "color: #b00000; font-weight: bold"
+                return "color: #888"
 
-        display_df = score_df.drop(columns=["Overlay", "Eligible"]).copy()
-        display_df["Status"] = score_df.apply(
-            lambda r: ("overlay" if r["Overlay"] else "") if r["Eligible"] else "gated", axis=1
-        )
-        _col_order = ["Structure", "Target Z (spot)", "Carry regime", "ATM/FS ratio",
-                      "Carry align", "Constraint", "Total", "Status"]
-        _score_cols = ["Target Z (spot)", "Carry regime", "ATM/FS ratio", "Carry align",
-                       "Constraint", "Total"]
+            display_df = score_df.drop(columns=["Overlay", "Eligible"]).copy()
+            display_df["Status"] = score_df.apply(
+                lambda r: ("overlay" if r["Overlay"] else "") if r["Eligible"] else "gated", axis=1
+            )
+            _col_order = ["Structure", "Target Z (spot)", "Carry regime", "ATM/FS ratio",
+                          "Carry align", "Constraint", "Total", "Status"]
+            _score_cols = ["Target Z (spot)", "Carry regime", "ATM/FS ratio", "Carry align",
+                           "Constraint", "Total"]
 
-        display_df = display_df[_col_order]
-        display_df[_score_cols] = display_df[_score_cols].astype(object)
-        display_df.fillna("—", inplace=True)
+            display_df = display_df[_col_order]
+            display_df[_score_cols] = display_df[_score_cols].astype(object)
+            display_df.fillna("—", inplace=True)
 
-        if _show_constraint:
-            st.caption(f"Constraint applied: **{_sc_pref}**")
+            if _show_constraint:
+                st.caption(f"Constraint applied: **{_sc_pref}**")
 
-        styled = display_df.style.map(_color, subset=_score_cols)
-        st.dataframe(styled, use_container_width=True)
+            styled = display_df.style.map(_color, subset=_score_cols)
+            st.dataframe(styled, use_container_width=True)
 
-        st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
-        render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget)
+        if can_see("recommended_variants", ROLE):
+            st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
+            render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget)
 
     # Feedback form (only after a view is active)
-    if flow.view:
+    if flow.view and can_see("feedback", ROLE):
         try:
             _brief = json.loads(_brief_path.read_text())
             questions = _brief.get("questions", [])
@@ -1174,12 +1283,23 @@ else:
 
     # Structure Evaluation
     if (
-        flow.market_state
+        can_see("structure_evaluation", ROLE)
+        and flow.market_state
         and flow.selector_result
         and flow.selector_result.shortlist
         and target_price(flow) is not None
     ):
         render_structure_evaluation(flow, IS_ADMIN, target_price(flow))
+
+    # In-context chat with the agent, pre-loaded with the current trade (task 1).
+    if (
+        can_see("trade_chat", ROLE)
+        and flow.view
+        and flow.market_state
+        and flow.selector_result
+        and flow.selector_result.shortlist
+    ):
+        _render_trade_chat(flow)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
