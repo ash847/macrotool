@@ -111,12 +111,13 @@ def test_smile_makes_ratio_net_debit_cheaper(market_state, smile, structure_id):
         market_state, structure_id, target=_TARGET, is_call=True, stop_price=None,
         smile=smile,
     )
-    flat_by_k = {tuple(pv.strikes): pv for pv in flat}
+    # Match by variant label: delta-defined strikes shift under the smile (the
+    # delta→strike map is vol-dependent), so compare the same construction flat vs smile.
+    flat_by_label = {pv.variant_label: pv for pv in flat}
     compared = 0
     for pv in smiled:
-        key = tuple(pv.strikes)
-        if key not in flat_by_k:
+        if pv.variant_label not in flat_by_label:
             continue
         compared += 1
-        assert pv.net_premium_pct <= flat_by_k[key].net_premium_pct + 1e-9
+        assert pv.net_premium_pct <= flat_by_label[pv.variant_label].net_premium_pct + 1e-9
     assert compared > 0, f"no matching variants compared for {structure_id}"

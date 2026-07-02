@@ -640,8 +640,9 @@ class TestRatioSpreadVariantExpansion:
         pvs = price_variants(ms, "1x2_spread", target=0.95, is_call=False)
         labels = {pv.variant_label for pv in pvs}
 
-        assert "ATMF / 2× target" in labels
-        assert "½σ toward target / 2× target" in labels
+        # Delta-based (and ATMF=50Δ) variants only — target-anchored / stdev variants removed.
+        assert "ATMF / 2× target" not in labels
+        assert "½σ toward target / 2× target" not in labels
         assert "ATMF / 25Δ" in labels
         assert "25Δ / 10Δ" in labels
         assert "25Δ / 15Δ" in labels
@@ -657,8 +658,9 @@ class TestRatioSpreadVariantExpansion:
         pvs = price_variants(ms, "1x1.5_spread", target=0.95, is_call=False)
         labels = {pv.variant_label for pv in pvs}
 
-        assert "ATMF / 1.5× target" in labels
-        assert "½σ toward target / 1.5× target" in labels
+        # Delta-based (and ATMF=50Δ) variants only — target-anchored / stdev variants removed.
+        assert "ATMF / 1.5× target" not in labels
+        assert "½σ toward target / 1.5× target" not in labels
         assert "ATMF / 25Δ" in labels
         assert "25Δ / 10Δ" in labels
         assert "25Δ / 15Δ" in labels
