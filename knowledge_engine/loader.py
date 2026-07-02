@@ -75,20 +75,34 @@ def load_structure_profiles() -> dict:
 _affinity_cache: dict | None = None
 
 
+def _merge_affinity(local: dict, remote: dict) -> dict:
+    """Overlay the remote (Supabase) config on the local defaults.
+
+    Remote wins for everything it defines (top-level keys + tuned per-family
+    scores), but families present only in the local defaults are preserved —
+    so adding a new structure family to the local JSON is not silently dropped
+    when a Supabase config exists that predates it. `enabled: false` in
+    structure_profiles remains the way to disable a family."""
+    merged = {**local, **remote}
+    merged["structures"] = {**local.get("structures", {}), **remote.get("structures", {})}
+    return merged
+
+
 def load_affinity_scores() -> dict:
     global _affinity_cache
     if _affinity_cache is not None:
         return _affinity_cache
+    with open(_DEFAULTS_DIR / "affinity_scores.json") as f:
+        local = json.load(f)
     try:
         from interface.supabase_logger import fetch_config_for_engine
-        data = fetch_config_for_engine("affinity_scores")
-        if data:
-            _affinity_cache = data
+        remote = fetch_config_for_engine("affinity_scores")
+        if remote:
+            _affinity_cache = _merge_affinity(local, remote)
             return _affinity_cache
     except Exception:
         pass
-    with open(_DEFAULTS_DIR / "affinity_scores.json") as f:
-        _affinity_cache = json.load(f)
+    _affinity_cache = local
     return _affinity_cache
 
 
