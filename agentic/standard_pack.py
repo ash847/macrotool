@@ -146,7 +146,7 @@ def _recommend_ranked(
     from knowledge_engine.structure_attributes import attributes as _attributes, deciding_axis as _deciding_axis
 
     out: list[RecommendedStructure] = []
-    aggs_by_rank: list[tuple[int, object]] = []   # (rank, aggregates) for the deciding-axis pick
+    agg_by_sid: dict[str, object] = {}   # structure_id -> aggregates, for the deciding-axis pick
     for item in selector_result.shortlist:
         evals = inputs.variant_evaluations_by_structure.get(item.structure_id) or []
         scored = [e for e in evals if e.pm_score.score_ccy is not None]
@@ -170,14 +170,21 @@ def _recommend_ranked(
                 drivers=driver_contribs(best.pm_score),
                 attributes=_attributes(item.structure_id, best.pm_score, best.aggregates),
             ))
-            aggs_by_rank.append((item.rank, best.aggregates))
+            agg_by_sid[item.structure_id] = best.aggregates
 
-    # Deciding axis: the single scenario bucket that most separates the top-ranked
-    # recommendation from the runner-up (IP-clean gloss; numbers stay server-side).
+    # Order by scenario-weighted P&L (score_ccy), NOT affinity rank, so the agent
+    # surfaces the same top structures as the Trade View Structure Evaluation (which
+    # ranks by score_ccy) and matches this pack's own "best ... by scenario-weighted
+    # P&L" label. Display rank then follows that order. None scores sort last.
+    out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else float("-inf"), reverse=True)
+    for i, r in enumerate(out, 1):
+        r.rank = i
+
+    # Deciding axis: the single scenario bucket that most separates the top pick
+    # from the runner-up (IP-clean gloss; numbers stay server-side).
     deciding = None
-    aggs_by_rank.sort(key=lambda x: x[0])
-    if len(aggs_by_rank) >= 2:
-        deciding = _deciding_axis(aggs_by_rank[0][1], aggs_by_rank[1][1])
+    if len(out) >= 2:
+        deciding = _deciding_axis(agg_by_sid[out[0].structure_id], agg_by_sid[out[1].structure_id])
 
     return out, loss_budget, inputs.active_context, deciding, inputs.weights
 
