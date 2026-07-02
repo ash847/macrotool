@@ -110,6 +110,46 @@ def user_role() -> str:
     return "admin" if is_admin_user() else "tester"
 
 
+def effective_role() -> str:
+    """The role used for all visibility decisions.
+
+    When the real user is an admin they can temporarily simulate the tester
+    surface via a sidebar toggle (``st.session_state.view_as_role``). This
+    function honours that override — but only for real admins.  A real tester
+    gets ``user_role()`` unchanged; the toggle is not even rendered for them,
+    so stale session state can never elevate their privilege.
+    """
+    if not is_admin_user():
+        return user_role()
+    override = st.session_state.get("view_as_role")
+    if override in ("admin", "tester"):
+        return override
+    return user_role()
+
+
+def render_role_toggle() -> None:
+    """Sidebar toggle rendered ONLY for real admins.
+
+    Gated on ``is_admin_user()`` (the real role), not ``effective_role()``,
+    so the control stays visible even while the admin is simulating tester
+    mode — otherwise they'd be stuck with no way back.
+    """
+    if not is_admin_user():
+        return
+    viewing_as_tester = st.session_state.get("view_as_role") == "tester"
+    toggled = st.checkbox(
+        "View as tester",
+        value=viewing_as_tester,
+        help="Simulate the restricted tester surface. Toggle off to return to admin view.",
+    )
+    if toggled and not viewing_as_tester:
+        st.session_state.view_as_role = "tester"
+        st.rerun()
+    elif not toggled and viewing_as_tester:
+        st.session_state.view_as_role = "admin"
+        st.rerun()
+
+
 def can_see(block: str, role: str | None = None) -> bool:
     """Whether ``block`` (a TRADE_VIEW_BLOCKS entry) is visible for ``role`` (defaults to
     the current user's role). Admins see everything; other roles are gated by

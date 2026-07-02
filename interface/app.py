@@ -28,7 +28,7 @@ import pandas as pd
 
 from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
-from interface.security import can_see, current_user_email, is_admin_user, require_login, user_role
+from interface.security import can_see, current_user_email, effective_role, is_admin_user, render_role_toggle, require_login, user_role
 from interface.llm_config import (
     get_llm_provider,
     get_provider_api_key,
@@ -102,7 +102,7 @@ _inject_secrets()
 require_login()
 USER_EMAIL = current_user_email()
 IS_ADMIN = is_admin_user()
-ROLE = user_role()   # "admin" | "tester" — gates nav + Trade View output blocks
+ROLE = effective_role()   # "admin" | "tester" — gates nav + Trade View output blocks; admins can override via sidebar toggle
 
 from conversation import tracing as _tracing
 _tracing._init_client()
@@ -192,11 +192,13 @@ with st.sidebar:
         st.caption("EM FX trade structuring")
     st.caption(f"Signed in as {USER_EMAIL}")
     st.button("Sign out", on_click=st.logout, use_container_width=True)
+    render_role_toggle()
     st.divider()
 
     # Testers get a limited nav: Trade View + Kelly Sizing only. They reach the agent
     # via the in-context chat at the bottom of Trade View, not the standalone Agent tab.
-    if IS_ADMIN:
+    # Nav collapses when an admin is simulating tester mode (ROLE == "tester").
+    if ROLE == "admin":
         nav_labels = (
             "Trade View", "Agent", "Kelly Sizing",
             "Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log",
