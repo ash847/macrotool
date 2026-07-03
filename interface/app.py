@@ -28,7 +28,7 @@ import pandas as pd
 
 from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
-from interface.security import can_see, current_user_email, effective_role, is_admin_user, render_role_toggle, require_login, user_role
+from interface.security import can_see, current_user_email, is_admin_user, require_login, user_role
 from interface.llm_config import (
     get_llm_provider,
     get_provider_api_key,
@@ -102,7 +102,6 @@ _inject_secrets()
 require_login()
 USER_EMAIL = current_user_email()
 IS_ADMIN = is_admin_user()
-ROLE = effective_role()   # "admin" | "tester" — gates nav + Trade View output blocks; admins can override via sidebar toggle
 
 from conversation import tracing as _tracing
 _tracing._init_client()
@@ -153,7 +152,11 @@ if "flow" not in st.session_state:
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 if "page" not in st.session_state:
-    st.session_state.page = "Trade View"
+    st.session_state.page = "Trade view"
+
+# "Admin test" (admin-only) shows the full admin surface; "Trade view" always
+# renders with tester visibility so both surfaces are live simultaneously.
+ROLE = "admin" if (IS_ADMIN and st.session_state.page == "Admin test") else "tester"
 if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
 if "sizing_method" not in st.session_state:
@@ -192,19 +195,17 @@ with st.sidebar:
         st.caption("EM FX trade structuring")
     st.caption(f"Signed in as {USER_EMAIL}")
     st.button("Sign out", on_click=st.logout, use_container_width=True)
-    render_role_toggle()
     st.divider()
 
-    # Testers get a limited nav: Trade View + Kelly Sizing only. They reach the agent
-    # via the in-context chat at the bottom of Trade View, not the standalone Agent tab.
-    # Nav collapses when an admin is simulating tester mode (ROLE == "tester").
-    if ROLE == "admin":
+    # Admins get "Admin test" (full surface) + "Trade view" (tester surface) side by side.
+    # Testers only see "Trade view" + "Kelly Sizing".
+    if IS_ADMIN:
         nav_labels = (
-            "Trade View", "Agent", "Kelly Sizing",
+            "Admin test", "Trade view", "Agent", "Kelly Sizing",
             "Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log",
         )
     else:
-        nav_labels = ("Trade View", "Kelly Sizing")
+        nav_labels = ("Trade view", "Kelly Sizing")
     for label in nav_labels:
         active = st.session_state.page == label
         if st.button(
@@ -212,7 +213,7 @@ with st.sidebar:
             use_container_width=True,
             type="primary" if active else "secondary",
         ):
-            if label == "Trade View":
+            if label in ("Admin test", "Trade view"):
                 st.session_state.flow = _make_flow()
                 _reset_trade_form_state(st.session_state.flow._snapshot)
                 st.session_state.submitted = False
@@ -999,8 +1000,8 @@ def _render_trade_chat(flow) -> None:
 # Page routing
 # ---------------------------------------------------------------------------
 
-if not IS_ADMIN and st.session_state.page not in ("Trade View", "Kelly Sizing"):
-    st.session_state.page = "Trade View"
+if not IS_ADMIN and st.session_state.page not in ("Trade view", "Kelly Sizing"):
+    st.session_state.page = "Trade view"
     st.rerun()
 
 if st.session_state.page == "Market Data":
@@ -1030,7 +1031,8 @@ elif st.session_state.page == "Kelly Sizing":
     _render_kelly_page()
 
 else:
-    # ---- Trade View page ----
+    # ---- Trade View pages ("Admin test" and "Trade view") ----
+    # ROLE governs which blocks are visible: "admin" for "Admin test", "tester" for "Trade view".
 
     _brief_path = Path(__file__).parent / "testing_brief.json"
     try:
