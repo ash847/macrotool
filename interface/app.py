@@ -1248,8 +1248,12 @@ else:
             st.dataframe(styled, use_container_width=True)
 
         if can_see("recommended_variants", ROLE):
-            st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
-            render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget)
+            if ROLE == "tester":
+                from interface.tester_view import render_tester_recommendations
+                render_tester_recommendations(flow, _is_call, _target)
+            else:
+                st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
+                render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget)
 
     # Feedback form (only after a view is active)
     if flow.view and can_see("feedback", ROLE):
