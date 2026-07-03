@@ -42,7 +42,6 @@ _ROLE_VISIBILITY: dict[str, set[str]] = {
         "testing_brief",
         "market_state",
         "recommended_variants",
-        "feedback",
         "trade_chat",
     },
 }
