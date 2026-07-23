@@ -13,6 +13,7 @@ from agentic.price_structure import PricedStructure, PricingUnavailable
 from agentic.standard_pack import StandardPack
 from analytics.product_model import AnchorKind
 from knowledge_engine.models import TradeView
+from knowledge_engine.payoff_profile import payoff_profile, render_payoff
 
 _TOP_N = 3   # recommended structures shown by default; rest surfaced only on request
 
@@ -59,6 +60,34 @@ def _legs_breakdown(ps, base_notional: float | None = None, ccy: str = "") -> li
     if ps.barrier is not None:
         lines.append(f"      knock-out barrier @ {ps.barrier:.4f}")
     return lines
+
+
+def _payoff_line(priced_structure, variant, structure_id: str, indent: str = "     ") -> str | None:
+    """The engine-authored PAYOFF line (terminal geometry) for one priced structure.
+
+    Best-effort — mirrors the per-leg breakdown, which also needs the product-model
+    ``priced_structure``. Every number it prints (strikes / barrier) is already shown
+    elsewhere in the pack; the line only connects them, so no number is minted and the
+    'numbers come from a tool' invariant holds. The agent relays this INSTEAD of
+    authoring payoff geometry itself.
+    """
+    if priced_structure is None or not getattr(priced_structure, "priced_legs", None):
+        return None
+    legs = [
+        (pl.notional, pl.strike, pl.leg.right.value == "call")
+        for pl in priced_structure.priced_legs
+    ]
+    is_call = priced_structure.priced_legs[0].leg.right.value == "call"
+    prof = payoff_profile(
+        structure_id,
+        legs,
+        net_premium_pct=variant.net_premium_pct,
+        is_zero_cost=variant.is_zero_cost,
+        is_call=is_call,
+        strikes=list(variant.strikes),
+        barrier=variant.barrier,
+    )
+    return render_payoff(prof, indent) if prof else None
 
 
 def render_pack(pack: StandardPack, view: TradeView) -> str:
@@ -130,6 +159,9 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             )
             lines.append("     " + _variant_summary(r.variant))
             lines.extend(_legs_breakdown(r.priced_structure, r.variant.structure_notional, base_ccy))
+            payoff = _payoff_line(r.priced_structure, r.variant, r.structure_id)
+            if payoff:
+                lines.append(payoff)
             ccy = _ccy_summary(r.variant, base_ccy)
             if ccy:
                 lines.append("     " + ccy)
@@ -218,7 +250,15 @@ def _variant_summary(v) -> str:
         parts.append(f"legs=1×1×{v.wing_ratio:g} (long/short/wing)")
     if v.barrier:
         parts.append(f"barrier={v.barrier:.4f}")
-    parts.append(f"premium={v.net_premium_pct:.2%}")
+    # Sign tag disambiguates the premium: a net debit is premium the PM PAYS; a net credit is
+    # premium the PM RECEIVES. Keeps the agent from reading a positive premium as "receiving".
+    if v.is_zero_cost or abs(v.net_premium_pct) < 1e-9:
+        prem_tag = "zero-cost"
+    elif v.net_premium_pct < 0:
+        prem_tag = "net credit — PM receives"
+    else:
+        prem_tag = "net debit — PM pays"
+    parts.append(f"premium={v.net_premium_pct:.2%} ({prem_tag})")
     if v.payoff_at_target_pct is not None:
         parts.append(f"payoff@target={v.payoff_at_target_pct:.2%}")
     if v.rr_at_target is not None:
@@ -239,6 +279,9 @@ def render_priced_structure(ps: PricedStructure, attributes=frozenset(), base_cc
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
     lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None), v.structure_notional, base_ccy))
+    payoff = _payoff_line(getattr(ps, "priced_structure", None), v, ps.request.family, indent="  ")
+    if payoff:
+        lines.append(payoff)
     ccy = _ccy_summary(v, base_ccy)
     if ccy:
         lines.append("  " + ccy)
@@ -255,6 +298,9 @@ def render_recommended(rec, base_ccy: str = "base ccy") -> str:
         "  " + _variant_summary(rec.variant),
     ]
     lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None), rec.variant.structure_notional, base_ccy))
+    payoff = _payoff_line(getattr(rec, "priced_structure", None), rec.variant, rec.structure_id, indent="  ")
+    if payoff:
+        lines.append(payoff)
     ccy = _ccy_summary(rec.variant, base_ccy)
     if ccy:
         lines.append("  " + ccy)
