@@ -172,6 +172,8 @@ if "sizing_method" not in st.session_state:
     st.session_state.sizing_method = "fixed_loss"   # "fixed_loss" | "kelly"
 if "sizing_capital" not in st.session_state:
     st.session_state.sizing_capital = 100_000_000.0   # master W (base ccy of the pair)
+if "sizing_capital_text" not in st.session_state:
+    st.session_state.sizing_capital_text = f"{st.session_state.sizing_capital:,.0f}"
 if "kelly_lambda" not in st.session_state:
     st.session_state.kelly_lambda = 0.5
 if "kelly_conviction" not in st.session_state:
@@ -400,6 +402,29 @@ def _sync_rr_from_risk() -> None:
         st.session_state.risk_dollars = float(round(_W * _move / st.session_state.target_rr))
 
 
+_W_STEP = 50_000_000.0    # +/- increment for the capital control (USD)
+_W_FLOOR = 50_000_000.0   # minimum capital
+
+
+def _set_w(value: float) -> None:
+    v = max(_W_FLOOR, float(value))
+    st.session_state.sizing_capital = v
+    st.session_state.sizing_capital_text = f"{v:,.0f}"
+
+
+def _apply_w_text() -> None:
+    """Parse the comma-formatted capital field; bad input reverts to the current W."""
+    txt = str(st.session_state.get("sizing_capital_text", "")).replace(",", "").replace(" ", "")
+    try:
+        _set_w(float(txt))
+    except ValueError:
+        _set_w(st.session_state.sizing_capital)
+
+
+def _bump_w(delta: float) -> None:
+    _set_w(st.session_state.sizing_capital + delta)
+
+
 def _render_sizing_panel() -> None:
     """Master sizing control — main-panel block (below the testing brief) so sizing is
     an explicit step of the workflow. ONE currency dial (the capital W behind the book)
@@ -413,14 +438,19 @@ def _render_sizing_panel() -> None:
     with st.container(border=True):
         c1, c2, c3 = st.columns([1.4, 1.0, 1.6])
         with c1:
-            st.number_input(
+            st.text_input(
                 "Capital behind this book (W)",
-                min_value=1.0, step=1_000_000.0, format="%.0f", key="sizing_capital",
+                key="sizing_capital_text", on_change=_apply_w_text,
                 help="Shared by every trade and both sizing methods (base ccy of the "
                      "pair); a change here applies for the rest of the session. Fixed "
                      "loss risks W × stop%; Kelly uses W as the bankroll (λ·x*·W). "
-                     "Structure notionals are capped at 10·W.",
+                     "Structure notionals are capped at 10·W. Minimum 50m.",
             )
+            _bm, _bp = st.columns(2)
+            _bm.button("− 50m", key="w_minus", use_container_width=True,
+                       on_click=_bump_w, args=(-_W_STEP,))
+            _bp.button("+ 50m", key="w_plus", use_container_width=True,
+                       on_click=_bump_w, args=(_W_STEP,))
         with c2:
             _size_label = st.radio(
                 "Size variants by", ["Fixed loss", "Kelly"],
