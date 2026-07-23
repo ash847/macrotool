@@ -1,21 +1,9 @@
 {
   "_note": "Edit this file to update the testing brief. Changes deploy automatically on next push.",
-
-  "updated": "2026-05-18",
-
-  "focus": "Does the structure scorer rank structures in the right order for your view? Ranks need to be correct, and the magnitude of scores need to be correct as well",
-
-  "try_these": [
-    "Currently has USDBRL EURPLN USDTRY GBPUSD EURUSD USDMXN USDCNH USDJPY. See Market data on left tab for details",
-    "Long USDBRL targeting 5.90, 3 months",
-    "Short EURPLN targeting 4.35, 6 months"
-  ],
-
-  "ignore_for_now": [
-    "Market data is not live, its toy",
-    "The LLM narrative text — being replaced by structured data outputs"
-  ],
-
+  "updated": "2026-07-23",
+  "focus": "",
+  "try_these": [],
+  "ignore_for_now": [],
   "questions": [
     "Is the ranking and scoring correct?",
     "Does the weighting grid give us the richness we need?",

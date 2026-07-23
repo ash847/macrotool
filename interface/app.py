@@ -244,9 +244,6 @@ with st.sidebar:
         _init_kelly_state()
         _render_kelly_sidebar()
     else:
-        # Master sizing control renders into this slot from the Trade View route
-        # (its helpers are defined later in the script; container fills out of order).
-        _sizing_sidebar_slot = st.container()
         st.divider()
 
         active_provider = get_llm_provider()
@@ -403,73 +400,80 @@ def _sync_rr_from_risk() -> None:
         st.session_state.risk_dollars = float(round(_W * _move / st.session_state.target_rr))
 
 
-def _render_sizing_sidebar() -> None:
-    """Master sizing control (sidebar): ONE currency dial — the capital W behind the
-    book — plus a unitless per-method intensity (R:R / λ) and a live equivalents
-    readout. The engine reads W via structure_eval.sizing_capital()."""
-    st.divider()
-    st.markdown("**Sizing**")
+def _render_sizing_panel() -> None:
+    """Master sizing control — main-panel block (below the testing brief) so sizing is
+    an explicit step of the workflow. ONE currency dial (the capital W behind the book)
+    plus a unitless per-method intensity (R:R / λ); the dollar equivalents live in a
+    collapsed expander. A changed W persists in st.session_state.sizing_capital for the
+    remainder of the session; the engine reads it via structure_eval.sizing_capital()."""
     _move, _fwd, _is_call_sb, _ccy0 = _sizing_context()
     _ccy = _sb_ccy(_ccy0)
 
-    st.number_input(
-        "Capital behind this book (W)",
-        min_value=1.0, step=1_000_000.0, format="%.0f", key="sizing_capital",
-        help="Set once — shared by every trade and both sizing methods (base ccy of the "
-             "pair). Fixed loss risks W × stop%; Kelly uses W as the bankroll (λ·x*·W). "
-             "Structure notionals are capped at 10·W.",
-    )
-    _W = float(st.session_state.sizing_capital)
-
-    _size_label = st.radio(
-        "Size variants by", ["Fixed loss", "Kelly"],
-        index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
-        horizontal=True, key="sizing_method_label",
-    )
-    st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
-
-    if st.session_state.sizing_method == "fixed_loss":
-        st.slider(
-            "Risk 1 to make", min_value=1.5, max_value=10.0, step=0.5, format="%.1f×",
-            key="target_rr", on_change=_sync_risk_from_rr,
-            help="Required reward-to-risk. Stop = move ÷ R:R on a linear-equivalent W. "
-                 "Unitless — the dollars come from W.",
-        )
-        if _move:
-            if "risk_dollars" not in st.session_state:
-                st.session_state.risk_dollars = float(round(_W * _move / st.session_state.target_rr))
+    st.subheader("Sizing")
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([1.4, 1.0, 1.6])
+        with c1:
             st.number_input(
-                "… or type risk ($)", min_value=0.0, step=10_000.0, format="%.0f",
-                key="risk_dollars", on_change=_sync_rr_from_risk,
-                help="Typing dollars back-solves the R:R dial (risk = W × move ÷ R:R).",
+                "Capital behind this book (W)",
+                min_value=1.0, step=1_000_000.0, format="%.0f", key="sizing_capital",
+                help="Shared by every trade and both sizing methods (base ccy of the "
+                     "pair); a change here applies for the rest of the session. Fixed "
+                     "loss risks W × stop%; Kelly uses W as the bankroll (λ·x*·W). "
+                     "Structure notionals are capped at 10·W.",
             )
-            _stop_pct_sb = _move / st.session_state.target_rr
-            _loss_sb = _W * _stop_pct_sb
-            _stop_px_sb = (_fwd * (1 - _stop_pct_sb) if _is_call_sb
-                           else _fwd * (1 + _stop_pct_sb))
-            with st.container(border=True):
-                st.caption("What this sizing means")
-                st.markdown(f"Risk this trade: **{fmt_ccy(_loss_sb, _ccy)}** "
-                            f"({_stop_pct_sb:.2%} of W)")
-                st.markdown(f"Implied stop: **{_stop_pct_sb:.1%}** · {_stop_px_sb:.4f}")
-                st.caption("Every variant is sized so its max loss equals this one figure "
-                           "(notional capped at 10·W — capped rows are flagged in the table).")
-        else:
-            st.caption("Enter a pair and target to see dollar equivalents.")
-    else:
-        st.slider(
-            "Fractional Kelly (λ)", min_value=0.1, max_value=1.0, step=0.05,
-            key="kelly_lambda",
-            help="Multiplier on the full-Kelly size. λ scales every variant equally — "
-                 "it does not change the ranking.",
-        )
-        with st.container(border=True):
-            st.caption("What this sizing means")
-            st.markdown(f"Bankroll W: **{fmt_ccy(_W, _ccy)}** · "
-                        f"λ = {float(st.session_state.kelly_lambda):.2f}")
-            st.caption("Each variant is sized to its own λ·x*·W from your edge "
-                       "distribution (elicited below the trade form); per-variant worst "
-                       "loss and % of W are in the variants table. Notional cap 10·W.")
+        with c2:
+            _size_label = st.radio(
+                "Size variants by", ["Fixed loss", "Kelly"],
+                index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
+                key="sizing_method_label",
+            )
+            st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
+        _W = float(st.session_state.sizing_capital)
+
+        with c3:
+            if st.session_state.sizing_method == "fixed_loss":
+                st.slider(
+                    "Risk 1 to make", min_value=1.5, max_value=10.0, step=0.5, format="%.1f×",
+                    key="target_rr", on_change=_sync_risk_from_rr,
+                    help="Required reward-to-risk. Stop = move ÷ R:R on a linear-equivalent W. "
+                         "Unitless — the dollars come from W.",
+                )
+                if _move:
+                    if "risk_dollars" not in st.session_state:
+                        st.session_state.risk_dollars = float(round(_W * _move / st.session_state.target_rr))
+                    st.number_input(
+                        "… or type risk ($)", min_value=0.0, step=10_000.0, format="%.0f",
+                        key="risk_dollars", on_change=_sync_rr_from_risk,
+                        help="Typing dollars back-solves the R:R dial (risk = W × move ÷ R:R).",
+                    )
+            else:
+                st.slider(
+                    "Fractional Kelly (λ)", min_value=0.1, max_value=1.0, step=0.05,
+                    key="kelly_lambda",
+                    help="Multiplier on the full-Kelly size. λ scales every variant equally — "
+                         "it does not change the ranking.",
+                )
+
+        with st.expander("What this sizing means", expanded=False):
+            if st.session_state.sizing_method == "fixed_loss":
+                if _move:
+                    _stop_pct_sb = _move / st.session_state.target_rr
+                    _loss_sb = _W * _stop_pct_sb
+                    _stop_px_sb = (_fwd * (1 - _stop_pct_sb) if _is_call_sb
+                                   else _fwd * (1 + _stop_pct_sb))
+                    st.markdown(f"Risk this trade: **{fmt_ccy(_loss_sb, _ccy)}** "
+                                f"({_stop_pct_sb:.2%} of W)")
+                    st.markdown(f"Implied stop: **{_stop_pct_sb:.1%}** · {_stop_px_sb:.4f}")
+                    st.caption("Every variant is sized so its max loss equals this one figure "
+                               "(notional capped at 10·W — capped rows are flagged in the table).")
+                else:
+                    st.caption("Enter a pair and target to see dollar equivalents.")
+            else:
+                st.markdown(f"Bankroll W: **{fmt_ccy(_W, _ccy)}** · "
+                            f"λ = {float(st.session_state.kelly_lambda):.2f}")
+                st.caption("Each variant is sized to its own λ·x*·W from your edge "
+                           "distribution (elicited below the trade form); per-variant worst "
+                           "loss and % of W are in the variants table. Notional cap 10·W.")
 
 
 def _submit_structured_view(pair: str, direction: str, horizon_days: int, target: float) -> str | None:
@@ -1151,13 +1155,13 @@ else:
     # ---- Trade View pages ("Admin test" and "Trade view") ----
     # ROLE governs which blocks are visible: "admin" for "Admin test", "tester" for "Trade view".
 
-    with _sizing_sidebar_slot:
-        _render_sizing_sidebar()
-
     _brief_path = Path(__file__).parent / "testing_brief.json"
     try:
         _brief = json.loads(_brief_path.read_text())
-        if can_see("testing_brief", ROLE):
+        _brief_has_content = bool(
+            _brief.get("focus") or _brief.get("try_these") or _brief.get("ignore_for_now")
+        )
+        if can_see("testing_brief", ROLE) and _brief_has_content:
             with st.expander(f"Testing brief — {_brief.get('updated', '')}", expanded=not flow.view):
                 st.markdown(f"**Focus:** {_brief['focus']}")
                 col_try, col_skip = st.columns(2)
@@ -1171,6 +1175,10 @@ else:
                         st.caption(f"• {item}")
     except Exception:
         pass
+
+    # Master sizing control — in the main flow, right below the brief, so setting the
+    # capital is an explicit step of the workflow. A revised W sticks for the session.
+    _render_sizing_panel()
 
     if flow.view and "last_prompt" in st.session_state and st.session_state.last_prompt:
         st.info(f"**View:** {st.session_state.last_prompt}")

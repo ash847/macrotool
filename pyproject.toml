@@ -1,6 +1,6 @@
 [project]
 name = "macrotool"
-version = "0.1.78+kelly.preview"
+version = "0.1.79+kelly.preview"
 description = "EM FX Trade Structuring & Sizing Tool"
 requires-python = ">=3.10"
 dependencies = [
