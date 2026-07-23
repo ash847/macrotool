@@ -109,6 +109,9 @@ class PricedVariant:
     net_premium_ccy: float | None = None       # premium in base ccy
     payoff_at_target_ccy: float | None = None  # gross payoff at target in base ccy
     max_loss_ccy: float | None = None          # max loss in base ccy (= loss_budget by construction)
+    capped: bool = False                       # True when the 10× linear-notional cap (not the
+                                               # loss budget / Kelly x*) determined the notional —
+                                               # on such rows max_loss_ccy < loss_budget
 
 
 def price_variants(
@@ -233,7 +236,9 @@ def _size_variants_kelly(
                 is_call=is_call, entry_spot=spot, wing_ratio=pv.wing_ratio,
             )
             pnl = per_notional_pnl(payoff(bins), pv.net_premium_pct, discount_factor=df_f)
-            _apply_notional(pv, kelly_notional(probs, pnl, sizing_spec, cap))
+            n = kelly_notional(probs, pnl, sizing_spec, cap)
+            pv.capped = n >= cap * (1.0 - 1e-12)
+            _apply_notional(pv, n)
         except (ValueError, ZeroDivisionError):
             continue  # unsupported family / degenerate — leave unsized
 
@@ -257,10 +262,14 @@ def _size_variant(pv: PricedVariant, loss_budget: float, linear_notional: float 
     cap = 10.0 * linear_notional
     if pv.net_premium_pct < 0:
         notional = cap
+        pv.capped = True
     elif pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
         notional = cap
+        pv.capped = True
     else:
-        notional = min(loss_budget / pv.max_loss_pct, cap)
+        wanted = loss_budget / pv.max_loss_pct
+        notional = min(wanted, cap)
+        pv.capped = wanted > cap
     _apply_notional(pv, notional)
 
 

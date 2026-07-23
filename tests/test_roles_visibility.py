@@ -18,11 +18,11 @@ def test_admin_sees_every_block():
 
 
 def test_tester_hidden_and_visible_blocks():
-    # Hidden for testers: the analytical internals.
-    for block in ("view_charts", "scores_table", "structure_evaluation"):
+    # Hidden for testers: the analytical internals + the feedback form (pending redesign).
+    for block in ("view_charts", "scores_table", "structure_evaluation", "feedback"):
         assert security.can_see(block, role="tester") is False
-    # Visible for testers: market state, the priced trades, chat, + rollout scaffolding.
-    for block in ("market_state", "recommended_variants", "trade_chat", "testing_brief", "feedback"):
+    # Visible for testers: market state, the priced trades, chat, testing brief.
+    for block in ("market_state", "recommended_variants", "trade_chat", "testing_brief"):
         assert security.can_see(block, role="tester") is True
 
 

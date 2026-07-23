@@ -21,6 +21,7 @@ import pandas as pd
 
 from interface.structure_eval import (
     LINEAR_NOTIONAL,
+    sizing_capital,
     DRIVER_BUCKETS,
     target_price,
     compute_structure_evaluation,
@@ -324,7 +325,7 @@ def _render_trade_analytics(flow, is_admin: bool, key_prefix: str, eval_result=N
     move_pct = abs(target / ms.fwd - 1.0)
     stop_pct = move_pct / flow.target_rr
     stop_price = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
-    loss_budget = LINEAR_NOTIONAL * stop_pct
+    loss_budget = sizing_capital() * stop_pct
 
     # Context-weighted scenario P&L per variant (base ccy), keyed by stable identity,
     # so the variants table can show it as a column.

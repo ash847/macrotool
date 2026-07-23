@@ -206,6 +206,7 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         primary_objective=session.primary_objective,
         trade_management=session.trade_management,
         target_rr=session.target_rr,
+        linear_notional=session.linear_notional,
     )
     session.store(view, pack)
     session.view, session.pack = view, pack

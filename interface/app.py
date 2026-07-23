@@ -39,6 +39,8 @@ from interface.llm_config import (
 )
 from interface.structure_eval import (
     LINEAR_NOTIONAL,
+    sizing_capital,
+    compute_structure_evaluation,
     fmt_ccy,
     fmt_ccy_label,
     variant_label_with_strikes,
@@ -47,6 +49,13 @@ from interface.structure_eval import (
     render_structure_evaluation,
 )
 from interface.kelly_sizing_ui import build_sizing_spec, meaning_banner
+from interface.prefs import (
+    DEFAULT_MERGED_PREF,
+    FIXED_PRIMARY_OBJECTIVE,
+    MERGED_PREF_OPTIONS,
+    merged_pref_fields,
+    merged_pref_label,
+)
 from interface.kelly_inline import render_kelly_elicitation
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
@@ -161,6 +170,8 @@ if "target_rr" not in st.session_state:
     st.session_state.target_rr = 3.0
 if "sizing_method" not in st.session_state:
     st.session_state.sizing_method = "fixed_loss"   # "fixed_loss" | "kelly"
+if "sizing_capital" not in st.session_state:
+    st.session_state.sizing_capital = 100_000_000.0   # master W (base ccy of the pair)
 if "kelly_lambda" not in st.session_state:
     st.session_state.kelly_lambda = 0.5
 if "kelly_conviction" not in st.session_state:
@@ -233,8 +244,9 @@ with st.sidebar:
         _init_kelly_state()
         _render_kelly_sidebar()
     else:
-        # Sizing controls (Fixed loss vs Kelly + R:R / edge distribution) live in the
-        # main Trade View panel now — see the "Sizing" section there.
+        # Master sizing control renders into this slot from the Trade View route
+        # (its helpers are defined later in the script; container fills out of order).
+        _sizing_sidebar_slot = st.container()
         st.divider()
 
         active_provider = get_llm_provider()
@@ -329,34 +341,135 @@ def _preview_market_numbers():
 
 
 def _render_sizing_section(ms_like, target, direction=None) -> None:
-    """The Fixed loss vs Kelly toggle + its inputs. Rendered below the trade form so a
-    toggle change updates the controls/distribution in place. ``ms_like`` may be a
-    preview (pre-submit, from the form) or the real MarketState; Kelly elicitation
-    only renders when ms_like + target are available."""
-    st.subheader("Sizing")
+    """Kelly edge-distribution elicitation, below the trade form. The sizing method,
+    capital W, and the R:R / λ dials live in the sidebar (master sizing control)."""
+    if st.session_state.get("sizing_method", "fixed_loss") != "kelly":
+        return
+    st.subheader("Kelly edge distribution")
     with st.container(border=True):
-        _size_label = st.radio(
-            "Size variants by", ["Fixed loss", "Kelly"],
-            index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
-            horizontal=True, key="sizing_method_label",
-        )
-        st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
-
-        if st.session_state.sizing_method == "fixed_loss":
-            st.session_state.target_rr = st.slider(
-                "Risk 1 to make", min_value=1.5, max_value=10.0,
-                value=st.session_state.target_rr, step=0.5, format="%.1f×",
-            )
+        if ms_like is not None:
+            render_kelly_elicitation(ms_like, target, direction)
         else:
-            st.session_state.kelly_lambda = st.slider(
-                "Fractional Kelly (λ)", min_value=0.1, max_value=1.0,
-                value=float(st.session_state.get("kelly_lambda", 0.5)), step=0.05,
-                help="Multiplier on the full-Kelly size. λ scales every variant equally — it does not change the ranking.",
+            st.info("Pick a pair and horizon above to elicit your Kelly edge distribution.")
+
+
+def _sizing_context():
+    """(move_pct, fwd, is_call, base_ccy) for the LIVE trade if one is loaded, else the
+    form preview, else (None, None, None, None). Drives the sidebar dollar equivalents."""
+    fl = st.session_state.flow
+    try:
+        _tgt = target_price(fl)
+        if fl.view and fl.market_state and _tgt is not None:
+            _fwd = fl.market_state.fwd
+            return (abs(_tgt - _fwd) / _fwd, _fwd,
+                    fl.view.direction == "base_higher", fl.view.pair[:3])
+    except Exception:
+        pass
+    try:
+        ms_like, _tgt = _preview_market_numbers()
+        if ms_like is not None and _tgt:
+            _fwd = ms_like.fwd
+            _pair = st.session_state.get("trade_form_pair") or ""
+            _is_call = _DIRECTION_OPTIONS.get(
+                st.session_state.get("trade_form_direction"), "base_higher"
+            ) == "base_higher"
+            return abs(_tgt - _fwd) / _fwd, _fwd, _is_call, (_pair[:3] or "USD")
+    except Exception:
+        pass
+    return None, None, None, None
+
+
+def _sb_ccy(ccy: str | None) -> str:
+    return ccy if ccy in ("USD", "EUR", "GBP") else "USD"
+
+
+def _sync_risk_from_rr() -> None:
+    """R:R slider moved → refresh the dollar-risk box to the canonical W × move ÷ R:R."""
+    _move, _, _, _ = _sizing_context()
+    _W = float(st.session_state.get("sizing_capital", LINEAR_NOTIONAL))
+    if _move:
+        st.session_state.risk_dollars = float(round(_W * _move / st.session_state.target_rr))
+
+
+def _sync_rr_from_risk() -> None:
+    """Dollar-risk box edited → back-solve R:R (snapped to the slider's 0.5 step),
+    then snap the box to the dollars that R:R actually implies."""
+    _move, _, _, _ = _sizing_context()
+    _W = float(st.session_state.get("sizing_capital", LINEAR_NOTIONAL))
+    _v = float(st.session_state.get("risk_dollars") or 0.0)
+    if _move and _W > 0 and _v > 0:
+        _rr = _move / (_v / _W)
+        st.session_state.target_rr = float(min(10.0, max(1.5, round(_rr * 2.0) / 2.0)))
+        st.session_state.risk_dollars = float(round(_W * _move / st.session_state.target_rr))
+
+
+def _render_sizing_sidebar() -> None:
+    """Master sizing control (sidebar): ONE currency dial — the capital W behind the
+    book — plus a unitless per-method intensity (R:R / λ) and a live equivalents
+    readout. The engine reads W via structure_eval.sizing_capital()."""
+    st.divider()
+    st.markdown("**Sizing**")
+    _move, _fwd, _is_call_sb, _ccy0 = _sizing_context()
+    _ccy = _sb_ccy(_ccy0)
+
+    st.number_input(
+        "Capital behind this book (W)",
+        min_value=1.0, step=1_000_000.0, format="%.0f", key="sizing_capital",
+        help="Set once — shared by every trade and both sizing methods (base ccy of the "
+             "pair). Fixed loss risks W × stop%; Kelly uses W as the bankroll (λ·x*·W). "
+             "Structure notionals are capped at 10·W.",
+    )
+    _W = float(st.session_state.sizing_capital)
+
+    _size_label = st.radio(
+        "Size variants by", ["Fixed loss", "Kelly"],
+        index=0 if st.session_state.get("sizing_method", "fixed_loss") == "fixed_loss" else 1,
+        horizontal=True, key="sizing_method_label",
+    )
+    st.session_state.sizing_method = "kelly" if _size_label == "Kelly" else "fixed_loss"
+
+    if st.session_state.sizing_method == "fixed_loss":
+        st.slider(
+            "Risk 1 to make", min_value=1.5, max_value=10.0, step=0.5, format="%.1f×",
+            key="target_rr", on_change=_sync_risk_from_rr,
+            help="Required reward-to-risk. Stop = move ÷ R:R on a linear-equivalent W. "
+                 "Unitless — the dollars come from W.",
+        )
+        if _move:
+            if "risk_dollars" not in st.session_state:
+                st.session_state.risk_dollars = float(round(_W * _move / st.session_state.target_rr))
+            st.number_input(
+                "… or type risk ($)", min_value=0.0, step=10_000.0, format="%.0f",
+                key="risk_dollars", on_change=_sync_rr_from_risk,
+                help="Typing dollars back-solves the R:R dial (risk = W × move ÷ R:R).",
             )
-            if ms_like is not None:
-                render_kelly_elicitation(ms_like, target, direction)
-            else:
-                st.info("Pick a pair and horizon above to elicit your Kelly edge distribution.")
+            _stop_pct_sb = _move / st.session_state.target_rr
+            _loss_sb = _W * _stop_pct_sb
+            _stop_px_sb = (_fwd * (1 - _stop_pct_sb) if _is_call_sb
+                           else _fwd * (1 + _stop_pct_sb))
+            with st.container(border=True):
+                st.caption("What this sizing means")
+                st.markdown(f"Risk this trade: **{fmt_ccy(_loss_sb, _ccy)}** "
+                            f"({_stop_pct_sb:.2%} of W)")
+                st.markdown(f"Implied stop: **{_stop_pct_sb:.1%}** · {_stop_px_sb:.4f}")
+                st.caption("Every variant is sized so its max loss equals this one figure "
+                           "(notional capped at 10·W — capped rows are flagged in the table).")
+        else:
+            st.caption("Enter a pair and target to see dollar equivalents.")
+    else:
+        st.slider(
+            "Fractional Kelly (λ)", min_value=0.1, max_value=1.0, step=0.05,
+            key="kelly_lambda",
+            help="Multiplier on the full-Kelly size. λ scales every variant equally — "
+                 "it does not change the ranking.",
+        )
+        with st.container(border=True):
+            st.caption("What this sizing means")
+            st.markdown(f"Bankroll W: **{fmt_ccy(_W, _ccy)}** · "
+                        f"λ = {float(st.session_state.kelly_lambda):.2f}")
+            st.caption("Each variant is sized to its own λ·x*·W from your edge "
+                       "distribution (elicited below the trade form); per-variant worst "
+                       "loss and % of W are in the variants table. Notional cap 10·W.")
 
 
 def _submit_structured_view(pair: str, direction: str, horizon_days: int, target: float) -> str | None:
@@ -860,6 +973,7 @@ def _render_agent() -> None:
             primary_objective=st.session_state.pref_primary_objective,
             trade_management=st.session_state.pref_trade_management,
             target_rr=st.session_state.target_rr,
+            linear_notional=sizing_capital(),
         )
         st.session_state.agent_flow = AgentFlow(llm, session)
         st.session_state.agent_chat = []
@@ -914,6 +1028,7 @@ def _trade_chat_signature(flow) -> tuple:
         st.session_state.pref_primary_objective,
         st.session_state.pref_trade_management,
         round(flow.target_rr, 3),
+        round(sizing_capital(), 2),
     )
 
 
@@ -952,6 +1067,7 @@ def _render_trade_chat(flow) -> None:
                 trade_management=st.session_state.pref_trade_management,
                 target_rr=flow.target_rr,
                 user_email=USER_EMAIL,
+                linear_notional=sizing_capital(),
             )
             session = AgentSession(
                 snapshot=flow._snapshot,
@@ -960,6 +1076,7 @@ def _render_trade_chat(flow) -> None:
                 primary_objective=st.session_state.pref_primary_objective,
                 trade_management=st.session_state.pref_trade_management,
                 target_rr=flow.target_rr,
+                linear_notional=sizing_capital(),
             )
             seed_session_from_pack(session, view, pack)
             llm = AnthropicToolLLM(
@@ -1033,6 +1150,9 @@ elif st.session_state.page == "Kelly Sizing":
 else:
     # ---- Trade View pages ("Admin test" and "Trade view") ----
     # ROLE governs which blocks are visible: "admin" for "Admin test", "tester" for "Trade view".
+
+    with _sizing_sidebar_slot:
+        _render_sizing_sidebar()
 
     _brief_path = Path(__file__).parent / "testing_brief.json"
     try:
@@ -1152,7 +1272,7 @@ else:
                 "kelly_n_bins": st.session_state.get("kelly_n_bins", 41),
                 "kelly_probs": st.session_state.get("kelly_probs"),
                 "kelly_bins": st.session_state.get("kelly_bins"),
-                "bankroll": LINEAR_NOTIONAL,
+                "bankroll": sizing_capital(),
             },
             ms=ms,
             target=_target,
@@ -1164,12 +1284,12 @@ else:
             _move_pct = abs(_target - ms.fwd) / ms.fwd
             _stop_pct = _move_pct / flow.target_rr
             _stop_price = ms.fwd * (1 - _stop_pct) if _is_call else ms.fwd * (1 + _stop_pct)
-            _loss_budget = LINEAR_NOTIONAL * _stop_pct
+            _loss_budget = sizing_capital() * _stop_pct
             if _show_market_state:
                 if _kelly_mode:
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
-                    c2.metric("Bankroll (W)", fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top),
+                    c2.metric("Bankroll (W)", fmt_ccy(sizing_capital(), _base_ccy_top),
                               help="Nominal bankroll; Kelly notionals are λ·f*·W, comparable across variants.")
                     c3.metric("Fractional Kelly (λ)", f"{flow.sizing_spec.kelly_lambda:.2f}",
                               help="Scales every variant equally — does not change the ranking.")
@@ -1181,7 +1301,7 @@ else:
                     c4.metric(
                         "Loss budget",
                         fmt_ccy(_loss_budget, _base_ccy_top),
-                        help=f"Linear notional {fmt_ccy(LINEAR_NOTIONAL, _base_ccy_top)} × stop %. "
+                        help=f"Capital W {fmt_ccy(sizing_capital(), _base_ccy_top)} × stop %. "
                              "Each structure variant is sized so its max loss equals this.",
                     )
 
@@ -1247,13 +1367,21 @@ else:
             styled = display_df.style.map(_color, subset=_score_cols)
             st.dataframe(styled, use_container_width=True)
 
+        _evals = None
+        if can_see("structure_evaluation", ROLE) and _target is not None:
+            try:
+                _evals = compute_structure_evaluation(flow, _target)
+            except Exception as _e:
+                log_error("compute_structure_evaluation", _e)
+
         if can_see("recommended_variants", ROLE):
             if ROLE == "tester":
                 from interface.tester_view import render_tester_recommendations
                 render_tester_recommendations(flow, _is_call, _target)
             else:
                 st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
-                render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget)
+                render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget,
+                                          eval_result=_evals)
 
     # Feedback form (only after a view is active)
     if flow.view and can_see("feedback", ROLE):
@@ -1297,7 +1425,8 @@ else:
         and flow.selector_result.shortlist
         and target_price(flow) is not None
     ):
-        render_structure_evaluation(flow, IS_ADMIN, target_price(flow))
+        render_structure_evaluation(flow, IS_ADMIN, target_price(flow),
+                                    eval_result=globals().get("_evals"))
 
     # In-context chat with the agent, pre-loaded with the current trade (task 1).
     if (
@@ -1359,25 +1488,20 @@ else:
         st.markdown("**Trade preferences**")
         st.caption("These preferences are applied in the deterministic engine path. The conversational LLM path remains silent on this screen for now.")
 
-        p1, p2, p3 = st.columns(3)
-        with p1:
-            form_primary_objective = st.selectbox(
-                "Primary objective",
-                _PRIMARY_OBJECTIVE_OPTIONS,
-                index=_PRIMARY_OBJECTIVE_OPTIONS.index(st.session_state.pref_primary_objective),
-            )
-        with p2:
-            form_structure_constraint = st.selectbox(
-                "Structure constraint",
-                _STRUCTURE_CONSTRAINT_OPTIONS,
-                index=_STRUCTURE_CONSTRAINT_OPTIONS.index(st.session_state.pref_structure_constraint),
-            )
-        with p3:
-            form_trade_management = st.selectbox(
-                "Trade management style",
-                _TRADE_MANAGEMENT_OPTIONS,
-                index=_TRADE_MANAGEMENT_OPTIONS.index(st.session_state.pref_trade_management),
-            )
+        # One merged preference — structure constraint and management style are
+        # intrinsically linked; interface/prefs.py maps the choice to both engine
+        # fields (primary_objective is fixed to "Balanced").
+        _merged_labels = list(MERGED_PREF_OPTIONS.keys())
+        _merged_current = merged_pref_label(
+            st.session_state.pref_structure_constraint,
+            st.session_state.pref_trade_management,
+        )
+        form_pref_merged = st.selectbox(
+            "Structure & management style",
+            _merged_labels,
+            index=_merged_labels.index(_merged_current),
+            help="Maps to the engine's structure-constraint and trade-management fields.",
+        )
 
         # Sizing controls + Kelly distribution, live below the inputs.
         _prev_ms, _prev_tgt = _preview_market_numbers()
@@ -1389,9 +1513,10 @@ else:
         if submitted:
             flow.target_rr = st.session_state.target_rr
             st.session_state.clarification = ""
-            st.session_state.pref_primary_objective = form_primary_objective
-            st.session_state.pref_structure_constraint = form_structure_constraint
-            st.session_state.pref_trade_management = form_trade_management
+            _sc, _tm = merged_pref_fields(form_pref_merged)
+            st.session_state.pref_primary_objective = FIXED_PRIMARY_OBJECTIVE
+            st.session_state.pref_structure_constraint = _sc
+            st.session_state.pref_trade_management = _tm
             with st.spinner("Running trade view..."):
                 clarification = _submit_structured_view(
                     pair=form_pair,

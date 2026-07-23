@@ -106,7 +106,7 @@ _COMPARATOR_LINEAR_NOTIONAL = 100.0
 def _recommend_ranked(
     ms: MarketState, selector_result, target, is_call, surface,
     primary_objective, trade_management, structure_constraint, target_rr,
-    user_email=None,
+    user_email=None, linear_notional: float = _COMPARATOR_LINEAR_NOTIONAL,
 ) -> list[RecommendedStructure]:
     """Per shortlisted family, pick the variant the scoring ranks best.
 
@@ -126,13 +126,13 @@ def _recommend_ranked(
     # Loss budget computed on the fly, identical to the Trade View screen:
     # LINEAR_NOTIONAL × stop% (stop% = move/R:R). Each variant is sized so its max
     # loss equals this; the displayed notionals are on this standard 100-unit basis.
-    loss_budget = _COMPARATOR_LINEAR_NOTIONAL * stop_pct
+    loss_budget = linear_notional * stop_pct
 
     inputs = build_comparator_inputs(
         ms, selector_result,
         target=target, is_call=is_call,
         stop_price=stop_price, loss_budget=loss_budget,
-        linear_notional=_COMPARATOR_LINEAR_NOTIONAL,
+        linear_notional=linear_notional,
         preferences=PMPreferences(
             primary_objective=primary_objective,
             trade_management=trade_management,
@@ -227,6 +227,7 @@ def build_pack(
     trade_management: str = "Standard hold",
     target_rr: float = 3.0,
     user_email: str | None = None,
+    linear_notional: float = _COMPARATOR_LINEAR_NOTIONAL,
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -302,7 +303,7 @@ def build_pack(
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = _recommend_ranked(
                 market_state, selector_result, target, is_call, surface,
                 primary_objective, trade_management, structure_constraint, target_rr,
-                user_email=user_email,
+                user_email=user_email, linear_notional=linear_notional,
             )
         except Exception:
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = [], None, None, None, None

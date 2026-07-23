@@ -20,7 +20,19 @@ from conversation.flow import ConversationFlow, target_from_reference
 # Shared constants and formatting helpers
 # ---------------------------------------------------------------------------
 
-LINEAR_NOTIONAL = 100.0  # base ccy units; equivalent linear-trade notional
+LINEAR_NOTIONAL = 100.0  # base ccy units; nominal engine default (tests/scripts)
+
+
+def sizing_capital() -> float:
+    """The PM-set master sizing capital W (sidebar 'Capital behind this book').
+    All UI surfaces (Trade View, Batch, agent chat) size off this one number:
+    fixed-loss uses it as the linear-equivalent notional (loss = W × stop%),
+    Kelly as the bankroll (N = λ·x*·W), and the notional cap is 10·W. Falls back
+    to the nominal LINEAR_NOTIONAL outside a Streamlit session."""
+    try:
+        return float(st.session_state.get("sizing_capital", LINEAR_NOTIONAL))
+    except Exception:
+        return LINEAR_NOTIONAL
 
 _CCY_SYM = {"USD": "$", "EUR": "€", "GBP": "£"}
 
@@ -268,16 +280,22 @@ def render_structure_variants(
     loss_budget: float | None,
     key_prefix: str = "",
     scenario_pnl: dict | None = None,
+    eval_result: "EvalResult | None" = None,
 ) -> None:
     """``scenario_pnl`` (optional): {(structure_id, variant_label): score_ccy} — the
     context-weighted scenario P&L in base ccy per variant. When supplied (Batch), a
-    'Scenario P&L' column is added to each variant table; Trade View omits it."""
+    'Scenario P&L' column is added to each variant table; Trade View omits it.
+
+    ``eval_result`` (optional): a precomputed EvalResult. When supplied, each
+    structure's expander also shows the top-3 / bottom-3 scenario-cell P&L drivers
+    for its best-ranked variant."""
     from analytics.structure_pricer import price_variants as _price_variants
 
     ms = flow.market_state
     _base_ccy = flow.view.pair[:3]
     _primary_items = flow.selector_result.shortlist
     _smile = _build_smile(flow)
+    _W = sizing_capital()
 
     # Single pricing pass: collect priced variants and any structures whose
     # digital legs hit a smile arbitrage (dropped rather than mis-marked).
@@ -288,7 +306,7 @@ def render_structure_variants(
         try:
             _pvs = _price_variants(
                 ms, _item.structure_id, target=target, is_call=is_call,
-                stop_price=stop_price, loss_budget=loss_budget, linear_notional=LINEAR_NOTIONAL,
+                stop_price=stop_price, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=_smile, warnings=_warns,
             )
@@ -308,8 +326,11 @@ def render_structure_variants(
         ("Indicative pricing — interpolated smile vol per strike. " if _smile is not None
          else "Indicative pricing — flat ATM vol for all strikes. ")
         + "Premium and payoff as % of spot. "
-        "**Payout/$1**: gross payoff at target per $1 of max loss (zero-cost seagull: "
-        "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
+        "**R/R**: gross payoff at target per unit of max loss (zero-cost seagull: "
+        "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
+        "**% of W**: the variant's max loss as a share of the sizing capital. "
+        "**(cap)**: the 10·W notional cap bound before the loss budget was reached — "
+        "the shown max loss is the achieved one, below budget."
     )
 
     if _unpriced:
@@ -341,15 +362,23 @@ def render_structure_variants(
                     f"{_payoff:.0%}  ({fmt_ccy(pv.payoff_at_target_ccy, _base_ccy)})"
                     if _payoff is not None else "—"
                 )
+                _notional_cell = fmt_ccy(pv.structure_notional, _base_ccy)
+                if getattr(pv, "capped", False):
+                    _notional_cell += "  (cap)"
+                _pct_of_w = (
+                    f"{pv.max_loss_ccy / _W:.2%}"
+                    if pv.max_loss_ccy is not None and _W > 0 else "—"
+                )
                 r = {
                     "Variant":    variant_display_label(_item.structure_id, pv),
                     "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
-                    "Notional":   fmt_ccy(pv.structure_notional, _base_ccy),
+                    "Notional":   _notional_cell,
                     "Premium":    _prem_cell,
                     "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
                     "Payout at target": _payoff_cell,
                     "Max loss":   f"{pv.max_loss_pct:.1%}  ({fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
-                    "Payout/$1":  _payout_per_1,
+                    "R/R":        _payout_per_1,
+                    "% of W":     _pct_of_w,
                 }
                 if scenario_pnl is not None:
                     _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
@@ -364,6 +393,58 @@ def render_structure_variants(
                 key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
                 height=_fit_height(key_prefix, len(_rows)),
             )
+            if eval_result is not None:
+                _render_cell_drivers(eval_result, _item.structure_id, _base_ccy)
+
+
+# User-facing names for the scenario-grid columns (drivers display).
+_CELL_COL_LABELS = {
+    "S": "No move",
+    "t%→K": "Early touch & retrace",
+    "K−½σ": "Falls just short",
+    "K": "Target hit",
+    "K+½σ": "Overshoot",
+    "−½σ": "Mild adverse",
+    "−1σ": "Full reversal",
+    "Δvol": "Vol shock (adverse)",
+}
+
+
+def _cell_label(cell) -> str:
+    return f"{_CELL_COL_LABELS.get(cell.col, cell.col)} · {cell.row}"
+
+
+def _render_cell_drivers(eval_result, structure_id: str, base_ccy: str) -> None:
+    """Top-3 / bottom-3 scenario-cell P&L drivers for the structure's best-ranked
+    variant. Contributions are the weighted P&L contribution of each grid cell,
+    in % of notional (and base ccy $), summing to the variant's weighted P&L."""
+    ev = next((v for v in eval_result.variants if v.structure_id == structure_id), None)
+    if ev is None or not getattr(ev.score, "cells", None):
+        return
+    cells = [c for c in ev.score.cells if c.normalized_weight > 0]
+    pos = sorted((c for c in cells if c.contrib_pct > 0), key=lambda c: -c.contrib_pct)[:3]
+    neg = sorted((c for c in cells if c.contrib_pct < 0), key=lambda c: c.contrib_pct)[:3]
+    if not pos and not neg:
+        return
+
+    def _line(c) -> str:
+        amt = f" ({fmt_ccy(c.contrib_ccy, base_ccy)})" if c.contrib_ccy is not None else ""
+        return f"`{c.contrib_pct:+.2%}`{amt} — {_cell_label(c)}"
+
+    st.markdown(f"**Key P&L drivers** — {ev.variant_label} (weighted contribution)")
+    col_pos, col_neg = st.columns(2)
+    with col_pos:
+        st.caption("Top contributors")
+        for c in pos:
+            st.markdown(f"🟢 {_line(c)}")
+        if not pos:
+            st.caption("none positive")
+    with col_neg:
+        st.caption("Top detractors")
+        for c in neg:
+            st.markdown(f"🔴 {_line(c)}")
+        if not neg:
+            st.caption("none negative")
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +537,8 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
     move = abs(target - ms.fwd) / ms.fwd
     stop_pct = move / flow.target_rr
     stop = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
-    loss_budget = LINEAR_NOTIONAL * stop_pct
+    _W = sizing_capital()
+    loss_budget = _W * stop_pct
 
     weighter = _compute_w(
         ms,
@@ -494,7 +576,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
             pvs = _pv_fn(
                 ms, item.structure_id,
                 target=target, is_call=is_call,
-                stop_price=stop, loss_budget=loss_budget, linear_notional=LINEAR_NOTIONAL,
+                stop_price=stop, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=smile,
             )
@@ -521,10 +603,10 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
         variant_label="Delta 1 (max-loss capped)",
         strikes=[], barrier=None, net_premium_pct=0.0, breakeven=None,
         payoff_at_target_pct=None, rr_at_target=None, max_loss_pct=stop_pct,
-        wing_ratio=None, is_zero_cost=True, structure_notional=LINEAR_NOTIONAL,
+        wing_ratio=None, is_zero_cost=True, structure_notional=_W,
         net_premium_ccy=0.0, payoff_at_target_ccy=None, max_loss_ccy=loss_budget,
     )
-    linear_rows = _price_linear_sc(scenarios, inputs, is_call, LINEAR_NOTIONAL, loss_budget)
+    linear_rows = _price_linear_sc(scenarios, inputs, is_call, _W, loss_budget)
     structs.append({
         "item": linear_item,
         "variants": [{

@@ -25,6 +25,7 @@ class AgentSession:
     primary_objective: str = "Balanced"
     trade_management: str = "Standard hold"
     target_rr: float = 3.0          # R:R slider — drives the loss budget on the fly
+    linear_notional: float = 100.0  # master sizing capital W; the UI passes the sidebar value
 
     view: TradeView | None = None
     pack: StandardPack | None = None
@@ -45,6 +46,7 @@ class AgentSession:
             self.primary_objective,
             self.trade_management,
             self.target_rr,
+            self.linear_notional,
         )
 
     def get_cached(self, view: TradeView) -> StandardPack | None:
