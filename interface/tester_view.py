@@ -67,7 +67,7 @@ def _build_prompt(ev, ms, flow) -> str:
     for i, ve in enumerate(top5, 1):
         pv = ve.pv
         strikes_str = " / ".join(f"{k:.4f}" for k in pv.strikes) if pv.strikes else "—"
-        notional_str = f"{base_ccy} {pv.structure_notional:.1f}" if pv.structure_notional else "—"
+        notional_str = f"{base_ccy} {pv.structure_notional:,.0f}" if pv.structure_notional else "—"
         prem_str = f"{pv.net_premium_pct:+.2%}"
         struct_lines.append(
             f"{i}. {ve.struct_label} ({ve.variant_label}) | "

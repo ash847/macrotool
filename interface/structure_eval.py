@@ -44,7 +44,7 @@ def fmt_ccy(amount: float | None, ccy: str) -> str:
     if ccy not in _CCY_SYM:
         raise ValueError(f"No currency symbol mapping for base ccy {ccy!r}")
     sign = "-" if amount < 0 else ""
-    return f"{sign}{ccy} {abs(amount):,.2f}"
+    return f"{sign}{ccy} {abs(amount):,.0f}"
 
 
 def fmt_ccy_label(amount: float | None, ccy: str) -> str:

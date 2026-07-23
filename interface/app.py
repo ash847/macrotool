@@ -1206,9 +1206,11 @@ else:
     except Exception:
         pass
 
-    # Master sizing control — in the main flow, right below the brief, so setting the
-    # capital is an explicit step of the workflow. A revised W sticks for the session.
-    _render_sizing_panel()
+    # Master sizing control. Pre-trade it renders BELOW the entry form (it consumes the
+    # form's target / elicited distribution); once a trade is live the form is gone, so
+    # it renders here at the top for post-run resizing. A revised W sticks for the session.
+    if flow.view:
+        _render_sizing_panel()
 
     if flow.view and "last_prompt" in st.session_state and st.session_state.last_prompt:
         st.info(f"**View:** {st.session_state.last_prompt}")
@@ -1541,7 +1543,11 @@ else:
             help="Maps to the engine's structure-constraint and trade-management fields.",
         )
 
-        # Sizing controls + Kelly distribution, live below the inputs.
+        # Master sizing control below the trade inputs — it consumes the form's
+        # target (dollar equivalents) and, in Kelly mode, the elicited distribution.
+        _render_sizing_panel()
+
+        # Kelly distribution elicitation, live below the sizing block.
         _prev_ms, _prev_tgt = _preview_market_numbers()
         _prev_dir = _DIRECTION_OPTIONS.get(st.session_state.get("trade_form_direction"), "base_higher")
         _render_sizing_section(_prev_ms, _prev_tgt, _prev_dir)
