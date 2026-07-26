@@ -56,7 +56,11 @@ _WRONG_WAY_FLOOR = -0.01  # avg P&L (spot fraction) above which wrong-way bleed 
 _CAPPED = {"1x1_spread", "1x1.5_spread", "1x2_spread", "seagull"}
 _RATIO = {"1x1.5_spread", "1x2_spread"}
 _BINARY = {"european_digital", "european_digital_rko"}
-_BARRIER = {"rko", "european_rko", "european_digital_rko"}
+# Path-dependent barriers only. european_rko is EXPIRY-ONLY (the knock-out is tested at
+# expiry, not on the path — see pricing/european_rko.py) so it must NOT carry
+# barrier_path_risk; its profile flag is path_dependent=False. Only genuinely
+# path-terminating barriers (rko, european_digital_rko — both enabled=false) belong here.
+_BARRIER = {"rko", "european_digital_rko"}
 
 
 def attributes(
