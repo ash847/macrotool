@@ -211,14 +211,14 @@ with st.sidebar:
     st.divider()
 
     # Admins get "Admin test" (full surface) + "Trade view" (tester surface) side by side.
-    # Testers only see "Trade view" + "Kelly Sizing".
+    # Testers see "Trade view" + "Agent".
     if IS_ADMIN:
         nav_labels = (
             "Admin test", "Trade view", "Agent", "Kelly Sizing",
             "Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log",
         )
     else:
-        nav_labels = ("Trade view", "Kelly Sizing")
+        nav_labels = ("Trade view", "Agent")
     for label in nav_labels:
         active = st.session_state.page == label
         if st.button(
@@ -337,6 +337,14 @@ def _preview_market_numbers():
         return ms_like, float(target)
     except Exception:
         return None, None
+
+
+def _ms_cell(col, label: str, value: str, tip: str | None = None) -> None:
+    """Compact market-state stat: small label + body-scale value. st.metric renders an
+    oversized number that reads as garish next to the rest of the page, so the market
+    state uses this instead."""
+    col.caption(label, help=tip)
+    col.markdown(f"**{value}**")
 
 
 def _render_sizing_section(ms_like, target, direction=None) -> None:
@@ -1151,7 +1159,7 @@ def _render_trade_chat(flow) -> None:
 # Page routing
 # ---------------------------------------------------------------------------
 
-if not IS_ADMIN and st.session_state.page not in ("Trade view", "Kelly Sizing"):
+if not IS_ADMIN and st.session_state.page not in ("Trade view", "Agent"):
     st.session_state.page = "Trade view"
     st.rerun()
 
@@ -1261,43 +1269,37 @@ else:
             st.subheader("Market state")
 
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Spot", f"{ms.spot:.4f}")
-            c2.metric("Forward", f"{ms.fwd:.4f}")
-            c3.metric("ATM Vol", f"{ms.vol:.1%}")
-            c4.metric("Horizon", f"{h}d")
+            _ms_cell(c1, "Spot", f"{ms.spot:.4f}")
+            _ms_cell(c2, "Forward", f"{ms.fwd:.4f}")
+            _ms_cell(c3, "ATM Vol", f"{ms.vol:.1%}")
+            _ms_cell(c4, "Horizon", f"{h}d")
 
             c1, c2, c3, c4, c5 = st.columns(5)
             regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
-            c1.metric("Carry c", f"{ms.c:+.3f}")
-            c2.metric("Carry regime", regime_label[ms.carry_regime])
-            if ms.target_z_spot is not None:
-                c3.metric("Target z (vs spot)", f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})")
-            else:
-                c3.metric("Target z (vs spot)", "—")
-            if ms.target_z is not None:
-                c4.metric("Target z (vs fwd)", f"{ms.target_z:+.2f}σ  ({ms.put_call})")
-            else:
-                c4.metric("Target z (vs fwd)", "—")
-            if ms.atmfsratio is not None:
-                c5.metric("ATM fwd ratio", f"{ms.atmfsratio:.2f}x")
-            else:
-                c5.metric("ATM fwd ratio", "—")
+            _ms_cell(c1, "Carry c", f"{ms.c:+.3f}")
+            _ms_cell(c2, "Carry regime", regime_label[ms.carry_regime])
+            _ms_cell(c3, "Target z (vs spot)",
+                     f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})" if ms.target_z_spot is not None else "—")
+            _ms_cell(c4, "Target z (vs fwd)",
+                     f"{ms.target_z:+.2f}σ  ({ms.put_call})" if ms.target_z is not None else "—")
+            _ms_cell(c5, "ATM fwd ratio",
+                     f"{ms.atmfsratio:.2f}x" if ms.atmfsratio is not None else "—")
 
             _pair = flow.view.pair
             _base, _quote = _pair[:3], _pair[3:]
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric(f"r {_base}", f"{ms.r_f:.2%}")
-            c2.metric(f"r {_quote} (implied)", f"{ms.r_d:.2%}")
+            _ms_cell(c1, f"r {_base}", f"{ms.r_f:.2%}")
+            _ms_cell(c2, f"r {_quote} (implied)", f"{ms.r_d:.2%}")
             try:
                 v25dc = interpolate_vol(flow.ccy, h, "25DC")
                 v25dp = interpolate_vol(flow.ccy, h, "25DP")
                 rr  = v25dc - v25dp
                 fly = 0.5 * (v25dc + v25dp) - ms.vol
-                c3.metric("25d RR", f"{rr:+.2%}", help=f"25DC {v25dc:.2%} / ATM {ms.vol:.2%} / 25DP {v25dp:.2%}")
-                c4.metric("25d Fly", f"{fly:+.2%}", help=f"0.5×(25DC+25DP) − ATM  |  synthetic data")
+                _ms_cell(c3, "25d RR", f"{rr:+.2%}", tip=f"25DC {v25dc:.2%} / ATM {ms.vol:.2%} / 25DP {v25dp:.2%}")
+                _ms_cell(c4, "25d Fly", f"{fly:+.2%}", tip="0.5×(25DC+25DP) − ATM  |  synthetic data")
             except Exception:
-                c3.metric("25d RR", "—")
-                c4.metric("25d Fly", "—")
+                _ms_cell(c3, "25d RR", "—")
+                _ms_cell(c4, "25d Fly", "—")
 
         _move_pct = _stop_pct = _stop_price = _loss_budget = None
         _base_ccy_top = flow.view.pair[:3]
@@ -1328,22 +1330,20 @@ else:
             if _show_market_state:
                 if _kelly_mode:
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
-                    c2.metric("Bankroll (W)", fmt_ccy(sizing_capital(), _base_ccy_top),
-                              help="Nominal bankroll; Kelly notionals are λ·f*·W, comparable across variants.")
-                    c3.metric("Fractional Kelly (λ)", f"{flow.sizing_spec.kelly_lambda:.2f}",
-                              help="Scales every variant equally — does not change the ranking.")
+                    _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
+                    _ms_cell(c2, "Bankroll (W)", fmt_ccy(sizing_capital(), _base_ccy_top),
+                             tip="Nominal bankroll; Kelly notionals are λ·f*·W, comparable across variants.")
+                    _ms_cell(c3, "Fractional Kelly (λ)", f"{flow.sizing_spec.kelly_lambda:.2f}",
+                             tip="Scales every variant equally — does not change the ranking.")
                 else:
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Move to target", f"{_move_pct:+.1%}", help="(target − fwd) / fwd")
-                    c2.metric(f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}", help="move_to_target / R:R — acceptable reversal from fwd before stopping out")
-                    c3.metric("Stop price", f"{_stop_price:.4f}", help="fwd level implying the stop loss")
-                    c4.metric(
-                        "Loss budget",
-                        fmt_ccy(_loss_budget, _base_ccy_top),
-                        help=f"Capital W {fmt_ccy(sizing_capital(), _base_ccy_top)} × stop %. "
-                             "Each structure variant is sized so its max loss equals this.",
-                    )
+                    _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
+                    _ms_cell(c2, f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}",
+                             tip="move_to_target / R:R — acceptable reversal from fwd before stopping out")
+                    _ms_cell(c3, "Stop price", f"{_stop_price:.4f}", tip="fwd level implying the stop loss")
+                    _ms_cell(c4, "Loss budget", fmt_ccy(_loss_budget, _base_ccy_top),
+                             tip=f"Capital W {fmt_ccy(sizing_capital(), _base_ccy_top)} × stop %. "
+                                 "Each structure variant is sized so its max loss equals this.")
 
         if can_see("scores_table", ROLE):
             st.subheader("Structure scores")
