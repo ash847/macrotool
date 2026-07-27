@@ -93,41 +93,11 @@ def _build_prompt(ev, ms, flow) -> str:
     return "\n".join(parts)
 
 
-def render_tester_recommendations(flow, is_call: bool, target: float | None) -> None:
-    """Render the compact top-5 table + streamed regime commentary."""
-    if target is None:
-        return
-
-    ev = compute_structure_evaluation(flow, target)
-    if ev is None or not ev.variants:
-        return
-
-    ms = ev.ms
-    base_ccy = ev.base_ccy
-    top5 = ev.variants[:5]
-
-    # --- Top 5 table ---
-    rows = []
-    for i, ve in enumerate(top5, 1):
-        pv = ve.pv
-        rows.append({
-            "#": i,
-            "Structure": ve.struct_label,
-            "Variant": ve.variant_label,
-            "Strikes": " / ".join(f"{k:.4f}" for k in pv.strikes) if pv.strikes else "—",
-            "Notional": fmt_ccy(pv.structure_notional, base_ccy),
-            "Premium": f"{pv.net_premium_pct:+.2%}",
-        })
-    df = pd.DataFrame(rows).set_index("#")
-    st.subheader("Top structures")
-    st.dataframe(df, use_container_width=True)
-
-    # --- Streamed LLM commentary ---
+def _render_regime_summary(ev, ms, flow, target: float) -> None:
+    """The regime text summary (streamed LLM commentary, cached per trade)."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         return
-
-    # Cache per trade so reruns don't hit the API again.
     cache_key = (
         f"tester_comm_{flow.view.pair}_{flow.view.horizon_days}"
         f"_{flow.view.direction}_{target:.4f}"
@@ -136,7 +106,6 @@ def render_tester_recommendations(flow, is_call: bool, target: float | None) -> 
     if cached:
         st.markdown(cached)
         return
-
     prompt = _build_prompt(ev, ms, flow)
     chunks: list[str] = []
     container = st.empty()
@@ -146,3 +115,61 @@ def render_tester_recommendations(flow, is_call: bool, target: float | None) -> 
             container.markdown("".join(chunks))
     if chunks:
         st.session_state[cache_key] = "".join(chunks)
+
+
+def _render_shortlist(ms, flow) -> None:
+    """Top-3 shortlisted structures by affinity score, as names + score expressed as a
+    % of the maximum possible affinity score. No strikes — this is the family-level fit
+    ranking (distinct from the priced 'Top structures' table below)."""
+    from knowledge_engine.structure_scorer import get_scoring_detail, max_possible_score
+
+    detail = get_scoring_detail(
+        ms, structure_constraint=getattr(flow, "structure_constraint", "No restriction")
+    )
+    primaries = [r for r in detail if not r["overlay_only"] and r["eligible"]][:3]
+    if not primaries:
+        return
+    ceiling = max_possible_score() or 1.0
+
+    st.subheader("Shortlisted structures")
+    st.caption("Ranked by structure-fit score (affinity), shown as a % of the maximum "
+               "possible score. Family-level — strikes are in the table below.")
+    rows = []
+    for i, r in enumerate(primaries, 1):
+        pct = max(0.0, min(100.0, 100.0 * (r["total_score"] or 0.0) / ceiling))
+        rows.append({"#": i, "Structure": r["display_name"], "Fit score": f"{pct:.0f}%"})
+    st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True)
+
+
+def _render_priced_table(ev) -> None:
+    """The priced 'Top structures' table (with strikes), scenario-weighted P&L order."""
+    base_ccy = ev.base_ccy
+    rows = []
+    for i, ve in enumerate(ev.variants[:5], 1):
+        pv = ve.pv
+        rows.append({
+            "#": i,
+            "Structure": ve.struct_label,
+            "Variant": ve.variant_label,
+            "Strikes": " / ".join(f"{k:.4f}" for k in pv.strikes) if pv.strikes else "—",
+            "Notional": fmt_ccy(pv.structure_notional, base_ccy),
+            "Premium": f"{pv.net_premium_pct:+.2%}",
+        })
+    st.subheader("Top structures")
+    st.caption("Priced variants with strikes, ordered by scenario-weighted P&L.")
+    st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True)
+
+
+def render_tester_recommendations(flow, is_call: bool, target: float | None) -> None:
+    """Tester Trade View output, in workflow order: regime text summary → affinity
+    shortlist (names + % of max score) → priced table with strikes. Market state is
+    rendered above this by the app."""
+    if target is None:
+        return
+    ev = compute_structure_evaluation(flow, target)
+    if ev is None or not ev.variants:
+        return
+
+    _render_regime_summary(ev, ev.ms, flow, target)
+    _render_shortlist(ev.ms, flow)
+    _render_priced_table(ev)

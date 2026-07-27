@@ -161,6 +161,25 @@ def get_scoring_detail(
     return rows
 
 
+def max_possible_score() -> float:
+    """The theoretical affinity-score ceiling: for each scored dimension, the highest
+    bucket value that appears anywhere in the config, summed. A structure that landed
+    in its best bucket on every dimension would score this. Used to express a
+    structure's total as a % of the maximum possible (a fixed, ranking-preserving
+    normaliser). The penalty-only ``structure_constraint`` dimension contributes 0."""
+    scores_cfg = load_affinity_scores()
+    struct_scores = scores_cfg["structures"]
+    ceiling = 0.0
+    for dim in _SCORED_DIMS:
+        dim_max = 0.0
+        for cfg in struct_scores.values():
+            for v in (cfg.get(dim) or {}).values():
+                if isinstance(v, (int, float)):
+                    dim_max = max(dim_max, float(v))
+        ceiling += dim_max
+    return ceiling
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
