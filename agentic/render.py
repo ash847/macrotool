@@ -146,11 +146,21 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
             "scenario-weighted P&L; use these):"
         )
-        if pack.loss_budget is not None:
+        cap_note = f"notional capped at 10×W = {10 * pack.linear_notional:,.0f} {base_ccy}"
+        if pack.sizing_method == "kelly":
             lines.append(
-                f"  (each variant sized so its max loss = the loss budget "
-                f"{pack.loss_budget:,.2f} {base_ccy}, on a 100-unit linear notional, R:R-derived; "
-                f"notional capped at 1,000 units, and net-credit structures fixed at 1,000)"
+                f"  SIZING REGIME: KELLY (the PM is operating under Kelly sizing — use ONLY "
+                f"this regime's framing). Bankroll W = {pack.linear_notional:,.0f} {base_ccy}, "
+                f"fractional-Kelly λ = {pack.kelly_lambda:.2f}. Each variant is sized to λ·f*·W "
+                f"from the PM's elicited edge distribution, where f* is that structure's "
+                f"full-Kelly fraction (stated per structure below); {cap_note}, net-credit fixed at 10×W."
+            )
+        elif pack.loss_budget is not None:
+            lines.append(
+                f"  SIZING REGIME: FIXED-LOSS (the PM is operating under fixed-loss sizing — use "
+                f"ONLY this regime's framing). Each variant is sized so its max loss = the loss "
+                f"budget {pack.loss_budget:,.0f} {base_ccy} (= W × the R:R-derived stop%); "
+                f"{cap_note}, net-credit fixed at 10×W."
             )
         top = pack.recommended[:_TOP_N]
         for r in top:
@@ -165,6 +175,9 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             ccy = _ccy_summary(r.variant, base_ccy)
             if ccy:
                 lines.append("     " + ccy)
+            if pack.sizing_method == "kelly" and getattr(r.variant, "kelly_fraction", None) is not None:
+                lines.append(f"     Kelly f* = {r.variant.kelly_fraction:.2f} "
+                             f"(full-Kelly fraction; sized notional = λ·f*·W)")
             # Qualitative, IP-clean findings — what the scoring *learned* about this
             # structure, with no scores / weights / methodology. The raw driver split
             # (r.drivers) stays server-side; it only DERIVES these tags.

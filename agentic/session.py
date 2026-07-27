@@ -26,6 +26,11 @@ class AgentSession:
     trade_management: str = "Standard hold"
     target_rr: float = 3.0          # R:R slider — drives the loss budget on the fly
     linear_notional: float = 100.0  # master sizing capital W; the UI passes the sidebar value
+    # Active sizing regime the PM is operating under — the agent is locked to it.
+    sizing_method: str = "fixed_loss"       # "fixed_loss" | "kelly"
+    kelly_lambda: float = 0.5
+    kelly_probs: tuple[float, ...] | None = None   # elicited edge distribution (Kelly only)
+    kelly_bins: tuple[float, ...] | None = None
 
     view: TradeView | None = None
     pack: StandardPack | None = None
@@ -47,6 +52,10 @@ class AgentSession:
             self.trade_management,
             self.target_rr,
             self.linear_notional,
+            self.sizing_method,
+            self.kelly_lambda,
+            self.kelly_probs,
+            self.kelly_bins,
         )
 
     def get_cached(self, view: TradeView) -> StandardPack | None:

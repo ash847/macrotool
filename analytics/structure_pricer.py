@@ -112,6 +112,8 @@ class PricedVariant:
     capped: bool = False                       # True when the 10× linear-notional cap (not the
                                                # loss budget / Kelly x*) determined the notional —
                                                # on such rows max_loss_ccy < loss_budget
+    kelly_fraction: float | None = None        # full-Kelly fraction x* = notional/W (per structure);
+                                               # populated only under Kelly sizing. Notional = λ·x*·W.
 
 
 def price_variants(
@@ -223,7 +225,7 @@ def _size_variants_kelly(
     (bridge raises) are left unsized rather than crashing the run."""
     import numpy as np
     from analytics.payoffs import base_ccy_payoff_for_trade_rec
-    from analytics.sizing import kelly_notional, per_notional_pnl
+    from analytics.sizing import kelly_fraction_per_notional, per_notional_pnl
 
     probs = np.asarray(sizing_spec.kelly_probs, dtype=float)
     bins = np.asarray(sizing_spec.kelly_bins, dtype=float)
@@ -236,7 +238,9 @@ def _size_variants_kelly(
                 is_call=is_call, entry_spot=spot, wing_ratio=pv.wing_ratio,
             )
             pnl = per_notional_pnl(payoff(bins), pv.net_premium_pct, discount_factor=df_f)
-            n = kelly_notional(probs, pnl, sizing_spec, cap)
+            x_star = kelly_fraction_per_notional(probs, pnl)
+            pv.kelly_fraction = x_star
+            n = min(sizing_spec.kelly_lambda * x_star * sizing_spec.bankroll, cap)
             pv.capped = n >= cap * (1.0 - 1e-12)
             _apply_notional(pv, n)
         except (ValueError, ZeroDivisionError):

@@ -98,6 +98,9 @@ class StandardPack:
     active_context: str | None = None         # fired scenario-weighting context id
     deciding_axis: str | None = None          # IP-clean gloss: what separated #1 from #2
     scenario_weights: dict | None = None      # resolved PM weights (Tier-2 reuses to score a PM structure)
+    sizing_method: str = "fixed_loss"         # active sizing regime the trades were sized under
+    kelly_lambda: float = 0.5                 # fractional-Kelly multiplier (Kelly regime only)
+    linear_notional: float = 100.0            # sizing capital W
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -107,6 +110,7 @@ def _recommend_ranked(
     ms: MarketState, selector_result, target, is_call, surface,
     primary_objective, trade_management, structure_constraint, target_rr,
     user_email=None, linear_notional: float = _COMPARATOR_LINEAR_NOTIONAL,
+    sizing_spec: object | None = None,
 ) -> list[RecommendedStructure]:
     """Per shortlisted family, pick the variant the scoring ranks best.
 
@@ -133,6 +137,7 @@ def _recommend_ranked(
         target=target, is_call=is_call,
         stop_price=stop_price, loss_budget=loss_budget,
         linear_notional=linear_notional,
+        sizing_spec=sizing_spec,
         preferences=PMPreferences(
             primary_objective=primary_objective,
             trade_management=trade_management,
@@ -228,6 +233,10 @@ def build_pack(
     target_rr: float = 3.0,
     user_email: str | None = None,
     linear_notional: float = _COMPARATOR_LINEAR_NOTIONAL,
+    sizing_method: str = "fixed_loss",
+    kelly_lambda: float = 0.5,
+    kelly_probs: tuple | None = None,
+    kelly_bins: tuple | None = None,
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -293,6 +302,18 @@ def build_pack(
         pass  # distributions are enrichment; never break the pack
 
     is_call = view.direction == "base_higher"
+    # Build the Kelly SizingSpec when the PM is in the Kelly regime with a distribution;
+    # else None → fixed-loss sizing (the default). The pack (recommendations, notionals,
+    # per-structure f*) is then sized under the regime the PM is actually operating.
+    sizing_spec = None
+    if sizing_method == "kelly" and kelly_probs and kelly_bins:
+        from analytics.sizing import SizingSpec
+        sizing_spec = SizingSpec(
+            method="kelly", target_rr=target_rr, kelly_lambda=kelly_lambda,
+            bankroll=linear_notional,
+            kelly_probs=tuple(kelly_probs), kelly_bins=tuple(kelly_bins),
+        )
+
     recommended: list[RecommendedStructure] = []
     loss_budget: float | None = None
     active_context: str | None = None
@@ -304,6 +325,7 @@ def build_pack(
                 market_state, selector_result, target, is_call, surface,
                 primary_objective, trade_management, structure_constraint, target_rr,
                 user_email=user_email, linear_notional=linear_notional,
+                sizing_spec=sizing_spec,
             )
         except Exception:
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = [], None, None, None, None
@@ -326,4 +348,7 @@ def build_pack(
         active_context=active_context,
         deciding_axis=deciding_axis,
         scenario_weights=scenario_weights,
+        sizing_method=("kelly" if sizing_spec is not None else "fixed_loss"),
+        kelly_lambda=kelly_lambda,
+        linear_notional=linear_notional,
     )

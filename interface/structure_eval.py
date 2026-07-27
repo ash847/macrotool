@@ -329,6 +329,7 @@ def render_structure_variants(
         "**R/R**: gross payoff at target per unit of max loss (zero-cost seagull: "
         "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
         "**% of W**: the variant's max loss as a share of the sizing capital. "
+        "**Kelly f***: the full-Kelly fraction (notional = λ·f*·W); shown under Kelly sizing. "
         "**(cap)**: the 10·W notional cap bound before the loss budget was reached — "
         "the shown max loss is the achieved one, below budget."
     )
@@ -380,6 +381,8 @@ def render_structure_variants(
                     "R/R":        _payout_per_1,
                     "% of W":     _pct_of_w,
                 }
+                if getattr(pv, "kelly_fraction", None) is not None:
+                    r["Kelly f*"] = f"{pv.kelly_fraction:.2f}"
                 if scenario_pnl is not None:
                     _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
                     r["Scenario P&L"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"

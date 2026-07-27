@@ -147,16 +147,20 @@ def _render_priced_table(ev) -> None:
     rows = []
     for i, ve in enumerate(ev.variants[:5], 1):
         pv = ve.pv
-        rows.append({
+        row = {
             "#": i,
             "Structure": ve.struct_label,
             "Variant": ve.variant_label,
             "Strikes": " / ".join(f"{k:.4f}" for k in pv.strikes) if pv.strikes else "—",
             "Notional": fmt_ccy(pv.structure_notional, base_ccy),
             "Premium": f"{pv.net_premium_pct:+.2%}",
-        })
+        }
+        if getattr(pv, "kelly_fraction", None) is not None:
+            row["Kelly f*"] = f"{pv.kelly_fraction:.2f}"
+        rows.append(row)
     st.subheader("Top structures")
-    st.caption("Priced variants with strikes, ordered by scenario-weighted P&L.")
+    st.caption("Priced variants with strikes, ordered by scenario-weighted P&L. "
+               "Kelly f* (when shown) is the full-Kelly fraction; notional = λ·f*·W.")
     st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True)
 
 

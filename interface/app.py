@@ -1016,12 +1016,22 @@ def _render_agent() -> None:
             trade_management=st.session_state.pref_trade_management,
             target_rr=st.session_state.target_rr,
             linear_notional=sizing_capital(),
+            sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
+            kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
+            kelly_probs=st.session_state.get("kelly_probs"),
+            kelly_bins=st.session_state.get("kelly_bins"),
         )
         st.session_state.agent_flow = AgentFlow(llm, session)
         st.session_state.agent_chat = []
 
-    # Keep the agent's R:R (loss-budget driver) live with the sidebar slider.
-    st.session_state.agent_flow.session.target_rr = st.session_state.target_rr
+    # Keep the agent's R:R + sizing regime live with the session controls.
+    _asess = st.session_state.agent_flow.session
+    _asess.target_rr = st.session_state.target_rr
+    _asess.linear_notional = sizing_capital()
+    _asess.sizing_method = st.session_state.get("sizing_method", "fixed_loss")
+    _asess.kelly_lambda = st.session_state.get("kelly_lambda", 0.5)
+    _asess.kelly_probs = st.session_state.get("kelly_probs")
+    _asess.kelly_bins = st.session_state.get("kelly_bins")
 
     cols = st.columns([1, 4])
     if cols[0].button("New conversation", use_container_width=True):
@@ -1071,6 +1081,9 @@ def _trade_chat_signature(flow) -> tuple:
         st.session_state.pref_trade_management,
         round(flow.target_rr, 3),
         round(sizing_capital(), 2),
+        st.session_state.get("sizing_method", "fixed_loss"),
+        round(float(st.session_state.get("kelly_lambda", 0.5)), 3),
+        hash(tuple(st.session_state.get("kelly_probs") or ())),
     )
 
 
@@ -1110,6 +1123,10 @@ def _render_trade_chat(flow) -> None:
                 target_rr=flow.target_rr,
                 user_email=USER_EMAIL,
                 linear_notional=sizing_capital(),
+                sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
+                kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
+                kelly_probs=st.session_state.get("kelly_probs"),
+                kelly_bins=st.session_state.get("kelly_bins"),
             )
             session = AgentSession(
                 snapshot=flow._snapshot,
@@ -1119,6 +1136,10 @@ def _render_trade_chat(flow) -> None:
                 trade_management=st.session_state.pref_trade_management,
                 target_rr=flow.target_rr,
                 linear_notional=sizing_capital(),
+                sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
+                kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
+                kelly_probs=st.session_state.get("kelly_probs"),
+                kelly_bins=st.session_state.get("kelly_bins"),
             )
             seed_session_from_pack(session, view, pack)
             llm = AnthropicToolLLM(
@@ -1329,12 +1350,11 @@ else:
             _loss_budget = sizing_capital() * _stop_pct
             if _show_market_state:
                 if _kelly_mode:
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
                     _ms_cell(c2, "Bankroll (W)", fmt_ccy(sizing_capital(), _base_ccy_top),
-                             tip="Nominal bankroll; Kelly notionals are λ·f*·W, comparable across variants.")
-                    _ms_cell(c3, "Fractional Kelly (λ)", f"{flow.sizing_spec.kelly_lambda:.2f}",
-                             tip="Scales every variant equally — does not change the ranking.")
+                             tip="Kelly notionals are λ·f*·W. The per-structure full-Kelly "
+                                 "fraction f* is in the Kelly f* column of the variants table.")
                 else:
                     c1, c2, c3, c4 = st.columns(4)
                     _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
