@@ -176,8 +176,11 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             if ccy:
                 lines.append("     " + ccy)
             if pack.sizing_method == "kelly" and getattr(r.variant, "kelly_fraction", None) is not None:
-                lines.append(f"     Kelly f* = {r.variant.kelly_fraction:.2f} "
-                             f"(full-Kelly fraction; sized notional = λ·f*·W)")
+                _car = r.variant.kelly_fraction * (r.variant.max_loss_pct or 0.0)
+                lines.append(
+                    f"     Kelly: full-Kelly risks {_car:.0%} of W (capital at risk); "
+                    f"f* = {r.variant.kelly_fraction:.1f}× W notional, sized notional = λ·f*·W"
+                )
             # Qualitative, IP-clean findings — what the scoring *learned* about this
             # structure, with no scores / weights / methodology. The raw driver split
             # (r.drivers) stays server-side; it only DERIVES these tags.

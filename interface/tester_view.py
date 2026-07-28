@@ -14,6 +14,7 @@ import streamlit as st
 
 from interface.structure_eval import (
     LINEAR_NOTIONAL,
+    _KELLY_RISK_HELP,
     compute_structure_evaluation,
     fmt_ccy,
 )
@@ -156,12 +157,14 @@ def _render_priced_table(ev) -> None:
             "Premium": f"{pv.net_premium_pct:+.2%}",
         }
         if getattr(pv, "kelly_fraction", None) is not None:
-            row["Kelly f*"] = f"{pv.kelly_fraction:.2f}"
+            row["Kelly risk"] = f"{pv.kelly_fraction * (pv.max_loss_pct or 0.0):.0%}"
         rows.append(row)
     st.subheader("Top structures")
     st.caption("Priced variants with strikes, ordered by scenario-weighted P&L. "
-               "Kelly f* (when shown) is the full-Kelly fraction; notional = λ·f*·W.")
-    st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True)
+               "Kelly risk (when shown) is full-Kelly capital at risk (pre-λ) as a share of W.")
+    _cfg = ({"Kelly risk": st.column_config.Column(help=_KELLY_RISK_HELP)}
+            if any("Kelly risk" in r for r in rows) else None)
+    st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True, column_config=_cfg)
 
 
 def render_tester_recommendations(flow, is_call: bool, target: float | None) -> None:

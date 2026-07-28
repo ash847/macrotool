@@ -259,7 +259,7 @@ def _fit_height(prefix: str, n_rows: int) -> int | None:
     return 38 + 35 * max(n_rows, 1) + 2  # header + rows + border
 
 
-def _show_df(df, *, key=None, height=None) -> None:
+def _show_df(df, *, key=None, height=None, column_config=None) -> None:
     """st.dataframe wrapper that OMITS height when None. Some Streamlit versions
     reject height=None (must be a positive int / 'content' / 'stretch'), so we only
     pass it when set — Trade View gets the default capped table, Batch gets a full
@@ -269,7 +269,18 @@ def _show_df(df, *, key=None, height=None) -> None:
         kwargs["key"] = key
     if height is not None:
         kwargs["height"] = height
+    if column_config is not None:
+        kwargs["column_config"] = column_config
     st.dataframe(df, **kwargs)
+
+
+# Header tooltip for the Kelly capital-at-risk column (st.dataframe supports a header
+# help tooltip, not per-cell hover; the per-row sized notional is the Notional column).
+_KELLY_RISK_HELP = (
+    "Full-Kelly capital at risk = f* × max loss, as a share of W, BEFORE the λ haircut "
+    "(the Notional column already applies λ). f* is the growth-optimal notional as a "
+    "multiple of W, so the full-Kelly notional is f*×W."
+)
 
 
 def render_structure_variants(
@@ -329,7 +340,8 @@ def render_structure_variants(
         "**R/R**: gross payoff at target per unit of max loss (zero-cost seagull: "
         "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
         "**% of W**: the variant's max loss as a share of the sizing capital. "
-        "**Kelly f***: the full-Kelly fraction (notional = λ·f*·W); shown under Kelly sizing. "
+        "**Kelly risk**: full-Kelly capital at risk (f*×max loss, pre-λ) as a share of W; "
+        "shown under Kelly sizing (hover the header for the notional relationship). "
         "**(cap)**: the 10·W notional cap bound before the loss budget was reached — "
         "the shown max loss is the achieved one, below budget."
     )
@@ -382,7 +394,8 @@ def render_structure_variants(
                     "% of W":     _pct_of_w,
                 }
                 if getattr(pv, "kelly_fraction", None) is not None:
-                    r["Kelly f*"] = f"{pv.kelly_fraction:.2f}"
+                    _car = pv.kelly_fraction * (pv.max_loss_pct or 0.0)
+                    r["Kelly risk"] = f"{_car:.0%}"
                 if scenario_pnl is not None:
                     _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
                     r["Scenario P&L"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"
@@ -391,10 +404,15 @@ def render_structure_variants(
                 if _has_wing:
                     r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
                 _rows.append(r)
+            _kelly_cfg = (
+                {"Kelly risk": st.column_config.Column(help=_KELLY_RISK_HELP)}
+                if any("Kelly risk" in _r for _r in _rows) else None
+            )
             _show_df(
                 pd.DataFrame(_rows),
                 key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
                 height=_fit_height(key_prefix, len(_rows)),
+                column_config=_kelly_cfg,
             )
             if eval_result is not None:
                 _render_cell_drivers(eval_result, _item.structure_id, _base_ccy)

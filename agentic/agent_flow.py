@@ -98,10 +98,14 @@ FIXED-LOSS or KELLY. This is the regime the PM has chosen and you are LOCKED to 
 - FIXED-LOSS: talk in loss budget / max loss / R:R-derived stop. The trades are each sized so
   their max loss = the stated loss budget (W × stop%), notional capped at 10×W, net-credit
   fixed at 10×W. There is no Kelly number in this regime — do NOT produce or estimate one.
-- KELLY: the pack states the bankroll W, the fractional-Kelly λ, and each structure's
-  full-Kelly fraction f* (a "Kelly f* = …" line). You MAY state f*, λ, W, and the sized
-  notional (= λ·f*·W) — but ONLY the exact values from the pack, verbatim, per structure. Never
-  compute, average, or invent an f*; if a structure has no f* line, don't state one for it.
+- KELLY: the pack states the bankroll W, the fractional-Kelly λ, and per structure a "Kelly:"
+  line giving the full-Kelly CAPITAL AT RISK (as a % of W — the headline Kelly number) and the
+  notional multiple f* (= notional / W). LEAD with the capital-at-risk % (a share of the PM's
+  bankroll) — it is the intuitive Kelly figure; the raw f* is a notional/leverage multiple, so
+  only mention it as context, never as "the Kelly fraction". You MAY state the capital-at-risk %,
+  f*, λ, W, and the sized notional (= λ·f*·W) — but ONLY the exact values from the pack, verbatim,
+  per structure. Never compute, average, or invent these; if a structure has no Kelly line, don't
+  state one for it.
 Every sizing number you give must come from the pack. Never estimate a fraction or notional.
 
 Conventions:

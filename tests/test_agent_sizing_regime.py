@@ -52,7 +52,8 @@ def test_kelly_pack_states_kelly_regime_with_per_structure_fstar(ctx):
     txt = render_pack(pack, view)
     assert "SIZING REGIME: KELLY" in txt
     assert "FIXED-LOSS" not in txt          # the other regime is never mentioned
-    assert "Kelly f* =" in txt
+    assert "capital at risk" in txt         # headline Kelly figure (fraction of W)
+    assert "f* =" in txt                    # notional multiple, as context
 
 
 def test_kelly_notional_is_lambda_times_fstar_times_w(ctx):
