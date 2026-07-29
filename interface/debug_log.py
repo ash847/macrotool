@@ -66,6 +66,36 @@ def log_scorer_result(result) -> None:
 
 def log_error(context: str, exc: Exception) -> None:
     _entry("error", context=context, error=str(exc))
+    _persist_error(context, exc)
+
+
+def _persist_error(context: str, exc: Exception) -> None:
+    """Best-effort mirror of the error to Supabase so failures testers hit are
+    visible remotely (the local file above is ephemeral on Streamlit Cloud). Reads
+    the session id / user email from Streamlit session state when available. Never
+    raises — logging must not break the app."""
+    try:
+        import traceback as _tb
+
+        from interface.supabase_logger import log_app_error
+
+        session_id = user_email = None
+        try:
+            import streamlit as st
+            session_id = st.session_state.get("session_id")
+            user_email = st.session_state.get("current_user_email")
+        except Exception:
+            pass
+        log_app_error(
+            context=context,
+            error_type=type(exc).__name__,
+            message=str(exc),
+            traceback="".join(_tb.format_exception(type(exc), exc, exc.__traceback__)),
+            user_email=user_email,
+            session_id=session_id,
+        )
+    except Exception:
+        pass
 
 
 def read_recent(n: int = 50) -> list[dict]:

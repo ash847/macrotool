@@ -60,6 +60,7 @@ def log_query(
     top_structure: str | None,
     llm_response: str,
     user_email: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     if _service_client is None:
         return
@@ -76,12 +77,9 @@ def log_query(
     }
     if user_email:
         row["user_email"] = user_email
-    try:
-        _service_client.table("queries").insert(row, returning="minimal").execute()
-    except Exception:
-        # Backward compatibility while the Supabase table is being migrated.
-        row.pop("user_email", None)
-        _service_client.table("queries").insert(row, returning="minimal").execute()
+    if session_id:
+        row["session_id"] = session_id
+    _insert_with_optional("queries", row, optional=("user_email", "session_id"))
 
 
 def log_feedback(
@@ -91,6 +89,7 @@ def log_feedback(
     questions: list[str],
     note: str | None = None,
     user_email: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     if _service_client is None:
         return
@@ -101,14 +100,128 @@ def log_feedback(
     }
     if user_email:
         row["user_email"] = user_email
+    if session_id:
+        row["session_id"] = session_id
     for i, (q, a) in enumerate(zip(questions, answers), start=1):
         row[f"q{i}_text"] = q
         row[f"q{i}_answer"] = a
+    _insert_with_optional("feedback", row, optional=("user_email", "session_id"))
+
+
+# ---------------------------------------------------------------------------
+# Tester-rollout logging: chat transcripts, app errors, one-click reactions.
+# All fail-open (never raise) and no-op when Supabase isn't configured, so a
+# logging outage can never break a tester's session. New tables — see the
+# CREATE TABLE migration in db/migrations_tester_logging.sql.
+# ---------------------------------------------------------------------------
+
+def _insert_with_optional(table: str, row: dict, optional: tuple[str, ...] = ()) -> None:
+    """Insert a row; on failure retry once without the ``optional`` columns (so a
+    not-yet-migrated column like ``session_id`` degrades instead of erroring), then
+    give up silently. Never raises."""
     try:
-        _service_client.table("feedback").insert(row, returning="minimal").execute()
+        _service_client.table(table).insert(row, returning="minimal").execute()
+        return
     except Exception:
-        row.pop("user_email", None)
-        _service_client.table("feedback").insert(row, returning="minimal").execute()
+        pass
+    slim = {k: v for k, v in row.items() if k not in optional}
+    try:
+        _service_client.table(table).insert(slim, returning="minimal").execute()
+    except Exception:
+        pass
+
+
+def log_chat_turn(
+    *,
+    session_id: str | None,
+    chat_id: str,
+    seq: int,
+    surface: str,             # "agent_tab" | "trade_view"
+    role: str,                # "user" | "assistant"
+    text: str | None,
+    tool_trace: list | None = None,
+    pair: str | None = None,
+    view_json: dict | None = None,
+    user_email: str | None = None,
+) -> None:
+    """One row per chat turn (both the Agent tab and the in-context trade chat)."""
+    if _service_client is None:
+        return
+    row = {
+        "session_id": session_id,
+        "chat_id":    chat_id,
+        "seq":        seq,
+        "surface":    surface,
+        "role":       role,
+        "text":       (text or "")[:20000],
+        "tool_trace": tool_trace,
+        "pair":       pair,
+        "view_json":  view_json,
+    }
+    if user_email:
+        row["user_email"] = user_email
+    _insert_with_optional("chat_turns", row, optional=("user_email", "session_id"))
+
+
+def log_app_error(
+    *,
+    context: str,
+    error_type: str,
+    message: str | None,
+    traceback: str | None = None,
+    user_email: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    """Persist an application error so failures testers hit are visible remotely
+    (the local logs/session.log file is ephemeral on Streamlit Cloud)."""
+    if _service_client is None:
+        return
+    row = {
+        "context":    context,
+        "error_type": error_type,
+        "message":    (message or "")[:4000],
+        "traceback":  traceback[:8000] if traceback else None,
+    }
+    if user_email:
+        row["user_email"] = user_email
+    if session_id:
+        row["session_id"] = session_id
+    _insert_with_optional("app_errors", row, optional=("user_email", "session_id"))
+
+
+def log_reaction(
+    *,
+    session_id: str | None,
+    surface: str,             # "trade_view" | "agent_tab"
+    target_kind: str,         # "recommendation" | "chat"
+    target_ref: str,
+    rating: str,              # "up" | "down"
+    reason: str | None = None,
+    pair: str | None = None,
+    view_summary: str | None = None,
+    chat_id: str | None = None,
+    seq: int | None = None,
+    user_email: str | None = None,
+) -> None:
+    """One-click 👍/👎 (+ optional one-tap reason on 👎) on a recommendation or a
+    chat reply."""
+    if _service_client is None:
+        return
+    row = {
+        "session_id":   session_id,
+        "surface":      surface,
+        "target_kind":  target_kind,
+        "target_ref":   target_ref,
+        "rating":       rating,
+        "reason":       reason,
+        "pair":         pair,
+        "view_summary": view_summary,
+        "chat_id":      chat_id,
+        "seq":          seq,
+    }
+    if user_email:
+        row["user_email"] = user_email
+    _insert_with_optional("reactions", row, optional=("user_email", "session_id"))
 
 
 GLOBAL_SCENARIO_WEIGHTS_KEY = "scenario_definitions"

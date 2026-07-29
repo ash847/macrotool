@@ -13,6 +13,7 @@ Run with:
 from __future__ import annotations
 
 import json
+import uuid
 import math
 import os
 import re
@@ -112,10 +113,25 @@ require_login()
 USER_EMAIL = current_user_email()
 IS_ADMIN = is_admin_user()
 
+# Per-visit session id — stitches chat / errors / reactions to the engine runs.
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+SESSION_ID = st.session_state.session_id
+# Mirror identity into session_state so debug_log.log_error (outside this module)
+# can attach it to the Supabase error row.
+st.session_state["current_user_email"] = USER_EMAIL
+
 from conversation import tracing as _tracing
 _tracing._init_client()
 
-from interface.supabase_logger import log_query as _log_query, log_feedback as _log_feedback, reinit as _sb_reinit, init_status as _sb_status
+from interface.supabase_logger import (
+    log_query as _log_query,
+    log_feedback as _log_feedback,
+    log_chat_turn as _log_chat_turn,
+    log_reaction as _log_reaction,
+    reinit as _sb_reinit,
+    init_status as _sb_status,
+)
 _sb_reinit()
 from knowledge_engine.loader import load_structure_profiles as _lsp
 _lsp.cache_clear()
@@ -586,6 +602,7 @@ def _submit_structured_view(pair: str, direction: str, horizon_days: int, target
             top_structure=flow.selector_result.shortlist[0].structure_id if flow.selector_result and flow.selector_result.shortlist else None,
             llm_response="",
             user_email=USER_EMAIL,
+            session_id=SESSION_ID,
         )
     except Exception as e:
         log_error("supabase_log_query", e)
@@ -937,15 +954,15 @@ def _bget(block, key):
     return getattr(block, key, None)
 
 
-def _agent_tool_trace(session) -> list[dict]:
-    """Reconstruct (tool name, args, result, is_error) from the message history.
+def _tool_trace_from_messages(messages) -> list[dict]:
+    """Reconstruct (tool name, args, result, is_error) from a message slice.
 
     Matches each assistant tool_use block to its tool_result by id. This is the
     ground truth the model received — read the narration against it.
     """
     pending: dict[str, dict] = {}
     trace: list[dict] = []
-    for m in session.messages:
+    for m in messages:
         role, content = m.get("role"), m.get("content")
         if not isinstance(content, list):
             continue
@@ -964,6 +981,103 @@ def _agent_tool_trace(session) -> list[dict]:
                     "is_error": bool(_bget(b, "is_error")),
                 })
     return trace
+
+
+def _agent_tool_trace(session) -> list[dict]:
+    return _tool_trace_from_messages(session.messages)
+
+
+def _view_json(view) -> dict | None:
+    """Compact, self-describing view snapshot stored on each chat turn."""
+    if view is None:
+        return None
+    return {
+        "pair": view.pair, "direction": view.direction,
+        "horizon_days": view.horizon_days, "magnitude_pct": view.magnitude_pct,
+        "mode": view.mode,
+    }
+
+
+def _log_chat_exchange(surface: str, chat_id: str, session, prompt: str, reply: str, pre_len: int) -> None:
+    """Persist one chat exchange (user turn + assistant turn with its tool trace)
+    to Supabase. Fail-open — never breaks the chat."""
+    try:
+        view = getattr(session, "view", None)
+        pair = view.pair if view is not None else None
+        vjson = _view_json(view)
+        tool_trace = _tool_trace_from_messages(session.messages[pre_len:]) or None
+        seq_key = f"chatseq_{chat_id}"
+        seq = st.session_state.get(seq_key, 0)
+        _log_chat_turn(session_id=SESSION_ID, chat_id=chat_id, seq=seq, surface=surface,
+                       role="user", text=prompt, pair=pair, view_json=vjson, user_email=USER_EMAIL)
+        _log_chat_turn(session_id=SESSION_ID, chat_id=chat_id, seq=seq + 1, surface=surface,
+                       role="assistant", text=reply, tool_trace=tool_trace, pair=pair,
+                       view_json=vjson, user_email=USER_EMAIL)
+        st.session_state[seq_key] = seq + 2
+    except Exception:
+        pass
+
+
+_REASON_CHIPS = ["Wrong structure", "Sizing off", "Confusing", "Too slow", "Didn't trust it"]
+
+
+def _render_reaction(
+    target_kind: str, surface: str, target_ref: str, *,
+    pair: str | None = None, view_summary: str | None = None,
+    chat_id: str | None = None, seq: int | None = None,
+) -> None:
+    """Passive 👍/👎 (record-once per target) with one-tap reason chips on 👎. Writes
+    to the reactions table on click; never prompts or blocks."""
+    state_key = f"rx_{target_ref}"
+    recorded = st.session_state.get(state_key)
+    if recorded:
+        st.caption(f"✓ feedback recorded: {recorded}")
+        return
+    pending_key = f"rxpending_{target_ref}"
+
+    def _write(rating, reason=None):
+        try:
+            _log_reaction(
+                session_id=SESSION_ID, surface=surface, target_kind=target_kind,
+                target_ref=target_ref, rating=rating, reason=reason, pair=pair,
+                view_summary=view_summary, chat_id=chat_id, seq=seq, user_email=USER_EMAIL,
+            )
+        except Exception:
+            pass
+
+    c = st.columns([1, 1, 8])
+    if c[0].button("👍", key=f"{state_key}_up", help="Helpful"):
+        _write("up")
+        st.session_state[state_key] = "👍"
+        st.rerun()
+    if c[1].button("👎", key=f"{state_key}_down", help="Not helpful"):
+        st.session_state[pending_key] = True
+        st.rerun()
+
+    if st.session_state.get(pending_key):
+        st.caption("What was off? (one tap)")
+        chip_cols = st.columns(len(_REASON_CHIPS))
+        for i, label in enumerate(_REASON_CHIPS):
+            if chip_cols[i].button(label, key=f"{state_key}_chip_{i}"):
+                _write("down", label)
+                st.session_state[state_key] = f"👎 {label}"
+                st.session_state.pop(pending_key, None)
+                st.rerun()
+
+
+def _render_reply_reaction(surface: str, chat_id: str, idx: int, view) -> None:
+    pair = view.pair if view is not None else None
+    _render_reaction("chat", surface, f"{chat_id}:{idx}", pair=pair, chat_id=chat_id, seq=idx)
+
+
+def _render_recommendation_reaction(surface: str, flow, target: float | None) -> None:
+    view = getattr(flow, "view", None)
+    if view is None or target is None:
+        return
+    ref = f"{view.pair}:{view.direction}:{view.horizon_days}:{round(target, 6)}"
+    st.caption("Was this recommendation useful?")
+    _render_reaction("recommendation", surface, ref, pair=view.pair,
+                     view_summary=st.session_state.get("last_prompt") or None)
 
 
 def _render_agent_diagnostic(session) -> None:
@@ -1023,6 +1137,7 @@ def _render_agent() -> None:
         )
         st.session_state.agent_flow = AgentFlow(llm, session)
         st.session_state.agent_chat = []
+        st.session_state.agent_chat_id = str(uuid.uuid4())
 
     # Keep the agent's R:R + sizing regime live with the session controls.
     _asess = st.session_state.agent_flow.session
@@ -1037,6 +1152,7 @@ def _render_agent() -> None:
     if cols[0].button("New conversation", use_container_width=True):
         st.session_state.pop("agent_flow", None)
         st.session_state.agent_chat = []
+        st.session_state.pop("agent_chat_id", None)
         st.rerun()
     sess = st.session_state.agent_flow.session
     if sess.view is not None:
@@ -1045,9 +1161,13 @@ def _render_agent() -> None:
             + (f" · target {sess.pack.target:.4f}" if sess.pack and sess.pack.target else "")
         )
 
-    for role, text in st.session_state.agent_chat:
+    _chat_id = st.session_state.get("agent_chat_id", "unknown")
+    _view = getattr(st.session_state.agent_flow.session, "view", None)
+    for idx, (role, text) in enumerate(st.session_state.agent_chat):
         with st.chat_message(role):
             st.markdown(text)
+            if role == "assistant" and idx > 0:   # skip the canned/first opener
+                _render_reply_reaction("agent_tab", _chat_id, idx, _view)
 
     if prompt := st.chat_input("e.g. long USDBRL 3m, target +6% — what should I trade?"):
         st.session_state.agent_chat.append(("user", prompt))
@@ -1055,13 +1175,19 @@ def _render_agent() -> None:
             st.markdown(prompt)
         with st.chat_message("assistant"):
             with st.spinner("Thinking…"):
+                _pre = len(st.session_state.agent_flow.session.messages)
                 try:
                     reply = st.session_state.agent_flow.advance(prompt)
                 except Exception as e:
                     log_error("agent_advance", e)
                     reply = f"⚠️ {type(e).__name__}: {e}"
             st.markdown(reply)
+            _idx = len(st.session_state.agent_chat)
+            _render_reply_reaction("agent_tab", _chat_id, _idx,
+                                   getattr(st.session_state.agent_flow.session, "view", None))
         st.session_state.agent_chat.append(("assistant", reply))
+        _log_chat_exchange("agent_tab", _chat_id,
+                           st.session_state.agent_flow.session, prompt, reply, _pre)
 
     _render_agent_diagnostic(st.session_state.agent_flow.session)
 
@@ -1149,14 +1275,19 @@ def _render_trade_chat(flow) -> None:
             st.session_state.tv_chat_flow = AgentFlow(llm, session)
             st.session_state.tv_chat = [("assistant", DEFAULT_OPENING)]
             st.session_state.tv_chat_sig = sig
+            st.session_state.tv_chat_id = str(uuid.uuid4())
         except Exception as e:
             log_error("trade_chat_seed", e)
             st.caption(f"Chat unavailable — {type(e).__name__}.")
             return
 
-    for role, text in st.session_state.tv_chat:
+    _tv_chat_id = st.session_state.get("tv_chat_id", "unknown")
+    _tv_view = getattr(st.session_state.tv_chat_flow.session, "view", None)
+    for idx, (role, text) in enumerate(st.session_state.tv_chat):
         with st.chat_message(role):
             st.markdown(text)
+            if role == "assistant" and idx > 0:   # skip the canned opener
+                _render_reply_reaction("trade_view", _tv_chat_id, idx, _tv_view)
 
     if prompt := st.chat_input(
         "Ask about this trade — e.g. why the 1x1.5? what's the risk?",
@@ -1167,13 +1298,18 @@ def _render_trade_chat(flow) -> None:
             st.markdown(prompt)
         with st.chat_message("assistant"):
             with st.spinner("Thinking…"):
+                _pre = len(st.session_state.tv_chat_flow.session.messages)
                 try:
                     reply = st.session_state.tv_chat_flow.advance(prompt)
                 except Exception as e:
                     log_error("trade_chat_advance", e)
                     reply = f"⚠️ {type(e).__name__}: {e}"
             st.markdown(reply)
+            _render_reply_reaction("trade_view", _tv_chat_id,
+                                   len(st.session_state.tv_chat), _tv_view)
         st.session_state.tv_chat.append(("assistant", reply))
+        _log_chat_exchange("trade_view", _tv_chat_id,
+                           st.session_state.tv_chat_flow.session, prompt, reply, _pre)
 
 
 # ---------------------------------------------------------------------------
@@ -1442,6 +1578,7 @@ else:
                 st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
                 render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget,
                                           eval_result=_evals)
+            _render_recommendation_reaction("trade_view", flow, _target)
 
     # Feedback form (only after a view is active)
     if flow.view and can_see("feedback", ROLE):
@@ -1471,6 +1608,7 @@ else:
                                 questions=questions,
                                 note=note or None,
                                 user_email=USER_EMAIL,
+                                session_id=SESSION_ID,
                             )
                         except Exception:
                             pass

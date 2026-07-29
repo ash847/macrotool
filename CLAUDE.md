@@ -214,6 +214,12 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
   - anon key for `queries` / `feedback` inserts
   - service key for engine config reads and admin-only reads/writes
 - Both are initialised from Streamlit secrets injected into `os.environ` before session state init.
+- **Tester-rollout logging (all in `supabase_logger.py`, fail-open + no-op when unconfigured):**
+  - `chat_turns` — one row per chat turn (Agent tab + in-context trade chat), with `tool_trace` (the engine ground truth), `pair`, `view_json`. Logged via `_log_chat_exchange` after each `advance()`.
+  - `app_errors` — `debug_log.log_error` now mirrors to Supabase (`log_app_error`) as well as the ephemeral `logs/session.log`, so failures testers hit are visible remotely.
+  - `reactions` — passive 👍/👎 (record-once per target) with one-tap reason chips on 👎 (`_render_reaction`), on the recommendation (per trade) and each chat reply.
+  - A per-visit `st.session_state.session_id` (UUID) is stitched onto every insert (incl. `queries`/`feedback`) so chat/errors/reactions join to the engine runs. `_insert_with_optional` drops `session_id`/`user_email` and retries if those columns aren't migrated yet.
+  - **Migration:** `db/migrations_tester_logging.sql` — run in Supabase (creates the 3 tables + the optional `session_id` columns on `queries`/`feedback`). The app degrades gracefully until it's run.
 
 ## Key invariants
 
