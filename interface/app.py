@@ -165,7 +165,7 @@ def _reset_trade_form_state(snapshot=None) -> None:
     st.session_state.trade_form_pair = default_pair
     st.session_state.trade_form_direction = "Lower"
     st.session_state.trade_form_horizon = "3M"
-    st.session_state.trade_form_target = 5.60
+    st.session_state.trade_form_target = 4.80   # USDBRL lower to 4.80 (below the ~5.23 fwd)
 
 
 # ---------------------------------------------------------------------------
