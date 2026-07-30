@@ -175,11 +175,12 @@ class TestSmileDistribution:
         assert smile_91.terminal_plus2s > flat_91.terminal_plus2s
         assert smile_91.terminal_plus3s > flat_91.terminal_plus3s
 
-    def test_smile_lowers_lower_tail(self, flat_91, smile_91):
-        """Higher put vol under the smile → lower tail price moves down."""
-        assert smile_91.terminal_minus1s < flat_91.terminal_minus1s
-        assert smile_91.terminal_minus2s < flat_91.terminal_minus2s
-        assert smile_91.terminal_minus3s < flat_91.terminal_minus3s
+    def test_smile_raises_lower_tail_topside_skew(self, flat_91, smile_91):
+        """USDBRL is topside-skewed — its 25Δ/10Δ put vols sit BELOW ATM — so the smile
+        prices the lower tail with less vol than the flat-ATM path, moving it up."""
+        assert smile_91.terminal_minus1s > flat_91.terminal_minus1s
+        assert smile_91.terminal_minus2s > flat_91.terminal_minus2s
+        assert smile_91.terminal_minus3s > flat_91.terminal_minus3s
 
     def test_upper_tail_expands_more_than_lower(self, flat_91, smile_91):
         """Topside skew: call-side expansion larger than put-side."""

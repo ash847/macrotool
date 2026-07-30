@@ -44,14 +44,14 @@ class TestMarketSnapshot:
         snap = load_snapshot()
         brl = snap.get("USDBRL")
         vol = brl.get_atm_vol("1M")
-        assert vol == pytest.approx(0.182)
+        assert vol == pytest.approx(0.11)
 
     def test_get_forward(self):
         snap = load_snapshot()
         brl = snap.get("USDBRL")
         fwd = brl.get_forward("3M")
         assert fwd is not None
-        assert fwd.outright == pytest.approx(5.8970)
+        assert fwd.outright == pytest.approx(5.232)
 
     def test_pln_is_deliverable(self):
         snap = load_snapshot()

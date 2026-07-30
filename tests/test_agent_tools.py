@@ -35,15 +35,15 @@ def test_family_only_request_returns_recommended():
 
 
 def test_target_level_infers_direction_below_forward():
-    # "USDBRL to 5.60" — 5.60 is below the forward, so direction must be base_lower
-    # (a put), NOT base_higher, and the target must be ~5.60 (not a 5.6% move).
+    # "USDBRL to 5.00" — 5.00 is below the 90d forward (~5.23), so direction must be
+    # base_lower (a put), NOT base_higher, and the target must be ~5.00 (not a % move).
     s = _session()
     content, is_error = dispatch(
-        s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": 5.60}
+        s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": 5.00}
     )
     assert not is_error
     assert s.view.direction == "base_lower"
-    assert abs(s.pack.target - 5.60) < 1e-6
+    assert abs(s.pack.target - 5.00) < 1e-6
 
 
 def test_target_level_infers_direction_above_forward():

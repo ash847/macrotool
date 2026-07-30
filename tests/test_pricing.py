@@ -88,7 +88,7 @@ class TestForwards:
         # At exact 3M tenor, should return the snapshot value
         T_3m = tenor_to_years("3M")
         fwd = interpolate_forward(brl, T_3m)
-        assert fwd == pytest.approx(5.8970, rel=0.01)
+        assert fwd == pytest.approx(5.232, rel=0.01)
 
     def test_interpolate_forward_between_tenors(self, brl):
         # Between 1M and 2M should be between their values
@@ -119,8 +119,8 @@ class TestForwards:
 
     def test_build_rate_context(self, brl):
         ctx = rate_context_for_snapshot(brl, tenor_to_years("3M"))
-        assert ctx.spot == pytest.approx(5.785, rel=0.01)
-        assert ctx.forward == pytest.approx(5.897, rel=0.01)
+        assert ctx.spot == pytest.approx(5.12, rel=0.01)
+        assert ctx.forward == pytest.approx(5.232, rel=0.01)
         assert ctx.T == pytest.approx(tenor_to_years("3M"))
         assert ctx.discount_factor < 1.0
         # r_d = BRL (implied), r_f = USD (direct from usd_df_curve)

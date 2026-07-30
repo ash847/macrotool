@@ -21,7 +21,7 @@ class TestApplyOverrides:
         assert out.get("USDBRL").get_forward("3M").outright == pytest.approx(
             base.get("USDBRL").get_forward("3M").outright
         )
-        assert base.get("USDBRL").get_forward("1M").outright == pytest.approx(5.8220)
+        assert base.get("USDBRL").get_forward("1M").outright == pytest.approx(5.157)
 
     def test_forward_points_recomputed_from_spot(self):
         base = load_snapshot()
