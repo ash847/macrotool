@@ -39,8 +39,12 @@ _HAS_LEG = re.compile(r"[0-9%]|atmf|atm|sigma|target|tgt")
 _DIRECTIONS = ("base_higher", "base_lower")
 _CONVICTIONS = ("high", "medium", "low")
 _MODES = ("recommend", "critique")
-# Pairs wired into the engine (rate context, df curves). The snapshot carries more.
-SUPPORTED_PAIRS = ("USDBRL", "USDTRY", "EURPLN", "GBPUSD")
+# Every pair in the market snapshot is priceable by the engine (all have a USD/EUR/GBP
+# base with a df curve), so the agent supports the same set Trade View does. Used for
+# the tool description / error text; the live gate below checks the loaded snapshot.
+SUPPORTED_PAIRS = (
+    "USDBRL", "USDTRY", "EURPLN", "GBPUSD", "EURUSD", "USDCNH", "USDMXN", "USDJPY",
+)
 
 
 TOOL_SCHEMAS = [
@@ -67,7 +71,7 @@ TOOL_SCHEMAS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "pair": {"type": "string", "description": "e.g. USDBRL, USDTRY, EURPLN, GBPUSD"},
+                "pair": {"type": "string", "description": "e.g. USDBRL, USDTRY, EURPLN, GBPUSD, EURUSD, USDCNH, USDMXN, USDJPY"},
                 "horizon_days": {"type": "integer", "description": "tenor in days"},
                 "target_level": {
                     "type": "number",
@@ -155,9 +159,10 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
     magnitude_pct = args.get("magnitude_pct")
     target_level = args.get("target_level")
 
-    if pair not in SUPPORTED_PAIRS:
+    available = tuple(session.snapshot.currencies.keys())
+    if pair not in available:
         raise _ToolError(
-            f"Unsupported pair '{pair}'. Supported: {', '.join(SUPPORTED_PAIRS)}."
+            f"Unsupported pair '{pair}'. Supported: {', '.join(available)}."
         )
     if not isinstance(horizon_days, (int, float)) or horizon_days <= 0:
         raise _ToolError("horizon_days must be a positive integer.")
