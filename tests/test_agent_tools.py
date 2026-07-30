@@ -14,6 +14,14 @@ def _session():
     return AgentSession(snapshot=load_snapshot(), cfg=load_config())
 
 
+def _usdbrl_forward(horizon_days: int = 90) -> float:
+    """The USDBRL outright forward — so direction-inference tests derive their
+    targets from the live forward rather than hardcoding a level."""
+    from pricing.forwards import rate_context_for_snapshot
+    ccy = load_snapshot().get("USDBRL")
+    return rate_context_for_snapshot(ccy, horizon_days / 365.0).forward
+
+
 def test_run_standard_pack_builds_and_sets_state():
     s = _session()
     content, is_error = dispatch(s, "run_standard_pack", dict(_VIEW))
@@ -35,22 +43,24 @@ def test_family_only_request_returns_recommended():
 
 
 def test_target_level_infers_direction_below_forward():
-    # "USDBRL to 5.00" — 5.00 is below the 90d forward (~5.23), so direction must be
-    # base_lower (a put), NOT base_higher, and the target must be ~5.00 (not a % move).
+    # A level 5% below the forward → direction must be base_lower (a put), NOT
+    # base_higher, and the target must be that level (not a % move).
+    target = round(_usdbrl_forward(90) * 0.95, 4)
     s = _session()
     content, is_error = dispatch(
-        s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": 5.00}
+        s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": target}
     )
     assert not is_error
     assert s.view.direction == "base_lower"
-    assert abs(s.pack.target - 5.00) < 1e-6
+    assert abs(s.pack.target - target) < 1e-6
 
 
 def test_target_level_infers_direction_above_forward():
+    target = round(_usdbrl_forward(90) * 1.05, 4)
     s = _session()
-    dispatch(s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": 6.50})
+    dispatch(s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90, "target_level": target})
     assert s.view.direction == "base_higher"
-    assert abs(s.pack.target - 6.50) < 1e-6
+    assert abs(s.pack.target - target) < 1e-6
 
 
 def test_magnitude_requires_direction():

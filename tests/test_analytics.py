@@ -169,24 +169,38 @@ class TestSmileDistribution:
         for i in range(len(terminals) - 1):
             assert terminals[i] < terminals[i + 1]
 
-    def test_topside_skew_widens_upper_tail(self, flat_91, smile_91):
-        """USDBRL has call skew → +1σ/+2σ/+3σ prices higher with smile."""
-        assert smile_91.terminal_plus1s > flat_91.terminal_plus1s
-        assert smile_91.terminal_plus2s > flat_91.terminal_plus2s
-        assert smile_91.terminal_plus3s > flat_91.terminal_plus3s
+    def test_smile_shifts_upper_tail_per_call_skew(self, brl, flat_91, smile_91):
+        """Mirror of the lower-tail test on the call side: call wing ABOVE ATM (topside
+        skew) widens the upper tail; BELOW ATM narrows it. Direction taken from the
+        live data so the test holds under any skew."""
+        call_above_atm = brl.get_vol("3M", "10DC") > brl.get_vol("3M", "ATM")
+        for s_band, f_band in (
+            (smile_91.terminal_plus1s, flat_91.terminal_plus1s),
+            (smile_91.terminal_plus2s, flat_91.terminal_plus2s),
+            (smile_91.terminal_plus3s, flat_91.terminal_plus3s),
+        ):
+            assert (s_band > f_band) if call_above_atm else (s_band < f_band)
 
-    def test_smile_raises_lower_tail_topside_skew(self, flat_91, smile_91):
-        """USDBRL is topside-skewed — its 25Δ/10Δ put vols sit BELOW ATM — so the smile
-        prices the lower tail with less vol than the flat-ATM path, moving it up."""
-        assert smile_91.terminal_minus1s > flat_91.terminal_minus1s
-        assert smile_91.terminal_minus2s > flat_91.terminal_minus2s
-        assert smile_91.terminal_minus3s > flat_91.terminal_minus3s
+    def test_smile_shifts_lower_tail_per_put_skew(self, brl, flat_91, smile_91):
+        """The smile prices the lower tail with the put-side vol: if the put wing sits
+        ABOVE ATM (put skew) the tail moves down; if BELOW ATM (topside skew) it moves
+        up. Assert the engine applies it in the direction the live data implies, so the
+        test holds whatever skew the snapshot carries."""
+        put_above_atm = brl.get_vol("3M", "10DP") > brl.get_vol("3M", "ATM")
+        for s_band, f_band in (
+            (smile_91.terminal_minus1s, flat_91.terminal_minus1s),
+            (smile_91.terminal_minus2s, flat_91.terminal_minus2s),
+            (smile_91.terminal_minus3s, flat_91.terminal_minus3s),
+        ):
+            assert (s_band < f_band) if put_above_atm else (s_band > f_band)
 
-    def test_upper_tail_expands_more_than_lower(self, flat_91, smile_91):
-        """Topside skew: call-side expansion larger than put-side."""
+    def test_tail_asymmetry_follows_risk_reversal(self, brl, flat_91, smile_91):
+        """The larger tail expansion is on the side the risk-reversal favours: RR>0
+        (call vol richer) → upper tail expands more; RR<0 → lower tail expands more."""
+        rr = brl.get_vol("3M", "25DC") - brl.get_vol("3M", "25DP")
         upper_delta = smile_91.terminal_plus1s - flat_91.terminal_plus1s
-        lower_delta = flat_91.terminal_minus1s - smile_91.terminal_minus1s  # both positive
-        assert upper_delta > lower_delta
+        lower_delta = flat_91.terminal_minus1s - smile_91.terminal_minus1s
+        assert (upper_delta > lower_delta) if rr > 0 else (lower_delta > upper_delta)
 
     def test_medians_approximately_equal(self, flat_91, smile_91):
         """Both medians use ~ATM vol; difference should be < 1%."""

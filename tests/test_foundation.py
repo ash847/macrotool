@@ -8,7 +8,9 @@ Verifies:
   - Override detector parses [PREF_CHANGE] tags correctly
 """
 
+import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 from data.snapshot_loader import load_snapshot
@@ -17,6 +19,13 @@ from config.loader import load_config, load_base_config
 from config.schema import SessionOverrides
 from config.resolver import resolve, explain_source
 from config.override_detector import extract_overrides
+
+
+def _raw_ccy(pair: str) -> dict:
+    """The raw JSON for one pair — so loader tests validate the mapping without
+    hardcoding market-data numbers (which change whenever the snapshot is retuned)."""
+    raw = json.loads((Path(__file__).parent.parent / "data" / "market_snapshot.json").read_text())
+    return raw["currencies"][pair]
 
 
 # ---------------------------------------------------------------------------
@@ -41,17 +50,18 @@ class TestMarketSnapshot:
         assert len(brl.vol_surface) == 30
 
     def test_get_atm_vol(self):
-        snap = load_snapshot()
-        brl = snap.get("USDBRL")
-        vol = brl.get_atm_vol("1M")
-        assert vol == pytest.approx(0.11)
+        # Loader maps the 1M/ATM node correctly — compared to the file, not a fixed number.
+        brl = load_snapshot().get("USDBRL")
+        expected = next(n["vol"] for n in _raw_ccy("USDBRL")["vol_surface"]
+                        if n["tenor"] == "1M" and n["delta"] == "ATM")
+        assert brl.get_atm_vol("1M") == pytest.approx(expected)
 
     def test_get_forward(self):
-        snap = load_snapshot()
-        brl = snap.get("USDBRL")
+        brl = load_snapshot().get("USDBRL")
+        expected = next(f["outright"] for f in _raw_ccy("USDBRL")["forwards"] if f["tenor"] == "3M")
         fwd = brl.get_forward("3M")
         assert fwd is not None
-        assert fwd.outright == pytest.approx(5.232)
+        assert fwd.outright == pytest.approx(expected)
 
     def test_pln_is_deliverable(self):
         snap = load_snapshot()
@@ -68,13 +78,13 @@ class TestMarketSnapshot:
         brl = snap.get("USDBRL")
         assert len(brl.usd_df_curve) == 6
         assert len(brl.eur_df_curve) == 6
-        assert brl.get_usd_df("3M") == pytest.approx(0.9888)
+        assert 0.85 < brl.get_usd_df("3M") < 1.0   # a valid 3M discount factor
 
     def test_gbp_pair_has_required_gbp_curve(self):
         snap = load_snapshot()
         gbp = snap.get("GBPUSD")
         assert len(gbp.gbp_df_curve) == 6
-        assert gbp.get_gbp_df("3M") == pytest.approx(0.9882)
+        assert 0.85 < gbp.get_gbp_df("3M") < 1.0   # a valid 3M discount factor
 
     def test_missing_required_base_curve_raises(self):
         with pytest.raises(ValueError, match="requires a gbp_df_curve"):

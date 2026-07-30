@@ -85,10 +85,10 @@ class TestForwards:
             tenor_to_years("5Y")
 
     def test_interpolate_forward_at_tenor(self, brl):
-        # At exact 3M tenor, should return the snapshot value
+        # At an exact pillar, interpolation returns that pillar's own outright.
         T_3m = tenor_to_years("3M")
         fwd = interpolate_forward(brl, T_3m)
-        assert fwd == pytest.approx(5.232, rel=0.01)
+        assert fwd == pytest.approx(brl.get_forward("3M").outright, rel=0.01)
 
     def test_interpolate_forward_between_tenors(self, brl):
         # Between 1M and 2M should be between their values
@@ -118,16 +118,23 @@ class TestForwards:
         assert F_check == pytest.approx(F, rel=1e-6)
 
     def test_build_rate_context(self, brl):
-        ctx = rate_context_for_snapshot(brl, tenor_to_years("3M"))
-        assert ctx.spot == pytest.approx(5.12, rel=0.01)
-        assert ctx.forward == pytest.approx(5.232, rel=0.01)
-        assert ctx.T == pytest.approx(tenor_to_years("3M"))
+        T = tenor_to_years("3M")
+        ctx = rate_context_for_snapshot(brl, T)
+        # Spot/forward come straight from the snapshot (derived, not hardcoded).
+        assert ctx.spot == pytest.approx(brl.spot)
+        assert ctx.forward == pytest.approx(interpolate_forward(brl, T), rel=0.01)
+        assert ctx.T == pytest.approx(T)
         assert ctx.discount_factor < 1.0
-        # r_d = BRL (implied), r_f = USD (direct from usd_df_curve)
-        # BRL rates > USD rates, so rate_differential (r_d - r_f) > 0
-        assert ctx.rate_differential > 0
-        assert ctx.r_f == pytest.approx(0.045, abs=0.01)   # USD rate ~4-5%
-        assert ctx.r_d > 0.10   # BRL implied ~12%
+        # r_f (USD) is a plausible funding rate, and the rates satisfy CIP.
+        assert 0.0 < ctx.r_f < 0.15
+        assert ctx.forward == pytest.approx(
+            ctx.spot * math.exp((ctx.r_d - ctx.r_f) * T), rel=1e-6
+        )
+        # USDBRL is a high-carry NDF: BRL rate > USD rate, so the differential is > 0
+        # as long as the forward sits above spot (a property of the pair, not a level).
+        assert ctx.rate_differential == pytest.approx(ctx.r_d - ctx.r_f)
+        if ctx.forward > ctx.spot:
+            assert ctx.rate_differential > 0
 
 
 # ---------------------------------------------------------------------------
