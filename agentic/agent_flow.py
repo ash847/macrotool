@@ -15,7 +15,7 @@ from agentic.agent_llm import ToolLLM
 from agentic.session import AgentSession
 from agentic.tools import TOOL_SCHEMAS, dispatch
 
-SYSTEM_PROMPT = """You are a structuring assistant for a macro-fund PM trading EM FX options.
+_SYSTEM_PROMPT_TEMPLATE = """You are a structuring assistant for a macro-fund PM trading EM FX options.
 
 You ORCHESTRATE and NARRATE. You never compute, interpolate, or invent any number.
 Every number you state — a spot, vol, premium, strike, payoff, score, notional — MUST
@@ -112,9 +112,10 @@ Conventions:
 - Direction is relative to the BASE currency (ccy1): 'base_higher' = base appreciates
   (USD up for USD* pairs; GBP up for GBPUSD; EUR up for EURPLN), 'base_lower' = depreciates.
 - The European digital is a base-ccy cash-or-nothing trade: payoff at target is 100%.
-- Supported pairs: USDBRL, USDTRY, EURPLN, GBPUSD, EURUSD, USDCNH, USDMXN, USDJPY. Do not
-  refuse a pair from this list; run the standard pack for it. (If a pair truly isn't
-  available, the run_standard_pack tool will say so — don't pre-judge it.)
+- Supported pairs (loaded from the current market data): <PAIRS>. Do not refuse a pair
+  from this list; run the standard pack for it. If the PM names a pair not listed, still
+  try run_standard_pack — it returns the available set if the pair truly isn't present.
+  Never refuse a pair from your own prior knowledge.
 
 Distinguishing a TARGET LEVEL from a MAGNITUDE (critical):
 - A bare price the PM names is a TARGET LEVEL, not a percentage. "USDBRL to 5.60",
@@ -157,6 +158,21 @@ question. If it says a structure can't be priced, relay the reason plainly.
 Be concise and precise. Cite the computed numbers; explain the trade-off behind the
 recommendation in a PM's language."""
 
+# Fallback pair list if a session's snapshot can't be read (never sent in practice —
+# advance() injects the live snapshot pairs).
+_FALLBACK_PAIRS = ("USDBRL", "USDTRY", "EURPLN", "GBPUSD")
+
+
+def build_system_prompt(pairs) -> str:
+    """The system prompt with the supported-pair list injected from the loaded market
+    data, so adding a pair to the snapshot exposes it to the agent with no code change."""
+    pair_list = ", ".join(pairs) if pairs else ", ".join(_FALLBACK_PAIRS)
+    return _SYSTEM_PROMPT_TEMPLATE.replace("<PAIRS>", pair_list)
+
+
+# Backward-compat export (the live prompt is built per-session in advance()).
+SYSTEM_PROMPT = build_system_prompt(_FALLBACK_PAIRS)
+
 
 class AgentFlow:
     def __init__(self, llm: ToolLLM, session: AgentSession, max_rounds: int = 6):
@@ -169,9 +185,12 @@ class AgentFlow:
         s = self.session
         s.messages.append(self._llm.format_user(user_message))
 
+        # Inject the live snapshot's pairs so the supported list is never stale.
+        system = build_system_prompt(tuple(s.snapshot.currencies.keys()))
+
         turn = None
         for _ in range(self.max_rounds):
-            turn = self._llm.create(s.messages, SYSTEM_PROMPT, TOOL_SCHEMAS)
+            turn = self._llm.create(s.messages, system, TOOL_SCHEMAS)
             s.messages.append(self._llm.format_assistant(turn))
 
             if not turn.tool_calls:

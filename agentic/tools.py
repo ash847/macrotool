@@ -39,12 +39,10 @@ _HAS_LEG = re.compile(r"[0-9%]|atmf|atm|sigma|target|tgt")
 _DIRECTIONS = ("base_higher", "base_lower")
 _CONVICTIONS = ("high", "medium", "low")
 _MODES = ("recommend", "critique")
-# Every pair in the market snapshot is priceable by the engine (all have a USD/EUR/GBP
-# base with a df curve), so the agent supports the same set Trade View does. Used for
-# the tool description / error text; the live gate below checks the loaded snapshot.
-SUPPORTED_PAIRS = (
-    "USDBRL", "USDTRY", "EURPLN", "GBPUSD", "EURUSD", "USDCNH", "USDMXN", "USDJPY",
-)
+# Supported pairs are NOT hardcoded: the run_standard_pack gate below checks the loaded
+# market snapshot (session.snapshot.currencies), and the agent's system prompt is built
+# per-session from that same list — so adding a pair to the snapshot exposes it with no
+# code change. Every snapshot pair is priceable (all have a USD/EUR/GBP base + df curve).
 
 
 TOOL_SCHEMAS = [
@@ -71,7 +69,7 @@ TOOL_SCHEMAS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "pair": {"type": "string", "description": "e.g. USDBRL, USDTRY, EURPLN, GBPUSD, EURUSD, USDCNH, USDMXN, USDJPY"},
+                "pair": {"type": "string", "description": "any pair in the loaded market data (e.g. USDBRL, EURUSD, USDJPY); the tool returns the available set if not present"},
                 "horizon_days": {"type": "integer", "description": "tenor in days"},
                 "target_level": {
                     "type": "number",
