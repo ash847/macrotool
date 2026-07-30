@@ -1353,21 +1353,25 @@ else:
     _brief_path = Path(__file__).parent / "testing_brief.json"
     try:
         _brief = json.loads(_brief_path.read_text())
-        _brief_has_content = bool(
-            _brief.get("focus") or _brief.get("try_these") or _brief.get("ignore_for_now")
-        )
-        if can_see("testing_brief", ROLE) and _brief_has_content:
-            with st.expander(f"Testing brief — {_brief.get('updated', '')}", expanded=not flow.view):
-                st.markdown(f"**Focus:** {_brief['focus']}")
-                col_try, col_skip = st.columns(2)
-                with col_try:
-                    st.markdown("**Try these**")
-                    for item in _brief.get("try_these", []):
-                        st.caption(f"• {item}")
-                with col_skip:
-                    st.markdown("**Ignore for now**")
-                    for item in _brief.get("ignore_for_now", []):
-                        st.caption(f"• {item}")
+        if can_see("testing_brief", ROLE) and (_brief.get("intro") or _brief.get("caveats")):
+            with st.expander("Testing guidelines", expanded=not flow.view):
+                if _brief.get("intro"):
+                    st.markdown(_brief["intro"])
+                # Pairs + spot levels are read LIVE from the loaded snapshot, so they
+                # never go stale when the market data is retuned.
+                _snap = flow._snapshot
+                st.markdown(
+                    f"**Currency pairs & indicative spot** — data snapshot dated "
+                    f"{_snap.snapshot_date}"
+                )
+                _pairs = list(_snap.currencies.items())
+                _cols = st.columns(4)
+                for _i, (_p, _c) in enumerate(_pairs):
+                    _cols[_i % 4].caption(f"**{_p}**  ·  {_c.spot:g}")
+                if _brief.get("caveats"):
+                    st.markdown("**Please note**")
+                    for _cav in _brief["caveats"]:
+                        st.caption(f"• {_cav}")
     except Exception:
         pass
 

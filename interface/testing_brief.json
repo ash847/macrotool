@@ -1,9 +1,12 @@
 {
-  "_note": "Edit this file to update the testing brief. Changes deploy automatically on next push.",
-  "updated": "2026-07-23",
-  "focus": "",
-  "try_these": [],
-  "ignore_for_now": [],
+  "_note": "Testing guidelines box (Trade View). Pairs + spot levels are rendered live from the market snapshot; edit 'intro'/'caveats' here. Changes deploy on the next app reboot.",
+  "updated": "2026-07-30",
+  "intro": "Welcome — this is a testing environment. Below are the currency pairs and indicative spot levels the tool is currently loaded with.",
+  "caveats": [
+    "The market data is a fixed snapshot — it does not update in real time and is likely stale versus live markets.",
+    "All prices, premiums, payoffs and sizing are indicative and for guidance only: treat them as a directional guide to the structuring logic, not tradeable or executable accuracy.",
+    "Vols and skews are approximate, so a structure's economics illustrate the approach rather than a live, dealable quote."
+  ],
   "questions": [
     "Is the ranking and scoring correct?",
     "Does the weighting grid give us the richness we need?",
