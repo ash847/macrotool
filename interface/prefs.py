@@ -17,7 +17,7 @@ MERGED_PREF_OPTIONS: dict[str, tuple[str, str]] = {
     "No restriction · standard hold":       ("No restriction", "Standard hold"),
     "Avoid capped upside":                  ("Avoid capped structures", "Standard hold"),
     "May monetise early — keep it simple":  ("Avoid complex structures", "May monetise early"),
-    "Clean, defendable risk":               ("Avoid tail-risky structures", "Need defendable mark-to-market"),
+    "Defendable risk, no tails":            ("Avoid tail-risky structures", "Need defendable mark-to-market"),
 }
 
 DEFAULT_MERGED_PREF = "No restriction · standard hold"

@@ -161,7 +161,7 @@ def _render_priced_table(ev) -> None:
         rows.append(row)
     st.subheader("Top structures")
     st.caption("Priced variants with strikes, ordered by scenario-weighted P&L. "
-               "Kelly risk (when shown) is full-Kelly capital at risk (pre-λ) as a share of W.")
+               "Kelly risk (when shown) is full-Kelly capital at risk (pre-λ) as a share of W")
     _cfg = ({"Kelly risk": st.column_config.Column(help=_KELLY_RISK_HELP)}
             if any("Kelly risk" in r for r in rows) else None)
     st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True, column_config=_cfg)
