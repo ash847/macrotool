@@ -460,10 +460,18 @@ def _render_sizing_panel() -> None:
 
     st.subheader("Sizing")
     with st.container(border=True):
+        # Capital label depends on the method. Read the radio's persisted value (already
+        # current at the start of this rerun) so the label swaps immediately on toggle,
+        # even though the radio (c2) renders after the input (c1).
+        _cap_label = (
+            "Capital behind this book (W)"
+            if st.session_state.get("sizing_method_label", "Fixed loss") == "Kelly"
+            else "Linear delta equivalent"
+        )
         c1, c2, c3 = st.columns([1.4, 1.0, 1.6])
         with c1:
             st.text_input(
-                "Capital behind this book (W)",
+                _cap_label,
                 key="sizing_capital_text", on_change=_apply_w_text,
                 help="Shared by every trade and both sizing methods (base ccy of the "
                      "pair); a change here applies for the rest of the session. Fixed "
