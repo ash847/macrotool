@@ -60,17 +60,39 @@ def _forced_role() -> str | None:
     return role if role in ("admin", "tester") else "tester"
 
 
+# Login providers this app knows how to offer, in display order. Each maps the
+# ``[auth.<key>]`` secrets block to the button label shown on the sign-in screen.
+# Add a provider by adding one entry here — require_login() picks up any that are
+# configured, so e.g. Auth0 (magic-link / passwordless email, for testers without a
+# Google account) appears automatically once its secrets are set, no other code change.
+_PROVIDERS: tuple[tuple[str, str], ...] = (
+    ("google", "Sign in with Google"),
+    ("auth0", "Sign in with magic link"),
+)
+
+
+def _provider_configured(provider: str) -> bool:
+    try:
+        block = st.secrets.get("auth", {}).get(provider, {})
+        return bool(
+            block.get("client_id") and block.get("client_secret") and block.get("server_metadata_url")
+        )
+    except Exception:
+        return False
+
+
+def _configured_providers() -> list[tuple[str, str]]:
+    """(provider_key, button_label) for every provider with complete secrets, in
+    ``_PROVIDERS`` display order."""
+    return [(key, label) for key, label in _PROVIDERS if _provider_configured(key)]
+
+
 def auth_configured() -> bool:
     try:
         auth = st.secrets.get("auth", {})
         if not (auth.get("redirect_uri") and auth.get("cookie_secret")):
             return False
-        google = auth.get("google", {})
-        return bool(
-            google.get("client_id")
-            and google.get("client_secret")
-            and google.get("server_metadata_url")
-        )
+        return bool(_configured_providers())
     except Exception:
         return False
 
@@ -153,5 +175,9 @@ def require_login() -> None:
     if not st.user.is_logged_in:
         st.title("MacroTool")
         st.write("Sign in to continue.")
-        st.button("Sign in with Google", on_click=st.login, args=("google",))
+        providers = _configured_providers()
+        for i, (key, label) in enumerate(providers):
+            if i > 0:
+                st.caption("or")
+            st.button(label, key=f"login_{key}", on_click=st.login, args=(key,))
         st.stop()

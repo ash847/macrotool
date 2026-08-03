@@ -62,3 +62,53 @@ def test_fail_restricted_default_is_tester(monkeypatch):
     monkeypatch.delenv("MACROTOOL_DEV", raising=False)
     monkeypatch.setattr(security, "is_admin_user", lambda: False)
     assert security.user_role() == "tester"
+
+
+# ---------------------------------------------------------------------------
+# Multi-provider login (Google + Auth0 magic-link) — interface/security.py
+# ---------------------------------------------------------------------------
+
+_FULL_AUTH_BLOCK = {"redirect_uri": "https://x/~/+/oauth2callback", "cookie_secret": "s" * 64}
+_GOOGLE_BLOCK = {"client_id": "g_id", "client_secret": "g_secret", "server_metadata_url": "https://accounts.google.com/.well-known/openid-configuration"}
+_AUTH0_BLOCK = {"client_id": "a0_id", "client_secret": "a0_secret", "server_metadata_url": "https://tenant.us.auth0.com/.well-known/openid-configuration"}
+
+
+def _patch_secrets(monkeypatch, auth: dict):
+    monkeypatch.setattr(security.st, "secrets", {"auth": auth})
+
+
+def test_no_providers_configured_means_not_configured(monkeypatch):
+    _patch_secrets(monkeypatch, {**_FULL_AUTH_BLOCK})
+    assert security._configured_providers() == []
+    assert security.auth_configured() is False
+
+
+def test_google_only_offers_one_button(monkeypatch):
+    _patch_secrets(monkeypatch, {**_FULL_AUTH_BLOCK, "google": _GOOGLE_BLOCK})
+    assert security._configured_providers() == [("google", "Sign in with Google")]
+    assert security.auth_configured() is True
+
+
+def test_auth0_only_offers_magic_link_button(monkeypatch):
+    _patch_secrets(monkeypatch, {**_FULL_AUTH_BLOCK, "auth0": _AUTH0_BLOCK})
+    assert security._configured_providers() == [("auth0", "Sign in with magic link")]
+    assert security.auth_configured() is True
+
+
+def test_both_providers_configured_offers_both_in_order(monkeypatch):
+    _patch_secrets(monkeypatch, {**_FULL_AUTH_BLOCK, "google": _GOOGLE_BLOCK, "auth0": _AUTH0_BLOCK})
+    assert security._configured_providers() == [
+        ("google", "Sign in with Google"),
+        ("auth0", "Sign in with magic link"),
+    ]
+
+
+def test_incomplete_provider_block_is_not_configured(monkeypatch):
+    # Missing client_secret — shouldn't count as configured.
+    _patch_secrets(monkeypatch, {**_FULL_AUTH_BLOCK, "auth0": {"client_id": "x"}})
+    assert security._configured_providers() == []
+
+
+def test_missing_redirect_or_cookie_secret_fails_closed(monkeypatch):
+    monkeypatch.setattr(security.st, "secrets", {"auth": {"google": _GOOGLE_BLOCK}})  # no redirect_uri/cookie_secret
+    assert security.auth_configured() is False
