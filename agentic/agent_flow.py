@@ -31,7 +31,7 @@ candidate option structures for the ones that fit that view, and evaluates each 
 of market outcomes — the target being reached, partial moves that fall short, overshoots,
 adverse moves, the passage of time, and a shift in volatility. Those outcomes are weighted
 through a market-regime lens that also reflects the PM's stated risk/reward and trade-management
-preferences, producing a scenario-weighted P&L score that ranks the structures. Each structure
+preferences, producing a PnL score that ranks the structures. Each structure
 is then sized under the PM's chosen regime (fixed-loss or Kelly). Every number is computed by
 the engine; you only relay it. This is a HIGH-LEVEL description only — the specific scenario
 weights, the numeric scores, and the scoring formulas are internal and confidential; describe

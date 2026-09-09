@@ -282,6 +282,13 @@ _KELLY_RISK_HELP = (
     "multiple of W, so the full-Kelly notional is f*×W."
 )
 
+# Header tooltip / caption line for the PnL score column — the fixed, reused explanation
+# of the term across surfaces (Trade View, Batch, tester rollout).
+_PNL_SCORE_HELP = (
+    "PnL score reflects how a structure performs across a range of possible market "
+    "outcomes, tuned to match an expert practitioner's process."
+)
+
 
 def render_structure_variants(
     flow: ConversationFlow,
@@ -295,7 +302,7 @@ def render_structure_variants(
 ) -> None:
     """``scenario_pnl`` (optional): {(structure_id, variant_label): score_ccy} — the
     context-weighted scenario P&L in base ccy per variant. When supplied (Batch), a
-    'Scenario P&L' column is added to each variant table; Trade View omits it.
+    'PnL score' column is added to each variant table; Trade View omits it.
 
     ``eval_result`` (optional): a precomputed EvalResult. When supplied, each
     structure's expander also shows the top-3 / bottom-3 scenario-cell P&L drivers
@@ -398,21 +405,22 @@ def render_structure_variants(
                     r["Kelly risk"] = f"{_car:.0%}"
                 if scenario_pnl is not None:
                     _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
-                    r["Scenario P&L"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"
+                    r["PnL score"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"
                 if _has_barrier:
                     r["Barrier"] = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
                 if _has_wing:
                     r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
                 _rows.append(r)
-            _kelly_cfg = (
-                {"Kelly risk": st.column_config.Column(help=_KELLY_RISK_HELP)}
-                if any("Kelly risk" in _r for _r in _rows) else None
-            )
+            _kelly_cfg = {}
+            if any("Kelly risk" in _r for _r in _rows):
+                _kelly_cfg["Kelly risk"] = st.column_config.Column(help=_KELLY_RISK_HELP)
+            if any("PnL score" in _r for _r in _rows):
+                _kelly_cfg["PnL score"] = st.column_config.Column(help=_PNL_SCORE_HELP)
             _show_df(
                 pd.DataFrame(_rows),
                 key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
                 height=_fit_height(key_prefix, len(_rows)),
-                column_config=_kelly_cfg,
+                column_config=_kelly_cfg or None,
             )
             if eval_result is not None:
                 _render_cell_drivers(eval_result, _item.structure_id, _base_ccy)
@@ -880,7 +888,7 @@ def render_structure_evaluation(
             else ("  (unscaled)" if _pv0.structure_notional is None else "")
         )
         _variant_title += (
-            f"  ·  Scenario weighted P&L: {_base_pct}{_base_ccy_str}"
+            f"  ·  PnL score: {_base_pct}{_base_ccy_str}"
             f"  ·  PM overlay weighted P&L: {_ctx_pct}{_ctx_ccy_str}"
         )
 

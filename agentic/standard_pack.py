@@ -179,8 +179,9 @@ def _recommend_ranked(
 
     # Order by scenario-weighted P&L (score_ccy), NOT affinity rank, so the agent
     # surfaces the same top structures as the Trade View Structure Evaluation (which
-    # ranks by score_ccy) and matches this pack's own "best ... by scenario-weighted
-    # P&L" label. Display rank then follows that order. None scores sort last.
+    # ranks by score_ccy) and matches this pack's own "best ... by PnL score" label
+    # (render.py — "PnL score" is the external name for score_ccy; kept vague on
+    # purpose). Display rank then follows that order. None scores sort last.
     out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else float("-inf"), reverse=True)
     for i, r in enumerate(out, 1):
         r.rank = i

@@ -144,7 +144,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     if pack.recommended:
         lines.append(
             "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
-            "scenario-weighted P&L; use these):"
+            "PnL score; use these):"
         )
         cap_note = f"notional capped at 10×W = {10 * pack.linear_notional:,.0f} {base_ccy}"
         if pack.sizing_method == "kelly":

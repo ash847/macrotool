@@ -15,6 +15,7 @@ import streamlit as st
 from interface.structure_eval import (
     LINEAR_NOTIONAL,
     _KELLY_RISK_HELP,
+    _PNL_SCORE_HELP,
     compute_structure_evaluation,
     fmt_ccy,
 )
@@ -86,7 +87,7 @@ def _build_prompt(ev, ms, flow) -> str:
     parts += [
         f"CARRY: c = {ms.c:+.3f} | {carry_lbl} | VOL: {ms.vol:.0%} ATM | TARGET: {target_lbl}",
         "",
-        f"TOP {len(top5)} STRUCTURES (scenario-weighted P&L, highest first):",
+        f"TOP {len(top5)} STRUCTURES (PnL score, highest first):",
         *struct_lines,
         "",
         _INSTR,
@@ -143,7 +144,7 @@ def _render_shortlist(ms, flow) -> None:
 
 
 def _render_priced_table(ev) -> None:
-    """The priced 'Top structures' table (with strikes), scenario-weighted P&L order."""
+    """The priced 'Top structures' table (with strikes), PnL score order."""
     base_ccy = ev.base_ccy
     rows = []
     for i, ve in enumerate(ev.variants[:5], 1):
@@ -160,8 +161,9 @@ def _render_priced_table(ev) -> None:
             row["Kelly risk"] = f"{pv.kelly_fraction * (pv.max_loss_pct or 0.0):.0%}"
         rows.append(row)
     st.subheader("Top structures")
-    st.caption("Priced variants with strikes, ordered by scenario-weighted P&L. "
+    st.caption("Priced variants with strikes, ordered by PnL score. "
                "Kelly risk (when shown) is full-Kelly capital at risk (pre-λ) as a share of W")
+    st.caption(_PNL_SCORE_HELP)
     _cfg = ({"Kelly risk": st.column_config.Column(help=_KELLY_RISK_HELP)}
             if any("Kelly risk" in r for r in rows) else None)
     st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True, column_config=_cfg)
