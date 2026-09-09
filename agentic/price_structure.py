@@ -66,6 +66,7 @@ def price_structure(
     target: float | None = None,
     stop_price: float | None = None,
     loss_budget: float | None = None,
+    linear_notional: float = 100.0,
     smile: object = _UNSET,
 ) -> PriceStructureResult:
     """Price a single PM-requested structure against the current market state.
@@ -78,6 +79,10 @@ def price_structure(
         target:       target spot level, from the session view (Tier-1 input).
         stop_price:   optional stop level (seagull max-loss sizing).
         loss_budget:  optional base-ccy loss budget → populates the ccy fields.
+        linear_notional: the PM's real sizing capital (W) — bounds the notional cap
+                      (10×W) applied in ``_size_variant``. Must match the session's
+                      bankroll or the cap clips the sized notional to a placeholder
+                      value regardless of loss_budget.
         smile:        VolSurface; defaults to ``ms.surface`` so entry pricing uses
                       the same surface the pack was built against.
     """
@@ -96,6 +101,7 @@ def price_structure(
         is_call=is_call,
         stop_price=stop_price,
         loss_budget=loss_budget,
+        linear_notional=linear_notional,
         smile=surface,
         warnings=warnings,
         variants_override=[variant_dict],

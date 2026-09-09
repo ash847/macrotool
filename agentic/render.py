@@ -192,7 +192,9 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         extra = len(pack.recommended) - len(top)
         if extra > 0:
             lines.append(
-                f"  (+{extra} more structures considered — list them only if the PM asks.)"
+                f"  (+{extra} more structures considered — this is a COUNT only, their identities "
+                f"are not included here. If the PM asks what they are, say you don't have their "
+                f"names rather than guessing.)"
             )
         if pack.deciding_axis:
             lines.append(

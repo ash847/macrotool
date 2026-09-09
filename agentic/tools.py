@@ -243,6 +243,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             is_call=session.pack.is_call,
             target=session.pack.target,
             loss_budget=session.pack.loss_budget,
+            linear_notional=session.linear_notional,
             smile=getattr(ms, "surface", None),
         )
     except StructureRequestError as e:
