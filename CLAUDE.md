@@ -8,7 +8,7 @@ EM FX trade structuring & sizing tool for macro fund PMs. The target architectur
 .venv/bin/streamlit run interface/app.py   # UI
 .venv/bin/python demo.py                   # full pipeline without LLM
 .venv/bin/python demo.py --pair USDTRY --direction base_higher --horizon 60
-.venv/bin/python -m pytest                 # 373 tests
+.venv/bin/python -m pytest                 # 477 tests (1 pre-existing scorer failure)
 ```
 
 Python 3.13. Venv at `.venv/`. Requires `ANTHROPIC_API_KEY` (sidebar or secrets).
@@ -22,8 +22,9 @@ pricing/        Black-Scholes, forwards interpolation, scenario matrices
 knowledge/      JSON knowledge base (facts + tunable defaults)
 knowledge_engine/  Rule engine — scorer, sizing, critique, conventions
 config/         Layered config system with session override support
-conversation/   LLM state machine + prompt assembly + tracing
-interface/      Streamlit app, charts, Supabase logger, debug log
+conversation/   LLM state machine + prompt assembly + tracing (legacy INTAKE path)
+agentic/        Tool-calling Agent loop — system prompt, 2 tools, standard pack + render
+interface/      Streamlit app (Trade View / Agent / Kelly / Batch), charts, Supabase logger
 ```
 
 **The single most important rule: LLM narrates only. All numbers are pre-computed by the engine before the LLM is called.** The LLM sees structured text blocks, never raw data objects.
@@ -67,6 +68,19 @@ This remains the intended conversation architecture. The current Streamlit Trade
 - `compute_flat_vol_distribution()`, `compute_smile_distribution()` (best-effort, non-fatal)
 - `evaluate_structure()` (critique mode only)
 
+## Agent page (agentic layer)
+
+The **Agent** nav page is the live LLM path (the legacy INTAKE state machine above is dormant on the visible UI). It's a provider-neutral **tool-calling loop** in `agentic/`:
+
+- `agent_flow.py` — `AgentFlow.advance(user_msg)` runs up to `max_rounds=6` API calls. Each call sends the static `SYSTEM_PROMPT` + `TOOL_SCHEMAS` + the growing message history; the model emits tool calls (Python runs them, the result is appended as a `tool_result`) or returns narration text (ends the turn).
+- `agent_llm.py` — the `ToolLLM` seam (`AnthropicToolLLM` + `FakeToolLLM` for no-API tests). Default model **`claude-sonnet-4-6`**, `MAX_TOKENS=2048`. System prompt ≈1.7K tokens, tools ≈0.7K, a rendered pack ≈0.6K → ~3K/call (~1.5% of a 200K window — lots of headroom).
+- `tools.py` — exactly **two tools**: `run_standard_pack` (Tier-1: LLM supplies the *view*, Python runs `build_pack`) and `price_structure` (Tier-2: prices one PM-named structure against the frozen pack; refuses if no pack yet).
+- `standard_pack.py: build_pack()` → `StandardPack`; `render.py: render_pack()` projects it to **labelled text** (VIEW, MARKET CONTEXT, CONTEXT GUIDANCE, RECOMMENDED STRUCTURES with per-leg breakdown + driver split, SIZING stop). The LLM narrates over this text and never sees raw objects.
+
+**Iron rule (system prompt):** the LLM orchestrates and narrates; **every number it states must come verbatim from a tool result.** Today's guardrails baked into the prompt + render: it does **not** volunteer the engine `risk (engine)` line unless asked (fetched via `price_structure`); it may relay the `CONTEXT GUIDANCE` block + per-structure `drivers:` split to explain *why* a regime favours a structure but **never** overrides the engine's ranked pick. The Agent path currently uses **global** scenario weights (per-user profile not yet threaded into `build_pack`'s caller).
+
+**Sizing-regime lock (system prompt + pack).** The pack prints a `SIZING REGIME:` line — `FIXED-LOSS` or `KELLY` — reflecting the PM's active sizing choice, threaded UI→agent via `AgentSession.sizing_method` / `kelly_lambda` / `kelly_probs` / `kelly_bins` → `build_pack(..., sizing_method=, kelly_*=)`. `build_pack` builds a `SizingSpec` when the regime is Kelly + a distribution is present and sizes the whole pack (recommendations, notionals, per-structure `f*`) under it via the comparator's `sizing_spec` seam. The LLM is **locked to the stated regime**: use only that regime's framing/numbers, never introduce or compare the other. This **reverses the earlier "never state a Kelly number" rule** — under KELLY the agent MAY state the bankroll W, λ, per-structure full-Kelly `f*`, and sized notional (λ·f*·W), but ONLY the exact `Kelly f* = …` values the pack prints (never computed/averaged). Under FIXED-LOSS there is no Kelly number to state. `PricedVariant.kelly_fraction` carries `x*` (= notional/W, a leverage multiple) per variant (populated in `_size_variants_kelly`). **Displayed as a "Kelly risk" column = full-Kelly CAPITAL AT RISK = `f*·max_loss_pct` (pre-λ, a share of W ≤ 100% by the ruin barrier for debit)** — the intuitive Kelly figure — with the raw `f*` notional multiple in the column-header tooltip (`_KELLY_RISK_HELP`; st.dataframe has no per-cell hover) and the agent's `Kelly:` line. Raw `f*` runs large (20/80/280…) because it is inversely proportional to the structure's premium %, so it is context, never called "the Kelly fraction". Guard: `tests/test_agent_sizing_regime.py`.
+
 ## Direction convention
 
 Always relative to the **base currency (ccy1)**:
@@ -92,17 +106,43 @@ This convention runs through `TradeView`, `MarketState`, `with_carry`, stop leve
 Replaces the old flat rules engine. Two steps per structure:
 
 1. **Gates** — hard filters. Fail a gate → structure is ineligible regardless of score.
-   - `target_z_abs_min/max` — minimum/maximum σ distance of target from forward.
+   - `target_z_abs_min/max` — minimum/maximum σ distance of target **from spot** (`target_z_spot`).
 
-2. **Scoring** — sum affinity scores across 4 dimensions:
-   - `target_z_abs` — how far the target is from the forward (no_target / near / moderate / extended / far)
+2. **Scoring** — sum affinity scores across 5 dimensions:
+   - `target_z_abs` — how far the target is from **spot** (no_target / near / moderate / extended / far). Buckets `[0.5, 1.25, 1.75]` are σ-from-spot and manually tunable.
    - `carry_regime` — 0 / 1 / 2 based on |c| vs thresholds in JSON
    - `atmfsratio` — payout ratio of carry-capturing spread (low / medium / high). None when carry_regime=0.
    - `carry_alignment` — compound dimension: `with_{atm_bucket}` or `counter_{atm_bucket}`. Captures the interaction between carry direction and carry magnitude.
+   - `structure_constraint` — PM preference gate/penalty (5th dimension).
+
+**Two `target_z` fields on `MarketState` — distinct anchors for distinct purposes:**
+- `target_z_spot = ln(target/spot)/(σ√T)` — **spot-anchored**, used by the scoring/selection layer. The "how far is the PM's target from where we are now" question.
+- `target_z = ln(target/fwd)/(σ√T)` — **forward-anchored**, used by construction (put/call direction, variant eligibility gates in `structure_pricer`). Identity: `target_z = target_z_spot − c`.
+- `put_call` is always derived from the forward (`"Call" if target > fwd`). **Never use `target_z_spot` for construction or option direction.**
 
 All thresholds and scores are in `knowledge/defaults/affinity_scores.json`. Tunable without Python changes. Carry regime thresholds are also loaded from this file — no hardcoded defaults.
 
 Primary structures (overlay_only=False) are capped at max_primary (default 3). Overlays ranked separately.
+
+**1x2x1 butterfly (`1x2x1_spread`).** A separate scored family that mirrors the `1x2_spread` variant menu: for each 1x2 (long 1× K1, short 2× K2) it adds a long wing at **K3 = 2·K2 − K1** (equidistant), capping the 1x2's open tail so **max loss = net premium paid**. Priced in `_1x2x1` (`structure_pricer`) + a scenario-MtM branch (`scenario_pricer`) + the product model (`build_structure`/`price`, K3 derived at price time — covered by `test_product_model_parity`). Its affinity entry clones the 1x2's scores but **scores 0 (not −5) on `Avoid tail-risky structures`** and is **hard-gated only by `Avoid complex structures`** (3 legs) — i.e. it's the tail-safe alternative the engine can still pick when the naked 1x2 is excluded. Shown *in addition to* the 1x2, not replacing it. **Tie-break nudge:** the 1x2x1's `target_z_abs` buckets each carry a uniform `+0.01` over the 1x2's, so its total is always exactly `1x2 + 0.01` — ranking it **just above** the naked 1x2 (and the rest of the exact-tie cluster) so it surfaces within the top-N cut rather than being dropped one rank below the 1x2. All affinity atoms are multiples of 0.1, so `0.01` never overtakes a genuinely higher-scored family. Guard: `tests/test_1x2x1.py`.
+
+## Scenario grid — spot-anchored
+
+`analytics/scenario_generator.py` builds a deterministic grid. The grid is **spot-centred**: the "no-move" column `S` holds spot unchanged, and σ-offset columns (`−½σ`, `−1σ`) are measured from spot. `scenario_fwd` is derived per-cell via CIP (`scenario_spot · e^{(r_d−r_f)·τ}`) and decays toward spot at expiry — it is used for MtM pricing only.
+
+**Two anchors, deliberately separated:**
+- **Spot** anchors the grid geometry (where scenarios sit, what "no move" means).
+- **Forward** anchors pricing and construction (Black-76 MtM, `direction = sign(K/F)`).
+
+Column set: `[S, t%→K, K−½σ, K, K+½σ, −½σ, −1σ, Δvol]`. `S` = spot unchanged (displayed as "No move" in the UI). `K−½σ`/`K`/`K+½σ` are **target-anchored** (`K±½σ = K·e^{±direction·½σ_t}`): `K−½σ` = half a sigma *short* of the target in the view's direction (a partial move that undershoots), `K+½σ` = overshoot. `t%→K` tracks progress spot→K with progress fraction `p = elapsed/T` (so 25%T→0.25, 50%T→0.50, early row→14/365 ÷ T).
+
+Rows: `[2w, 25%T, 50%T, Expiry]`. The early **2w** row (was `1w`) only appears for tenors `> 6 weeks` (`valid_grid_rows`) and now exposes the **full directional move set** (same columns as the interim rows) so the "fast move" path — reaching/overshooting the target inside two weeks — is visible rather than greyed out. `−½σ`/`−1σ` stay spot-anchored adverse cells.
+
+**Per-row roll-down forward:** the `S` cell's `scenario_fwd` gives the carry-derived forward at each time checkpoint. It decays toward spot at expiry and is surfaced in the UI row headers (`25%T · fwd 41.2`) so the carry tailwind remains visible without being the grid's centre.
+
+**Direction** (`direction = sign(K/F)`) stays forward-relative so up-weighted "favourable" cells align with where the forward-constructed structure actually profits. On a carry-cross target (target between spot and forward), a put structure's adverse cells sit above the forward — this is P&L-correct, not a bug.
+
+Config: `knowledge/defaults/scenario_definitions.json` (`_grid_cols`, `scenario_column_descriptions`, per-cell multipliers). JSON is the re-tune surface; Python handles computation.
 
 ## Rate context and df curves
 
@@ -117,14 +157,20 @@ NDF outrights already embed the full interest rate differential — use them as-
 
 ## Supported pairs
 
+All 8 pairs in `data/market_snapshot.json` are wired — engine, Trade View, Batch, Kelly, and the Agent. There is no separate pair allowlist: every surface derives its pair list from the live snapshot (`snapshot.currencies.keys()` in the UI; `session.snapshot.currencies` in `agentic/tools.py`, injected into the Agent's system prompt per-session via `build_system_prompt()` in `agentic/agent_flow.py`). `knowledge_engine/loader.py` derives its supported set from whichever `knowledge/facts/{pair}.json` files exist. **Adding a pair means adding its snapshot entry + a `knowledge/facts/{pair}.json` (including a `deliverable` or `ndf` settlement block) — nothing else to wire.**
+
 | Pair | Type | Base DF curve | Character |
 |------|------|--------------|-----------|
 | USDBRL | NDF | usd_df_curve | High carry, topside skew |
 | USDTRY | NDF | usd_df_curve | Very high carry, strong topside skew |
 | EURPLN | Deliverable | eur_df_curve | Moderate carry, symmetric skew |
 | GBPUSD | Deliverable | gbp_df_curve | Low carry (G10), mild negative skew |
+| EURUSD | Deliverable | eur_df_curve | Deepest G10 liquidity, near-symmetric skew |
+| USDJPY | Deliverable | usd_df_curve | Classic carry trade, downside (JPY-call) skew |
+| USDMXN | Deliverable | usd_df_curve | High carry EM, strong topside skew |
+| USDCNH | Deliverable | usd_df_curve | PBOC-managed, low vol, mild topside skew |
 
-Other pairs in snapshot (EURUSD, USDCNH, USDMXN, USDJPY) are not yet wired into the conversation flow.
+`rate_context_for_snapshot` (`pricing/forwards.py`) picks the base-ccy df curve generically from `pair[:3]` (EUR → `eur_df_curve`, GBP → `gbp_df_curve`, else `usd_df_curve`), so a new pair needs no code change there as long as its base currency is USD, EUR, or GBP — see "To add a new base currency" above for anything beyond those three.
 
 ## Option pricing and smile vol
 
@@ -139,7 +185,7 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
 - `build_vol_surface(ccy, method="cubic_spline", **params)` is the only construction site. Add a new build method (e.g. `"sabr"`) by adding a class that satisfies the Protocol plus a branch here — no call-site changes.
 
 **Where the smile applies (every vanilla, inception → completion):**
-- **Entry pricing** — `price_variants(..., smile=<surface>)`: leg-based structures (`vanilla`, `1x1_spread`, `1x1.5_spread`, `1x2_spread`, `seagull`) price each leg at its own vol (delta legs `vol_at_delta`, strike legs `vol_at_strike`). A `_VolModel` wrapper hides the branch.
+- **Entry pricing** — `price_variants(..., smile=<surface>)`: leg-based structures (`vanilla`, `1x1_spread`, `1x1.5_spread`, `1x2_spread`, `1x2x1_spread`, `seagull`) price each leg at its own vol (delta legs `vol_at_delta`, strike legs `vol_at_strike`). A `_VolModel` wrapper hides the branch.
 - **European package entry** (`european_digital`, `european_rko`) — also smile-aware at entry via a strike→vol seam (`vol_fn`, a plain `Callable[[float], float]` so the `pricing/` layer stays free of any `analytics` dependency). `european_rko`'s two vanilla legs price at their own strike vol; the **digital** (standalone and the strip inside `european_rko`) prices at the skew-consistent value `DF·N(d2(σ(K))) − vega·σ′(K)` for calls (`+vega·σ′` for puts), i.e. the strike-derivative of the call including the skew-slope term. `σ′(K)` is a central difference on `vol_fn`; `vega` is `black76_vega`. `european_digital`'s strike-solving bisection runs against the smile digital. A flat/`None` surface collapses `vol_fn` and `σ′→0`, reproducing the legacy flat price byte-for-byte. Guards: `tests/test_pricing.py` (analytic route-2 formula via a synthetic linear smile + call/put parity), `tests/test_vol_surface_refactor.py` (flat-identical + smile-moves for both packages).
 - **atmfsratio** — `compute_market_state(..., surface=<surface>)`: the ATM-fwd / ATM-spot legs (vanillas on the high-carry ccy) price at `vol_at_strike`. `MarketState.surface` carries the surface downstream.
 - **Scenario MtM** — `price_scenarios(..., surface=<surface>)` and the max-loss helper `_today_package_value_pct`: vanilla legs reprice under a **sticky-delta** smile — the scenario's ATM vol level plus `smile_skew_spread(K, scenario_fwd, tau)`, i.e. each fixed strike is re-deltaed at the scenario forward. Anchoring to the scenario vol keeps the existing term-structure / ±vol-shock plumbing intact.
@@ -159,6 +205,14 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
   - *Decision (this session):* hold off. The shipped guard is sufficient for the highest-value slice (skew-sensitive digitals). Before committing to SSVI, do the one-afternoon empirical scan of how often / at what strikes the live spline actually violates no-arb — that sizes the prize and sets fit tolerances.
 - **Generalize the pricing seam to a `PricingContext` (deferred).** The European-package work threads a `vol_fn` callable through individual pricer signatures. The longer-term ergonomic refactor is to pass one cohesive context object (or lean on `MarketState`) instead of N loose scalars + surface, across all pricers. Low-stakes (pure ergonomics, feature already works); no deadline.
 
+### Agent / commentary roadmap (deferred)
+
+- **Agent config parity with Trade View — FIX AFTER KELLY INTEGRATION (separate worktree).** The Agent's `run_standard_pack` calls `build_pack` with GLOBAL scenario weights (no `user_email`), the session's *default* PM preferences (Balanced / Standard hold / No restriction), and the session `target_rr`. Trade View / Batch use the logged-in user's **personal weights profile** and the **PM-preference widgets**, so their `score_ccy` rankings can differ from the Agent's for the same trade. Accepted for now; thread `user_email` + PM prefs (+ aligned `target_rr`) through `run_standard_pack` once the Kelly integration work lands so all surfaces rank identically. (Note marked at the `build_pack` call in `agentic/tools.py`.)
+- **Agent now orders recommendations by `score_ccy` (scenario-weighted P&L), not affinity rank** — matching the Trade View Structure Evaluation order and the pack's own "best … by scenario-weighted P&L" label, and no longer dropping a high-`score_ccy` family that happens to sit low on affinity rank. (`_recommend_ranked` sorts `out` by `score_ccy` and renumbers display rank.)
+- **Larger / richer agent prompt with caching + an adherence eval.** The system prompt is ~1.7K tokens (≈1.5% of context) — huge headroom, but adherence does not scale with length. Prefer pushing situational knowledge into **tool results** (the model relays those verbatim) over a bigger always-on prompt; add Anthropic **prompt caching** on the static system+tools block; bump to **Opus** if behavioural complexity grows; stand up a `FakeToolLLM`-based adherence eval before materially enlarging the prompt.
+- **Commentary → scoring is descriptive only (by design).** The context commentary verbalizes the scenario-weighting lens but does **not** drive selection. If we later want a regime's stated philosophy to actually bias selection, that's the affinity-scores / scenario-weights layer — a separate change. Sync between weights and text is a manual discipline (co-located editor + the weight-totals readout are the aids); a future *staleness flag* (multipliers changed but commentary didn't) is optional.
+- **Dormant contexts.** Several base-weighting contexts never fire under first-match ordering (`carry_capture`, `carry_momentum_extended`, `directional_with_carry`, `speculative_far`) or have no matching market state in the snapshot (`vol_dominated`, `high_vol`, `speculative_near`). Making them reachable is an ordering/conditions change in `scenario_definitions`, not new code.
+
 ## Logging and observability
 
 - **Langfuse** — one trace per session, one generation per LLM call (step names: `INTAKE_view_extraction`, `INTAKE_validation`, `INTAKE_structure_rec`, `INTAKE_critique`, `DONE`). No-op safe if keys not set.
@@ -166,6 +220,12 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
   - anon key for `queries` / `feedback` inserts
   - service key for engine config reads and admin-only reads/writes
 - Both are initialised from Streamlit secrets injected into `os.environ` before session state init.
+- **Tester-rollout logging (all in `supabase_logger.py`, fail-open + no-op when unconfigured):**
+  - `chat_turns` — one row per chat turn (Agent tab + in-context trade chat), with `tool_trace` (the engine ground truth), `pair`, `view_json`. Logged via `_log_chat_exchange` after each `advance()`.
+  - `app_errors` — `debug_log.log_error` now mirrors to Supabase (`log_app_error`) as well as the ephemeral `logs/session.log`, so failures testers hit are visible remotely.
+  - `reactions` — passive 👍/👎 (record-once per target) with one-tap reason chips on 👎 (`_render_reaction`), on the recommendation (per trade) and each chat reply.
+  - A per-visit `st.session_state.session_id` (UUID) is stitched onto every insert (incl. `queries`/`feedback`) so chat/errors/reactions join to the engine runs. `_insert_with_optional` drops `session_id`/`user_email` and retries if those columns aren't migrated yet.
+  - **Migration:** `db/migrations_tester_logging.sql` — run in Supabase (creates the 3 tables + the optional `session_id` columns on `queries`/`feedback`). The app degrades gracefully until it's run.
 
 ## Key invariants
 
@@ -176,26 +236,82 @@ in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
 - **Vol surface delta labels are always relative to the base currency.**
 - **`target_rr` must be cleared in `reset()`** alongside all other view state.
 - **Scoring tuple type is `float`** — affinity scores use fractional values.
+- **`target_z_spot` drives scoring; `target_z` (forward) drives construction.** Never swap them. `put_call` and variant eligibility (`min_target_z` in `structure_pricer`) always use the forward-anchored `target_z`. The scorer's `target_z_abs` bucket and gates read `target_z_spot`.
+- **Scenario grid is spot-centred; pricing is still forward-anchored.** The `S` (no-move) cell = spot unchanged; `scenario_fwd` is derived per-cell for MtM. `direction` is forward-relative (`sign(K/F)`). Do not re-anchor MtM pricing to spot.
 - **Kelly widget values must be re-read from `st.session_state` after rendering.** This prevents Streamlit `+/-` edits from updating the visible input while leaving charts / edge / Kelly on stale values.
 - **Kelly baseline reseeding must only happen on real context changes.** Re-seed on source-mode switch, pair/tenor change, or Trade Rec selection change; do not re-seed on ordinary reruns.
+
+## Sizing methods — fixed loss vs Kelly (`feature/kelly-sizing`)
+
+Variants can be sized two ways, toggled in Trade View (`SizingSpec` in `analytics/sizing.py`,
+carried on `flow.sizing_spec`; default `fixed_loss` ⇒ unchanged behaviour):
+
+- **Fixed loss** — every variant scaled to the same max loss (`loss_budget = LINEAR_NOTIONAL ×
+  stop%`, R:R-derived). Today's behaviour.
+- **Kelly** — each variant sized to its growth-optimal bet under the PM's distribution:
+  `N = min(λ · x* · W, cap)`, where `x* = argmax_x Σ p·ln(1 + x·π)` over the **per-notional**
+  P&L `π = DF·payoff − net_premium` (`kelly_fraction_per_notional`). The per-notional basis
+  (not the premium-basis `(payoff−cost)/cost` of `kelly_v2/kelly.py`) generalises to
+  spreads/zero-cost/net-credit and the ruin bound caps tail leverage — superseding the deferred
+  "size on scenario worst-case loss" fix.
+
+**Load-bearing invariant:** `score_ccy = structure_notional · score_pct`, and `score_ccy` ranks
+variants everywhere — so the sizing method only changes `structure_notional`; the scenario
+scoring machinery is untouched. The fractional-Kelly `λ` is a pure multiplier, so the **ranking
+is invariant to λ** except where the 10× notional cap binds asymmetrically (the only flip
+driver; guarded by `tests/test_kelly_ranking_stability.py`).
+
+- **Payoff bridge** lives in `analytics/payoffs.py` (engine layer, pure); `kelly_v2/pricing.py`
+  re-exports it. european_digital is base-ccy cash-or-nothing (1.0 ITM), `1x2x1_spread` added.
+- **Distribution source:** sizing uses the PM's distribution (Kelly), scoring uses the
+  scenario-grid weights — two deliberate lenses. The Trade-View default seeds a **view-implied**
+  lognormal (`view_implied_distribution`, blended fwd→target by conviction, adjustable bins).
+- **CLI:** `kelly_demo.py --pair USDTRY --magnitude 6 --lambda 0.5` prints fixed vs Kelly
+  notionals side by side. Agent path stays fixed-loss (its no-Kelly-number guardrail intact).
 
 ## Kelly screen
 
 `interface/kelly_v2/` now supports two user entry modes:
 
 - `Standalone` — choose a supported pair and tenor from the live snapshot, then elicit a subjective distribution for a single vanilla option.
-- `From Trade Rec` — if the current session already has a live `Trade View` recommendation, surface up to 10 concrete recommended variants in a dropdown and size the selected trade.
+- `From Trade Rec` — if the current session already has a live `Trade View` recommendation, surface up to 20 concrete recommended variants (the first `TRADE_REC_DROPDOWN_LIMIT` of the Trade View `selector_result.shortlist`, in the same order) in a dropdown and size the selected trade.
 
 Implementation notes:
 
 - The Trade Rec linkage must stay variant-level, not family-level, because Kelly needs a fully specified payoff.
 - The payoff bridge in `interface/kelly_v2/pricing.py` should stay consistent with the structure pricer’s base-ccy payoff conventions, especially for digitals, seagulls, and zero-cost structures. **Note:** the European digital is now a base-ccy cash-or-nothing structure (fixed base-ccy payout, payoff-at-target 100%) — any Kelly digital payoff must match this, not the old `spot/target` basis. (`interface/kelly_v2/` is not present on every branch.)
 
+## Batch page
+
+`interface/batch_view.py` (admin nav) runs many trades through the deterministic engine at once, grouped per trade. **Input is a JSON file, `interface/batch_trades.json` — not an on-screen field.** Format: `{"batches": [{"name": "...", "trades": ["<tenor> <pair> <target-level>", ...]}]}` (dict-form and legacy single-`trades`/bare-list still parse as one "Batch"). Each trade is `"<tenor> <pair> <target>"` (tenor `m`/`w`/`y`; direction inferred from target vs the horizon forward); constraints are defaults, R:R 3.0, no LLM pack.
+
+- **Select-then-run:** a batch picker + "Run batch" button; **nothing runs until pressed** (no auto-run on panel select). Results are cached **per batch name** in session state, and each trade is priced/scored **once** (`_compute_batch_evals`) so pivot toggles / expander clicks don't re-price.
+- Per trade it shows the same analytics as Trade View: the **Structure variants** table (with a **Scenario P&L** column — context-weighted base-ccy P&L per variant, from the eval) and the full **Structure Evaluation** (incl. "About this context" + driver glossary). Plus a **cross-trade pivot** (one row per trade×variant with the P&L-driver decomposition, `_build_pivot_rows`).
+- Streamlit `st.dataframe` gotchas handled here: a `key_prefix` gives every table a unique key (same context table can repeat across trades → would otherwise collide), and a content-fit `height` avoids the inner-scrollbar wheel-trap (`_show_df` omits `height` when None — newer Streamlit rejects `height=None`).
+- Any snapshot pair is accepted; one bad trade can't kill the batch (per-trade try/except). `batch_trades.json` also ships "Context — …" batches, each 6 trades verified to fire a given scenario-weighting context.
+
 ## Config system
 
 Three layers merged at session start: base defaults (JSON) → user profile → session overrides (in-memory).
 
 Session overrides are triggered by `[PREF_CHANGE: {"field_path": ..., "value": ...}]` tags emitted by the LLM. The override detector parses these, validates against an allowlist, and re-resolves config. Overrides are ephemeral — they don't persist across sessions.
+
+### Per-user scenario-weights profiles
+
+Scenario weights (`scenario_definitions`) can be **forked per user** for a select few, so PMs can iterate on their own weighting and surface differences of opinion. Admin-managed via the **Profile** picker on the Scenario Weightings page.
+
+- **Gating:** the `personal_weights_emails` secret allowlists who may have a personal profile. The check lives in `interface/security.py:can_have_personal_weights` and is enforced **inside the loader** (single source of truth) — a de-allowlisted user reverts to global immediately even if a personal row lingers.
+- **Storage:** same `config_history` table, composite key. Global keeps `"scenario_definitions"`; a personal profile uses `f"scenario_definitions::{email}"` (`interface/supabase_logger.py:personal_weights_key`). No schema change; versioned/audited like any other config.
+- **Resolution** (`knowledge_engine/scenario_weighter.py:load_scenario_weights_config(user_email)`): personal (allowlisted + non-sentinel config) → global → local JSON.
+- **Revert to global:** writes a sentinel personal row `{"_inherit_global": true}`; the loader treats it as "behave as global" (reversible — Save again to re-fork). The UI exposes a "Revert this user to global" button.
+- **Cache:** `_weights_cache`/`_weights_source` are **keyed by resolved profile key**, not a single global. This is load-bearing — Streamlit Cloud runs one process for all sessions, so an unkeyed cache would bleed one user's weights to another. `clear_scenario_weights_cache(profile_key=None)` clears all or one.
+- **Threading:** `user_email` flows interface → engine via `flow.user_email` (set before `_run_engines`) and the `user_email=` param on `compute_family_weights`, `build_comparator_inputs`, and `build_recommendation_pack`. Trade View and Batch use the logged-in user's profile; the Agent path defaults to global for now (param plumbed through `build_pack`). Default `None` everywhere → global, so all existing callers are unchanged. Guard: `tests/test_personal_weights.py`.
+
+### Context commentary & P&L-driver decomposition
+
+Each base-weighting context has a `commentary` (`{market_behavior, trade_guidance}`) — the **verbal spec of that context's scoring philosophy** (mirrors both the affinity scores and the scenario weights). It is **GLOBAL — shared across all profiles, not per-account** — stored in its **own** config (`knowledge/defaults/context_commentary.json` locally; config_history key `context_commentary` in Supabase), decoupled from the per-user weights so it stays singular. Loaders: `scenario_weighter.get_context_commentary(ctx_id)`, `get_driver_glossary()`, `load_context_commentary()` / `clear_context_commentary_cache()` (single global cache, no per-profile keying). Edited co-located with the grid (Scenario Weightings → Base scenario grid tab) via its **own "Save commentary (global)"** button, separate from the per-profile grid Save, and clearly labelled global.
+
+The commentary is the **lens** (which scenarios this regime privileges — the scenario-weighting layer only, *not* affinity gating); the **numbers** are the already-computed `driver_contribs(score)` split (Carry/Directional/Adverse/Vega — relabelled *decay / directional / adverse / vega* for users). `DRIVER_BUCKETS` + `driver_contribs` live in `knowledge_engine/scenario_scorer.py` (re-exported from `interface/structure_eval.py` for the UI). The agent pack (`agentic/render.py:render_pack`) carries a `CONTEXT GUIDANCE` block + a per-structure `drivers:` line so the LLM joins lens + numbers to explain *why* a regime favours a structure — **without** overriding the engine's ranked pick (system-prompt rule). Trade View / Batch surface the same as "About this context" + "What the P&L drivers mean" expanders. Guard: `tests/test_context_commentary.py`.
 
 ## Deployment
 
@@ -209,6 +325,7 @@ SUPABASE_URL = "..."
 SUPABASE_ANON_KEY = "..."
 SUPABASE_SERVICE_KEY = "..."
 admin_emails = ["name@fund.com"]
+personal_weights_emails = ["pm1@fund.com"]   # optional: users allowed a personal scenario-weights profile
 
 [auth]
 redirect_uri  = "https://<app-slug>.streamlit.app/~/+/oauth2callback"
@@ -274,3 +391,4 @@ Design intent:
 ## Known Issues
 
 - Structure Evaluation variant expander headers are still partially markdown/styling-sensitive in Streamlit. `$` amounts do not render reliably in the header and some fragments still pick up red text styling. Preferred fix: keep expander titles plain (variant + strikes + maybe notional) and move weighted P&L summary to the first line inside the expander body.
+- **Net-credit sizing uses premium, not a true max loss.** `_size_variant` (`analytics/structure_pricer.py`) sizes net-credit structures by fixing the 1x-leg notional at `10× linear_notional` and positive-premium structures by `min(loss_budget/max_loss_pct, 10× linear_notional)`. For short-optionality structures `max_loss_pct = abs(net_premium)` understates the real (short-leg) tail loss, so the displayed `max_loss_ccy` is the premium magnitude, not the actual worst case. The cap bounds the notional but doesn't fix the risk *measure*. Proper fix (deferred): size every structure on the scenario-grid worst-case loss (the framework already trusted as "a better judge of loss") — reduces to ≈premium for long-only debit structures and naturally handles zero/negative premium. Decide the tail-censoring question (grid stops ~±1σ; naked tails extend beyond) — accept a confidence-bounded loss or anchor to a defined deep-adverse cell.

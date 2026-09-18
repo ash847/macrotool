@@ -34,11 +34,16 @@ _R_D  = 0.043
 def _fwd_for_c(c: float) -> float:
     return _SPOT * math.exp(c * _VOL * math.sqrt(_T))
 
-def _ms(c: float = 0.20, target_z: float | None = None):
+def _ms(c: float = 0.20, target_z: float | None = None, target_z_spot: float | None = None):
+    """Build a MarketState. `target_z` places the target that many σ from the
+    FORWARD; `target_z_spot` places it that many σ from SPOT (the scoring anchor).
+    Scoring buckets/gates key off the spot distance (= target_z + c)."""
     fwd = _fwd_for_c(c)
     r_f = _r_f(_SPOT, fwd, _T, _R_D)
     target = None
-    if target_z is not None:
+    if target_z_spot is not None:
+        target = _SPOT * math.exp(target_z_spot * _VOL * math.sqrt(_T))
+    elif target_z is not None:
         target = fwd * math.exp(target_z * _VOL * math.sqrt(_T))
     return compute_market_state(_SPOT, fwd, _VOL, _T, _R_D, r_f, target=target)
 
@@ -57,15 +62,15 @@ class TestGating:
         assert "1x2_spread" not in ids
 
     def test_spread_excluded_when_target_too_near(self):
-        # target_z = 0.3 < 0.5 gate threshold
-        ms = _ms(c=0.60, target_z=0.3)
+        # spot-anchored σ-distance 0.3 < 0.5 gate threshold (scoring uses target_z_spot)
+        ms = _ms(c=0.60, target_z_spot=0.3)
         result = score_structures(ms)
         ids = [s.structure_id for s in result.shortlist]
         assert "1x1_spread" not in ids
 
     def test_spread_included_when_target_at_gate_boundary(self):
-        # target_z exactly at 0.5 — should pass the >= 0.5 gate
-        ms = _ms(c=0.60, target_z=0.5)
+        # spot-anchored σ-distance exactly 0.5 — should pass the >= 0.5 gate
+        ms = _ms(c=0.60, target_z_spot=0.5)
         result = score_structures(ms)
         ids = [s.structure_id for s in result.shortlist]
         assert "1x1_spread" in ids

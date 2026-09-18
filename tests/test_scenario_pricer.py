@@ -382,23 +382,21 @@ class TestLinearScenarioPricer:
         assert rows[0]["price_ccy"] == pytest.approx(expected_pct * 100.0)
         assert rows[0]["pnl_ccy"] == pytest.approx(expected_pct * 100.0)
 
-    def test_linear_f_column_is_zero_across_rows(self):
-        # Invariant: in the "F" scenario the forward-to-expiry is unchanged, so a
-        # delta-1 struck at that forward must show ~0 P&L at every checkpoint.
-        # Carry roll-down must NOT be booked as profit (regression for the
-        # high-carry phantom-P&L bug).
-        scenarios = [s for s in generate_scenarios(_TRADE_INPUTS) if s["col"] == "F"]
-        assert scenarios
-        rows = price_linear_scenarios(
-            scenarios,
-            _TRADE_INPUTS,
-            is_call=True,
-            notional=100.0,
-            max_loss_ccy=10.0,
-        )
-        for r in rows:
-            assert r["pnl_pct"] == pytest.approx(0.0, abs=1e-9), r["scenario_id"]
-            assert r["pnl_ccy"] == pytest.approx(0.0, abs=1e-7), r["scenario_id"]
+    def test_linear_forward_unchanged_is_zero_across_rows(self):
+        # Invariant: when the scenario forward equals the entry forward, a delta-1
+        # struck at that forward shows ~0 P&L at every checkpoint. Carry roll-down
+        # must NOT be booked as profit (regression for the high-carry phantom-P&L
+        # bug). The spot-anchored grid has no "F" column, so build the
+        # forward-unchanged scenarios directly.
+        for rem in (_T, _T * 0.5, 0.0):
+            sspot = _FWD * math.exp(-(_R_D - _R_F) * rem)
+            scenarios = _single_scenario(sspot, remaining_time=rem, scenario_fwd=_FWD)
+            rows = price_linear_scenarios(
+                scenarios, _TRADE_INPUTS, is_call=True, notional=100.0, max_loss_ccy=10.0,
+            )
+            for r in rows:
+                assert r["pnl_pct"] == pytest.approx(0.0, abs=1e-9)
+                assert r["pnl_ccy"] == pytest.approx(0.0, abs=1e-7)
 
     def test_linear_pre_expiry_forward_mtm_is_pv_discounted_at_prevailing_spot(self):
         # Before expiry, P&L is the forward MtM discounted over remaining time and
@@ -487,36 +485,44 @@ class TestSizing:
         assert abs(v.max_loss_ccy - 4.0) < 1e-9            # = loss_budget
         assert abs(v.payoff_at_target_ccy - 24.0) < 1e-9   # 0.12 * 200
 
-    def test_size_variant_skips_zero_max_loss(self):
+    def test_size_variant_zero_max_loss_positive_premium_caps(self):
+        # Positive premium but ~zero max loss → notional lands on the 10× cap.
         from analytics.structure_pricer import _size_variant
-        v = _vanilla_variant()
+        v = _vanilla_variant()   # default positive premium
         v.max_loss_pct = 0.0
-        _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional == 500.0
-        assert abs(v.net_premium_ccy - 10.0) < 1e-9
-        assert abs(v.max_loss_ccy - 0.0) < 1e-9
+        _size_variant(v, loss_budget=4.0)   # linear_notional defaults to 100 → cap 1000
+        assert abs(v.structure_notional - 1000.0) < 1e-9
+        assert v.max_loss_ccy == 0.0   # 0.0 * 1000
 
-    def test_size_variant_defaults_negative_premium_to_capped_notional(self):
+    def test_size_variant_negative_premium_fixed_at_cap(self):
+        # Net credit: notional fixed at 10× linear notional regardless of max_loss_pct.
         from analytics.structure_pricer import _size_variant
         v = _vanilla_variant(prem_pct=-0.003)
-        v.max_loss_pct = 0.0
+        v.max_loss_pct = 0.003
         _size_variant(v, loss_budget=4.0)
-        assert v.structure_notional == 500.0
-        assert abs(v.net_premium_ccy + 1.5) < 1e-9
-        assert abs(v.max_loss_ccy - 0.0) < 1e-9
+        assert abs(v.structure_notional - 1000.0) < 1e-9      # 10 × 100
+        assert abs(v.net_premium_ccy - (-3.0)) < 1e-9         # -0.003 × 1000 (credit)
+        assert abs(v.max_loss_ccy - 3.0) < 1e-9               # 0.003 × 1000
 
-    def test_size_variant_caps_very_low_premium_notional(self):
+    def test_size_variant_caps_low_premium(self):
+        # Low premium → loss_budget / max_loss would overshoot; notional caps at 10×.
         from analytics.structure_pricer import _size_variant
         v = _vanilla_variant(prem_pct=0.001)
         v.payoff_at_target_pct = 0.12
-        _size_variant(v, loss_budget=4.0)
-        assert abs(v.structure_notional - 500.0) < 1e-9
-        assert abs(v.net_premium_ccy - 0.5) < 1e-9
-        assert abs(v.max_loss_ccy - 0.5) < 1e-9
-        assert abs(v.payoff_at_target_ccy - 60.0) < 1e-9
+        _size_variant(v, loss_budget=4.0)   # 4.0 / 0.001 = 4000 > cap 1000
+        assert abs(v.structure_notional - 1000.0) < 1e-6     # capped
+        assert abs(v.net_premium_ccy - 1.0) < 1e-9           # 0.001 × 1000
+        assert abs(v.max_loss_ccy - 1.0) < 1e-9
+        assert abs(v.payoff_at_target_ccy - 120.0) < 1e-6    # 0.12 × 1000
+
+    def test_size_variant_respects_custom_linear_notional(self):
+        from analytics.structure_pricer import _size_variant
+        v = _vanilla_variant(prem_pct=0.001)
+        _size_variant(v, loss_budget=4.0, linear_notional=250.0)   # cap = 2500
+        assert abs(v.structure_notional - 2500.0) < 1e-6
 
     def test_price_variants_passes_loss_budget(self):
-        """price_variants populates dollar fields when loss_budget given."""
+        """price_variants populates dollar fields when loss_budget given (capped)."""
         from analytics.structure_pricer import price_variants
         from analytics.market_state import compute_market_state
         ms = compute_market_state(
@@ -528,13 +534,12 @@ class TestSizing:
         for pv in pvs:
             assert pv.structure_notional is not None
             assert pv.structure_notional > 0
-            assert pv.structure_notional <= 500.0
             assert pv.max_loss_ccy <= 4.0 + 1e-6
             # Premium $ = premium_pct * notional, where notional = budget / max_loss_pct.
             # For vanilla, max_loss_pct == net_premium_pct, so premium_ccy == max_loss_ccy.
             assert abs(pv.net_premium_ccy - pv.max_loss_ccy) < 1e-6
 
-    def test_price_variants_caps_cheap_1x2_base_leg_notional(self):
+    def test_price_variants_1x2_premium_sized_capped(self):
         from analytics.structure_pricer import price_variants
         from analytics.market_state import compute_market_state
         ms = compute_market_state(
@@ -543,7 +548,15 @@ class TestSizing:
         )
         pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True, loss_budget=4.0)
         assert pvs
-        assert any(pv.structure_notional is not None and pv.structure_notional <= 500.0 for pv in pvs)
+        cap = 10.0 * 100.0   # 10× linear notional
+        for pv in pvs:
+            assert pv.max_loss_pct == pytest.approx(abs(pv.net_premium_pct))
+            if pv.net_premium_pct < 0:
+                # Net credit → notional fixed at the cap.
+                assert pv.structure_notional == pytest.approx(cap)
+            else:
+                # Net debit → budget / max_loss, capped at 10× linear notional.
+                assert pv.structure_notional == pytest.approx(min(4.0 / pv.max_loss_pct, cap))
 
     def test_price_variants_no_budget_leaves_fields_none(self):
         ms = compute_market_state(
@@ -578,7 +591,9 @@ class TestSizing:
 
 
 class TestVariantMaxLossDefinitions:
-    def test_one_by_two_uses_today_target_package_value_floor(self):
+    def test_one_by_two_max_loss_is_premium(self):
+        # Max loss = net premium (the open tail beyond the short strike is not
+        # capitalised into the sizing max-loss).
         ms = compute_market_state(
             spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
             target=5.30, direction="base_higher",
@@ -586,14 +601,9 @@ class TestVariantMaxLossDefinitions:
         pvs = price_variants(ms, "1x2_spread", target=5.30, is_call=True)
         assert pvs
         for pv in pvs:
-            scenario_spot = 5.30 * math.exp(-(ms.r_d - ms.r_f) * ms.T)
-            today_value_pct = abs(
-                call_mtm(scenario_spot, pv.strikes[0], ms.T, ms.vol, ms.r_d, ms.r_f)
-                - 2.0 * call_mtm(scenario_spot, pv.strikes[1], ms.T, ms.vol, ms.r_d, ms.r_f)
-            ) / ms.spot
-            assert pv.max_loss_pct == pytest.approx(max(today_value_pct, abs(pv.net_premium_pct)))
+            assert pv.max_loss_pct == pytest.approx(abs(pv.net_premium_pct))
 
-    def test_one_by_one_point_five_uses_today_target_package_value_floor(self):
+    def test_one_by_one_point_five_max_loss_is_premium(self):
         ms = compute_market_state(
             spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
             target=5.30, direction="base_higher",
@@ -601,12 +611,7 @@ class TestVariantMaxLossDefinitions:
         pvs = price_variants(ms, "1x1.5_spread", target=5.30, is_call=True)
         assert pvs
         for pv in pvs:
-            scenario_spot = 5.30 * math.exp(-(ms.r_d - ms.r_f) * ms.T)
-            today_value_pct = abs(
-                call_mtm(scenario_spot, pv.strikes[0], ms.T, ms.vol, ms.r_d, ms.r_f)
-                - 1.5 * call_mtm(scenario_spot, pv.strikes[1], ms.T, ms.vol, ms.r_d, ms.r_f)
-            ) / ms.spot
-            assert pv.max_loss_pct == pytest.approx(max(today_value_pct, abs(pv.net_premium_pct)))
+            assert pv.max_loss_pct == pytest.approx(abs(pv.net_premium_pct))
 
     def test_seagull_uses_today_stop_package_value(self):
         ms = compute_market_state(
@@ -635,8 +640,9 @@ class TestRatioSpreadVariantExpansion:
         pvs = price_variants(ms, "1x2_spread", target=0.95, is_call=False)
         labels = {pv.variant_label for pv in pvs}
 
-        assert "ATMF / 2× target" in labels
-        assert "½σ toward target / 2× target" in labels
+        # Delta-based (and ATMF=50Δ) variants only — target-anchored / stdev variants removed.
+        assert "ATMF / 2× target" not in labels
+        assert "½σ toward target / 2× target" not in labels
         assert "ATMF / 25Δ" in labels
         assert "25Δ / 10Δ" in labels
         assert "25Δ / 15Δ" in labels
@@ -652,8 +658,9 @@ class TestRatioSpreadVariantExpansion:
         pvs = price_variants(ms, "1x1.5_spread", target=0.95, is_call=False)
         labels = {pv.variant_label for pv in pvs}
 
-        assert "ATMF / 1.5× target" in labels
-        assert "½σ toward target / 1.5× target" in labels
+        # Delta-based (and ATMF=50Δ) variants only — target-anchored / stdev variants removed.
+        assert "ATMF / 1.5× target" not in labels
+        assert "½σ toward target / 1.5× target" not in labels
         assert "ATMF / 25Δ" in labels
         assert "25Δ / 10Δ" in labels
         assert "25Δ / 15Δ" in labels

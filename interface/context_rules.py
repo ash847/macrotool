@@ -10,7 +10,7 @@ import uuid
 import pandas as pd
 import streamlit as st
 
-from analytics.scenario_generator import GRID_COLS, GRID_ROWS, VALID_GRID_CELLS, cell_id
+from analytics.scenario_generator import GRID_COLS, GRID_ROWS, VALID_GRID_CELLS, cell_id, col_label
 from interface.security import assert_admin, current_user_email, is_admin_user
 from knowledge_engine.scenario_weighter import (
     _FIELD_GETTERS,
@@ -132,7 +132,7 @@ def _grid_df(ctx: dict, baseline: float) -> pd.DataFrame:
         item = {"Row": row}
         for col in GRID_COLS:
             cid = cell_id(row, col)
-            item[col] = multipliers.get(cid, baseline) if col in VALID_GRID_CELLS[row] else None
+            item[col_label(col)] = multipliers.get(cid, baseline) if col in VALID_GRID_CELLS[row] else None
         rows.append(item)
     return pd.DataFrame(rows).set_index("Row")
 
@@ -155,7 +155,7 @@ def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> No
     header_cols = st.columns([1] + [1] * len(GRID_COLS))
     header_cols[0].markdown("**Row**")
     for i, col in enumerate(GRID_COLS, start=1):
-        header_cols[i].markdown(f"**{col}**")
+        header_cols[i].markdown(f"**{col_label(col)}**")
 
     for row in GRID_ROWS:
         cols = st.columns([1] + [1] * len(GRID_COLS))
@@ -178,7 +178,57 @@ def _render_grid_editor(ctx: dict, baseline: float, min_multiplier: float) -> No
     ctx["multipliers"] = _compact_multipliers(multipliers, baseline)
 
 
-def _render_context_weights(cfg: dict) -> None:
+def _resolved_weights(ctx: dict, baseline: float) -> dict[tuple[str, str], float]:
+    """Per-(row, col) effective weight over valid cells: the cell's multiplier, or
+    the baseline where unset. This is the importance each scenario carries before
+    normalisation (scoring normalises these over the valid cells)."""
+    mult = ctx.get("multipliers", {})
+    weights: dict[tuple[str, str], float] = {}
+    for row in GRID_ROWS:
+        for col in VALID_GRID_CELLS[row]:
+            weights[(row, col)] = float(mult.get(cell_id(row, col), baseline))
+    return weights
+
+
+def _render_weight_totals(ctx: dict, baseline: float) -> None:
+    """On-the-fly (non-input) summary: total weight per row and per column, each as
+    a share of the grand total. Recomputes live from the editor's current values."""
+    weights = _resolved_weights(ctx, baseline)
+    grand = sum(weights.values())
+    st.markdown("**Weighting totals** — live, computed from the grid above (not an input)")
+    if grand <= 0:
+        st.caption("No positive weights to total.")
+        return
+
+    row_rows = []
+    for row in GRID_ROWS:
+        rt = sum(w for (r, _c), w in weights.items() if r == row)
+        row_rows.append({"Row": row, "Total weight": round(rt, 2), "% of total": rt / grand})
+    col_rows = []
+    for col in GRID_COLS:
+        ct = sum(w for (_r, c), w in weights.items() if c == col)
+        col_rows.append({"Column": col_label(col), "Total weight": round(ct, 2), "% of total": ct / grand})
+
+    pct_cfg = {"% of total": st.column_config.NumberColumn("% of total", format="%.1f%%")}
+    df_rows = pd.DataFrame(row_rows)
+    df_rows["% of total"] = df_rows["% of total"] * 100
+    df_cols = pd.DataFrame(col_rows)
+    df_cols["% of total"] = df_cols["% of total"] * 100
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.caption("Per row")
+        st.dataframe(df_rows, hide_index=True, use_container_width=True, column_config=pct_cfg)
+    with c2:
+        st.caption("Per column")
+        st.dataframe(df_cols, hide_index=True, use_container_width=True, column_config=pct_cfg)
+    st.caption(
+        f"Grand total weight across valid cells: **{grand:.2f}** "
+        "(row totals and column totals each sum to this; their percentages each sum to 100%)."
+    )
+
+
+def _render_context_weights(cfg: dict, save_key: str = "scenario_definitions") -> None:
     contexts = cfg["base_weightings"]
     if not contexts:
         st.info("No base weightings configured yet.")
@@ -195,17 +245,57 @@ def _render_context_weights(cfg: dict) -> None:
     st.caption(f"Explicit overrides in this weighting: **{len(overrides)}**")
     _render_grid_editor(ctx, cfg["baseline"], cfg["min_multiplier"])
 
+    st.divider()
+    _render_weight_totals(ctx, cfg["baseline"])
+    st.divider()
+
+    # Commentary — verbal spec of this context's scoring philosophy. GLOBAL (shared across
+    # all profiles), keyed by context id, with its OWN Save (separate from the per-profile
+    # grid below). Edited here so words and weights sit side by side and stay in sync.
+    from knowledge_engine.scenario_weighter import (
+        load_context_commentary, clear_context_commentary_cache,
+    )
+    st.markdown("**Commentary** — verbal spec of this weighting's philosophy. Keep it in sync with the grid above.")
+    st.caption("⚠️ Commentary is **global** — shared across all profiles, **not** per-account.")
+    _all_comm = copy.deepcopy(load_context_commentary())
+    _ctx_comm = (_all_comm.get("contexts") or {}).get(ctx["id"], {})
+    _mb = st.text_area(
+        "Market behaviour", value=_ctx_comm.get("market_behavior", ""),
+        key=f"comm_mb_{ctx['id']}", height=110,
+        help="What the market tends to do in this regime (spot path, carry, vol, overshoot/undershoot).",
+    )
+    _tg = st.text_area(
+        "Privileges (trade guidance)", value=_ctx_comm.get("trade_guidance", ""),
+        key=f"comm_tg_{ctx['id']}", height=110,
+        help="What kinds of trades this weighting privileges — the verbalization of where the weight sits.",
+    )
+    if st.button("Save commentary (global)", key=f"save_comm_{ctx['id']}", use_container_width=True):
+        try:
+            from interface.supabase_logger import save_config as _save
+            _all_comm.setdefault("contexts", {})[ctx["id"]] = {
+                "market_behavior": _mb.strip(), "trade_guidance": _tg.strip(),
+            }
+            ok = _save("context_commentary", _all_comm, _admin=is_admin_user(), user_email=current_user_email())
+            if ok:
+                clear_context_commentary_cache()
+                st.success("Commentary saved (global — applies to all profiles).")
+            else:
+                st.error("Save failed — Supabase not configured or unreachable.")
+        except Exception as e:
+            st.error(f"Save error: {e}")
+    st.divider()
+
     if st.button("Save multipliers", type="primary", use_container_width=True):
         try:
             from interface.supabase_logger import save_config as _save
             ok = _save(
-                "scenario_definitions",
+                save_key,
                 cfg,
                 _admin=is_admin_user(),
                 user_email=current_user_email(),
             )
             if ok:
-                clear_scenario_weights_cache()
+                clear_scenario_weights_cache(save_key)
                 st.success("Saved. New scenario-grid multipliers apply on the next trade query.")
             else:
                 st.error("Save failed — Supabase not configured or unreachable.")
@@ -230,7 +320,7 @@ def _render_choosing_a_context(cfg: dict) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
-def _render_pm_overlay_editor(cfg: dict) -> None:
+def _render_pm_overlay_editor(cfg: dict, save_key: str = "scenario_definitions") -> None:
     overlays = _ensure_preference_overlays(cfg)
     cfg["preference_overlays"] = [
         {k: copy.deepcopy(v) for k, v in ctx.items() if not k.startswith("_")}
@@ -258,13 +348,13 @@ def _render_pm_overlay_editor(cfg: dict) -> None:
         try:
             from interface.supabase_logger import save_config as _save
             ok = _save(
-                "scenario_definitions",
+                save_key,
                 cfg,
                 _admin=is_admin_user(),
                 user_email=current_user_email(),
             )
             if ok:
-                clear_scenario_weights_cache()
+                clear_scenario_weights_cache(save_key)
                 st.success("Saved. This PM overlay will apply on the next trade query.")
             else:
                 st.error("Save failed — Supabase not configured or unreachable.")
@@ -389,10 +479,14 @@ def _validate_contexts(contexts: list[dict]) -> list[str]:
     return errors
 
 
-def _render_base_priority_conditions(cfg: dict) -> None:
-    if _BASE_PRIORITY_STATE_KEY not in st.session_state:
-        st.session_state[_BASE_PRIORITY_STATE_KEY] = _init_priority_state({"weightings": cfg["base_weightings"]})
-    contexts: list[dict] = st.session_state[_BASE_PRIORITY_STATE_KEY]
+def _render_base_priority_conditions(
+    cfg: dict, save_key: str = "scenario_definitions", profile_email: str | None = None
+) -> None:
+    # Session-state editing buffer is per-profile so switching profiles re-seeds it.
+    _state_key = f"{_BASE_PRIORITY_STATE_KEY}::{save_key}"
+    if _state_key not in st.session_state:
+        st.session_state[_state_key] = _init_priority_state({"weightings": cfg["base_weightings"]})
+    contexts: list[dict] = st.session_state[_state_key]
 
     st.subheader("Live preview")
     p1 = st.columns(6)
@@ -473,8 +567,8 @@ def _render_base_priority_conditions(cfg: dict) -> None:
         else:
             try:
                 from interface.supabase_logger import save_config as _save_cfg
-                clear_scenario_weights_cache()
-                latest_cfg = load_scenario_weights_config()
+                clear_scenario_weights_cache(save_key)
+                latest_cfg = load_scenario_weights_config(profile_email)
                 new_cfg = copy.deepcopy(latest_cfg)
                 new_cfg["base_weightings"] = _merge_contexts_with_latest_multipliers(
                     contexts,
@@ -482,21 +576,21 @@ def _render_base_priority_conditions(cfg: dict) -> None:
                     config_key="base_weightings",
                 )
                 ok = _save_cfg(
-                    "scenario_definitions",
+                    save_key,
                     new_cfg,
                     _admin=is_admin_user(),
                     user_email=current_user_email(),
                 )
                 if ok:
-                    clear_scenario_weights_cache()
+                    clear_scenario_weights_cache(save_key)
                     st.success("Saved. Updated scenario weighting rules apply on the next trade query.")
                 else:
                     st.error("Save failed — Supabase not configured or unreachable.")
             except Exception as e:
                 st.error(f"Save error: {e}")
     if revert_col.button("Revert", key="revert_prio", use_container_width=True):
-        st.session_state.pop(_BASE_PRIORITY_STATE_KEY, None)
-        clear_scenario_weights_cache()
+        st.session_state.pop(_state_key, None)
+        clear_scenario_weights_cache(save_key)
         st.rerun()
 
 
@@ -507,8 +601,47 @@ def render() -> None:
         "Edit the two-layer scenario weighting system: one base grid selected from market state, "
         "plus PM preference overlays stacked on top. Edits are saved to Supabase and every version is retained."
     )
-    cfg = load_scenario_weights_config()
-    st.caption(f"Loaded from: `{get_scenario_weights_source()}`")
+
+    # Profile selector — Global, or a personal profile for an allowlisted user.
+    from interface.security import personal_weights_emails
+    from interface.supabase_logger import GLOBAL_SCENARIO_WEIGHTS_KEY, personal_weights_key, save_config
+
+    _options = ["Global (default)"] + personal_weights_emails()
+    selected = st.selectbox(
+        "Profile", _options, key="weights_profile_select",
+        help="Edit the shared global weights, or a specific user's personal profile. "
+             "Personal profiles only exist for users in the `personal_weights_emails` secret.",
+    )
+    is_global = selected == "Global (default)"
+    profile_email = None if is_global else selected
+    save_key = GLOBAL_SCENARIO_WEIGHTS_KEY if is_global else personal_weights_key(profile_email)
+
+    cfg = copy.deepcopy(load_scenario_weights_config(profile_email))
+    src = get_scenario_weights_source(profile_email)
+
+    if is_global:
+        st.caption(f"Profile: **Global** · loaded from `{src}`")
+    else:
+        has_personal = src.startswith("supabase (personal")
+        state = "**personal profile** active" if has_personal else "**inheriting global** (not yet forked — Save on any tab forks it)"
+        st.caption(f"Profile: **{profile_email}** · {state} · loaded from `{src}`")
+        if has_personal and st.button(
+            "Revert this user to global",
+            help="Stop using a personal profile — this user falls back to global weights. "
+                 "Reversible: edit and Save again to re-fork.",
+        ):
+            try:
+                ok = save_config(save_key, {"_inherit_global": True}, _admin=is_admin_user(), user_email=current_user_email())
+                if ok:
+                    clear_scenario_weights_cache(save_key)
+                    st.session_state.pop(f"{_BASE_PRIORITY_STATE_KEY}::{save_key}", None)
+                    st.success(f"{profile_email} reverted to global weights.")
+                    st.rerun()
+                else:
+                    st.error("Revert failed — Supabase not configured or unreachable.")
+            except Exception as e:
+                st.error(f"Revert error: {e}")
+
     tab_base_grid, tab_base_read, tab_base_write, tab_pm_overlay = st.tabs(
         [
             "Base scenario grid",
@@ -518,10 +651,10 @@ def render() -> None:
         ]
     )
     with tab_base_grid:
-        _render_context_weights(cfg)
+        _render_context_weights(cfg, save_key)
     with tab_base_read:
         _render_choosing_a_context(cfg)
     with tab_base_write:
-        _render_base_priority_conditions(cfg)
+        _render_base_priority_conditions(cfg, save_key, profile_email)
     with tab_pm_overlay:
-        _render_pm_overlay_editor(cfg)
+        _render_pm_overlay_editor(cfg, save_key)

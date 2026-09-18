@@ -20,8 +20,8 @@ from data.snapshot_loader import load_snapshot
 from pricing.forwards import rate_context_for_snapshot
 
 _SNAP = load_snapshot()
-_PORTED = ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread", "seagull",
-           "european_digital", "european_rko"]
+_PORTED = ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread", "1x2x1_spread",
+           "seagull", "european_digital", "european_rko"]
 
 # (pair, horizon_days, magnitude_pct, direction)
 _MARKETS = [

@@ -8,6 +8,15 @@
     "settlement_days": 2,
     "holiday_calendars": ["EUR", "USD"]
   },
+  "deliverable": {
+    "settlement_currency": "USD",
+    "settlement_type": "physical_delivery",
+    "delivery_notes": [
+      "Physical USD delivery; standard correspondent banking settlement",
+      "No fixing lag — settles T+2 on standard basis",
+      "Deepest and most liquid FX market globally; tight bid-offer across the curve"
+    ]
+  },
   "options": {
     "premium_currency": "USD",
     "delta_convention": "forward_delta",

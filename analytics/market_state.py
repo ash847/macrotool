@@ -28,10 +28,16 @@ class MarketState:
     # --- derived ---
     c: float             # ln(fwd/spot) / (σ√T) — normalised carry
     carry_regime: int    # 0 = noisy (<0.4), 1 = potential (0.4–0.8), 2 = high (>0.8)
-    target_z: float | None      # ln(target/fwd) / (σ√T); None if no target supplied
+    target_z: float | None      # ln(target/fwd) / (σ√T) — FORWARD-anchored; construction/eligibility/put_call. None if no target
     atmfsratio: float | None    # high-carry-ccy ATM-fwd/ATM-spot spread payout ratio (quote-ccy premium); None if spot==fwd
     put_call: str | None        # "Call" if target > fwd, "Put" if target < fwd; None if no target
     with_carry: bool            # True if view direction aligns with the carry (sign of c)
+
+    # SPOT-anchored σ-distance of the target — the move from where spot is now.
+    # Used by the scoring layer (affinity buckets/gates); `target_z` (forward) stays
+    # for construction/eligibility/put_call. Identity: target_z = target_z_spot - c.
+    # Default None so direct MarketState() constructions need not supply it.
+    target_z_spot: float | None = None
 
     # Vol surface this state was priced against (None → flat ATM vol was used).
     # Carried so downstream vanilla pricing (scenario MtM, sizing) can re-use the
@@ -95,6 +101,7 @@ def compute_market_state(
         carry_regime = 2
 
     target_z = math.log(target / fwd) / vol_sqrt_T if target is not None else None
+    target_z_spot = math.log(target / spot) / vol_sqrt_T if target is not None else None
     put_call = ("Call" if target > fwd else "Put") if target is not None else None
     with_carry = (c > 0) == (direction == "base_lower") if direction else (c > 0)
 
@@ -136,6 +143,7 @@ def compute_market_state(
         c=c,
         carry_regime=carry_regime,
         target_z=target_z,
+        target_z_spot=target_z_spot,
         atmfsratio=atmfsratio,
         put_call=put_call,
         with_carry=with_carry,

@@ -177,6 +177,9 @@ class ComparatorInputs:
     score_pairs_by_structure: dict[str, StructureScorePair]
     scenario_aggregates_by_structure: dict[str, ScenarioAggregates]
     variant_evaluations_by_structure: dict[str, list[VariantEvaluation]]
+    active_context: str | None = None   # fired base-weighting context id (for commentary)
+    weights: dict[str, float] = field(default_factory=dict)   # resolved PM scenario weights
+                                                              # (reused by Tier-2 to score a PM structure)
 
 
 @dataclass(frozen=True)
@@ -352,6 +355,7 @@ def build_recommendation_pack(
     scenario_scores_by_structure: dict[str, object],
     preferences: PMPreferences | None = None,
     variant_evaluations_by_structure: dict[str, list[VariantEvaluation]] | None = None,
+    user_email: str | None = None,
 ) -> RecommendationExplanationPack:
     if not selector_result.shortlist:
         raise ValueError("Cannot build explanation pack without a shortlisted chosen structure")
@@ -427,6 +431,7 @@ def build_recommendation_pack(
         market_state,
         primary_objective=prefs.primary_objective,
         trade_management=prefs.trade_management,
+        user_email=user_email,
     )
     _active_ids: list[str] = []
     _active_comments: list[str] = []
@@ -540,8 +545,11 @@ def build_comparator_inputs(
     is_call: bool,
     stop_price: float | None,
     loss_budget: float | None,
+    linear_notional: float = 100.0,
+    sizing_spec: object | None = None,
     preferences: PMPreferences | None = None,
     smile: object | None = None,
+    user_email: str | None = None,
 ) -> ComparatorInputs:
     """
     Build real pricing/scenario inputs for the comparator from existing engines.
@@ -576,6 +584,7 @@ def build_comparator_inputs(
         market_state,
         primary_objective=prefs.primary_objective,
         trade_management=prefs.trade_management,
+        user_email=user_email,
     )
     base_weights = _base_weights_from_weighter(weighter)
 
@@ -596,6 +605,8 @@ def build_comparator_inputs(
                 is_call=is_call,
                 stop_price=stop_price,
                 loss_budget=loss_budget,
+                linear_notional=linear_notional,
+                sizing_spec=sizing_spec,
                 smile=smile,
             )
         except Exception:
@@ -648,16 +659,18 @@ def build_comparator_inputs(
         score_pairs_by_structure=score_pairs_by_structure,
         scenario_aggregates_by_structure=scenario_aggregates_by_structure,
         variant_evaluations_by_structure=variant_evaluations_by_structure,
+        active_context=(weighter.base_fired.id if getattr(weighter, "base_fired", None) else None),
+        weights=dict(weighter.weights),
     )
 
 
 def summarize_scenario_rows(rows: list[dict]) -> ScenarioAggregates:
     return ScenarioAggregates(
-        slow_path=_aggregate_rows(rows, ("25%T|F", "50%T|F", "25%T|t%→K", "50%T|t%→K")),
+        slow_path=_aggregate_rows(rows, ("25%T|S", "50%T|S", "25%T|t%→K", "50%T|t%→K")),
         correct_path=_aggregate_rows(rows, ("25%T|t%→K", "50%T|t%→K", "Expiry|K")),
         wrong_way=_aggregate_rows(rows, ("25%T|−1σ", "50%T|−1σ", "Expiry|−1σ")),
         overshoot=_aggregate_rows(rows, ("25%T|K+½σ", "50%T|K+½σ", "Expiry|K+½σ")),
-        vol_sensitivity=_aggregate_rows(rows, ("1w|Δvol", "25%T|Δvol", "50%T|Δvol")),
+        vol_sensitivity=_aggregate_rows(rows, ("2w|Δvol", "25%T|Δvol", "50%T|Δvol")),
         expiry_target_price_pct=_row_value(rows, "Expiry|K", "price_pct"),
         expiry_target_pnl_pct=_row_value(rows, "Expiry|K", "pnl_pct"),
     )

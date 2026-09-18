@@ -46,6 +46,7 @@ from pricing.digital_rko import digital_rko_call, digital_rko_put
 from pricing.european_rko import european_rko_call, european_rko_put
 
 if TYPE_CHECKING:
+    from analytics.sizing import SizingSpec
     from analytics.vol_surface import SmileInterpolator
 
 
@@ -82,7 +83,6 @@ class _VolModel:
         return self._smile.vol_at_delta(delta if is_call else -delta, self._h)
 
 _VARIANTS_PATH = Path(__file__).parent.parent / "knowledge" / "defaults" / "structure_variants.json"
-_MAX_STRUCTURE_NOTIONAL = 500.0
 
 
 def _load_variants() -> dict:
@@ -109,6 +109,11 @@ class PricedVariant:
     net_premium_ccy: float | None = None       # premium in base ccy
     payoff_at_target_ccy: float | None = None  # gross payoff at target in base ccy
     max_loss_ccy: float | None = None          # max loss in base ccy (= loss_budget by construction)
+    capped: bool = False                       # True when the 10× linear-notional cap (not the
+                                               # loss budget / Kelly x*) determined the notional —
+                                               # on such rows max_loss_ccy < loss_budget
+    kelly_fraction: float | None = None        # full-Kelly fraction x* = notional/W (per structure);
+                                               # populated only under Kelly sizing. Notional = λ·x*·W.
 
 
 def price_variants(
@@ -118,6 +123,8 @@ def price_variants(
     is_call: bool = True,
     stop_price: float | None = None,
     loss_budget: float | None = None,
+    linear_notional: float = 100.0,
+    sizing_spec: "SizingSpec | None" = None,
     smile: "SmileInterpolator | None" = None,
     warnings: list[str] | None = None,
     variants_override: list[dict] | None = None,
@@ -166,6 +173,8 @@ def price_variants(
         result = _1x1p5(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "1x2_spread":
         result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
+    elif structure_id == "1x2x1_spread":
+        result = _1x2x1(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "european_rko":
         result = _european_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings)
     elif structure_id == "seagull":
@@ -177,30 +186,95 @@ def price_variants(
     else:
         return []
 
-    if loss_budget is not None and loss_budget > 0:
+    # Sizing seam. Kelly mode (sizing_spec.method == "kelly") sizes each variant to its
+    # growth-optimal bet under the PM's distribution; otherwise the fixed-loss path (today's
+    # behaviour) sizes to the loss budget. Default sizing_spec=None ⇒ fixed-loss, so every
+    # existing caller is byte-for-byte unchanged.
+    if sizing_spec is not None and sizing_spec.method == "kelly" and sizing_spec.has_distribution():
+        _size_variants_kelly(result, structure_id, is_call, spot, r_f, T, sizing_spec, linear_notional)
+    elif loss_budget is not None and loss_budget > 0:
         for pv in result:
-            _size_variant(pv, loss_budget)
+            _size_variant(pv, loss_budget, linear_notional)
 
     return result
 
 
-def _size_variant(pv: PricedVariant, loss_budget: float) -> None:
-    """Populate dollar-equivalent fields on a PricedVariant given a loss budget.
-
-    Scales the structure so its max loss (% of spot) equals loss_budget (in base
-    ccy units), subject to a cap on the base-leg notional for very cheap
-    structures. All other dollar amounts are derived from the resulting notional.
-    Leaves dollar fields as None if max_loss_pct is too small to size against.
-    """
-    if pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
-        notional = _MAX_STRUCTURE_NOTIONAL
-    else:
-        notional = min(loss_budget / pv.max_loss_pct, _MAX_STRUCTURE_NOTIONAL)
+def _apply_notional(pv: PricedVariant, notional: float) -> None:
+    """Populate the base-ccy dollar fields linearly from a sized notional."""
     pv.structure_notional = notional
     pv.net_premium_ccy = pv.net_premium_pct * notional
-    pv.max_loss_ccy = pv.max_loss_pct * notional
+    pv.max_loss_ccy = pv.max_loss_pct * notional if pv.max_loss_pct is not None else None
     if pv.payoff_at_target_pct is not None:
         pv.payoff_at_target_ccy = pv.payoff_at_target_pct * notional
+
+
+def _size_variants_kelly(
+    result: list[PricedVariant],
+    structure_id: str,
+    is_call: bool,
+    spot: float,
+    r_f: float,
+    T: float,
+    sizing_spec: "SizingSpec",
+    linear_notional: float,
+) -> None:
+    """Kelly sizing: N = min(λ · x* · W, cap) per variant, x* from the PM distribution.
+
+    Per-notional P&L `π(S) = DF_f·payoff(S) − net_premium` is integrated against the
+    distribution; the payoff comes from the engine-layer bridge. Unsupported families
+    (bridge raises) are left unsized rather than crashing the run."""
+    import numpy as np
+    from analytics.payoffs import base_ccy_payoff_for_trade_rec
+    from analytics.sizing import kelly_fraction_per_notional, per_notional_pnl
+
+    probs = np.asarray(sizing_spec.kelly_probs, dtype=float)
+    bins = np.asarray(sizing_spec.kelly_bins, dtype=float)
+    df_f = math.exp(-r_f * T)
+    cap = 10.0 * linear_notional
+    for pv in result:
+        try:
+            payoff = base_ccy_payoff_for_trade_rec(
+                structure_id, strikes=pv.strikes, barrier=pv.barrier,
+                is_call=is_call, entry_spot=spot, wing_ratio=pv.wing_ratio,
+            )
+            pnl = per_notional_pnl(payoff(bins), pv.net_premium_pct, discount_factor=df_f)
+            x_star = kelly_fraction_per_notional(probs, pnl)
+            pv.kelly_fraction = x_star
+            n = min(sizing_spec.kelly_lambda * x_star * sizing_spec.bankroll, cap)
+            pv.capped = n >= cap * (1.0 - 1e-12)
+            _apply_notional(pv, n)
+        except (ValueError, ZeroDivisionError):
+            continue  # unsupported family / degenerate — leave unsized
+
+
+def _size_variant(pv: PricedVariant, loss_budget: float, linear_notional: float = 100.0) -> None:
+    """Populate dollar-equivalent fields on a PricedVariant given a loss budget.
+
+    Sizing rule (premium-aware), with the structure's 1x-leg notional
+    (``structure_notional``) capped/floored relative to the linear notional:
+
+    - **Net credit** (``net_premium_pct < 0``): premium can't bound the loss, so
+      loss-budget division is meaningless. Fix the 1x-leg notional at
+      ``10 × linear_notional``.
+    - **Net debit / zero-cost** (``net_premium_pct >= 0``): size so max loss
+      equals the loss budget (``loss_budget / max_loss_pct``), but **cap** the
+      notional at ``10 × linear_notional``. A ~zero max loss (the denominator
+      would blow up) lands directly on the cap.
+
+    All other dollar amounts are derived linearly from the resulting notional.
+    """
+    cap = 10.0 * linear_notional
+    if pv.net_premium_pct < 0:
+        notional = cap
+        pv.capped = True
+    elif pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
+        notional = cap
+        pv.capped = True
+    else:
+        wanted = loss_budget / pv.max_loss_pct
+        notional = min(wanted, cap)
+        pv.capped = wanted > cap
+    _apply_notional(pv, notional)
 
 
 def _spot_for_forward_today(fwd_today: float, T: float, r_d: float, r_f: float) -> float:
@@ -479,21 +553,9 @@ def _1x1p5(
             else None
         )
 
-        max_loss_pct = max(
-            _today_package_value_pct(
-                structure_id="1x1.5_spread",
-                strikes=[K1, K2],
-                fwd_today=(target if target is not None else K2),
-                T=T,
-                vol=vol,
-                r_d=r_d,
-                r_f=r_f,
-                spot=spot,
-                is_call=is_call,
-                surface=vm.surface,
-            ),
-            abs(prem_pct),
-        )
+        # Max loss = net premium paid (the open tail beyond the short strike is not
+        # capitalised into the sizing max-loss). Drives the notional via _size_variant.
+        max_loss_pct = abs(prem_pct)
 
         result.append(PricedVariant(
             variant_label=v["label"],
@@ -550,25 +612,91 @@ def _1x2(
             else None
         )
 
-        max_loss_pct = max(
-            _today_package_value_pct(
-                structure_id="1x2_spread",
-                strikes=[K1, K2],
-                fwd_today=(target if target is not None else K2),
-                T=T,
-                vol=vol,
-                r_d=r_d,
-                r_f=r_f,
-                spot=spot,
-                is_call=is_call,
-                surface=vm.surface,
-            ),
-            abs(prem_pct),
-        )
+        # Max loss = net premium paid (open tail beyond the short strike not capitalised).
+        max_loss_pct = abs(prem_pct)
 
         result.append(PricedVariant(
             variant_label=v["label"],
             strikes=[K1, K2],
+            barrier=None,
+            net_premium_pct=prem_pct,
+            breakeven=breakeven,
+            payoff_at_target_pct=payoff_pct,
+            rr_at_target=rr,
+            max_loss_pct=max_loss_pct,
+            wing_ratio=None,
+            is_zero_cost=is_zero_cost,
+        ))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 1x2x1  (butterfly: the 1x2 with a long wing that caps the open tail)
+# ---------------------------------------------------------------------------
+
+def _1x2x1(
+    variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm
+) -> list[PricedVariant]:
+    """Butterfly built from the 1x2's two strikes plus an equidistant long wing.
+
+    Strikes: long 1× K1, short 2× K2, long 1× K3 with K3 = 2·K2 − K1 (so the
+    strike spacing is symmetric: K3−K2 = K2−K1). The third long leg caps the
+    1x2's open tail beyond K2, so max loss = net premium paid (a long butterfly's
+    expiry payoff is non-negative). K1/K2 come from the same resolver the 1x2
+    uses, so every 1x2 variant has a matching 1x2x1.
+    """
+    result = []
+    for v in variants:
+        resolved = _resolve_ratio_spread_strikes(
+            v, F=F, vol=vol, T=T, vol_sqrtT=vol_sqrtT, is_call=is_call, target=target, vm=vm
+        )
+        if resolved is None:
+            continue
+        K1, K2, v1, v2 = resolved
+        K3 = 2.0 * K2 - K1          # equidistant long wing
+        if K3 <= 0:
+            continue
+        v3 = vm.at_strike(K3)
+
+        if is_call:
+            prem1 = black76_call(F, K1, T, v1, DF)
+            prem2 = black76_call(F, K2, T, v2, DF)
+            prem3 = black76_call(F, K3, T, v3, DF)
+        else:
+            prem1 = black76_put(F, K1, T, v1, DF)
+            prem2 = black76_put(F, K2, T, v2, DF)
+            prem3 = black76_put(F, K3, T, v3, DF)
+
+        net_prem = prem1 - 2.0 * prem2 + prem3
+        prem_pct = net_prem / spot
+        is_zero_cost = abs(net_prem) < 0.0001 * spot
+
+        breakeven = None
+        if not is_zero_cost and net_prem > 0:
+            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
+
+        payoff_pct = None
+        if target is not None:
+            if is_call:
+                gross = (max(target - K1, 0.0) - 2.0 * max(target - K2, 0.0)
+                         + max(target - K3, 0.0))
+            else:
+                gross = (max(K1 - target, 0.0) - 2.0 * max(K2 - target, 0.0)
+                         + max(K3 - target, 0.0))
+            payoff_pct = gross / target
+        rr = (
+            payoff_pct / prem_pct
+            if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
+            else None
+        )
+
+        # Long butterfly: expiry payoff is non-negative, so max loss = net premium
+        # paid (the wing caps the 1x2's open tail). Clamp at 0 for a (rare) credit.
+        max_loss_pct = max(prem_pct, 0.0)
+
+        result.append(PricedVariant(
+            variant_label=v["label"],
+            strikes=[K1, K2, K3],
             barrier=None,
             net_premium_pct=prem_pct,
             breakeven=breakeven,

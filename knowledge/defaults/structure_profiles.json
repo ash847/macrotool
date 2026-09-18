@@ -107,6 +107,19 @@
     "structuring_guidelines": "Buy 1 ATM forward option. Sell 2 options at the target level, sized so net premium ≈ 0. Max profit realised at the target. Beyond target the position is net short one option — confirm the PM understands and accepts this. Target should be a high-conviction level, not a vague estimate. Check that the short gamma above target is tolerable given portfolio context."
   },
 
+  "1x2x1_spread": {
+    "display_name": "1x2x1 Butterfly (Call or Put)",
+    "premium_profile": "low",
+    "payout_type": "capped_butterfly",
+    "max_loss": "net_premium",
+    "path_dependent": false,
+    "requires_target": true,
+    "overlay_only": false,
+    "optimal_for": "A 1x2 with the open tail capped: PM wants the 1x2's payoff peak at the target but is not willing to be left net short beyond it. Max loss is limited to the (small) net premium paid",
+    "major_risk": "Spot finishes outside the wings (below K1 or beyond K3) — the structure expires worthless and the full net premium is lost; payoff is also capped, peaking at the short strike",
+    "structuring_guidelines": "Buy 1 option at K1, sell 2 at K2 (the target), buy 1 at K3 where K3 = 2·K2 − K1 (equidistant wing). The long wing caps the 1x2's net-short tail, so max loss = net premium paid rather than open-ended. Peak payoff at K2. Use when the PM likes the 1x2 thesis but cannot wear the unlimited tail."
+  },
+
   "european_rko": {
     "display_name": "European Reverse Knock-Out",
     "premium_profile": "low",

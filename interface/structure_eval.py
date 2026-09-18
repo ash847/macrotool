@@ -7,6 +7,7 @@ full scenario-weighted evaluation block with advisor pack preview.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pandas as pd
@@ -19,7 +20,19 @@ from conversation.flow import ConversationFlow, target_from_reference
 # Shared constants and formatting helpers
 # ---------------------------------------------------------------------------
 
-LINEAR_NOTIONAL = 100.0  # base ccy units; equivalent linear-trade notional
+LINEAR_NOTIONAL = 100.0  # base ccy units; nominal engine default (tests/scripts)
+
+
+def sizing_capital() -> float:
+    """The PM-set master sizing capital W (sidebar 'Capital behind this book').
+    All UI surfaces (Trade View, Batch, agent chat) size off this one number:
+    fixed-loss uses it as the linear-equivalent notional (loss = W × stop%),
+    Kelly as the bankroll (N = λ·x*·W), and the notional cap is 10·W. Falls back
+    to the nominal LINEAR_NOTIONAL outside a Streamlit session."""
+    try:
+        return float(st.session_state.get("sizing_capital", LINEAR_NOTIONAL))
+    except Exception:
+        return LINEAR_NOTIONAL
 
 _CCY_SYM = {"USD": "$", "EUR": "€", "GBP": "£"}
 
@@ -31,7 +44,7 @@ def fmt_ccy(amount: float | None, ccy: str) -> str:
     if ccy not in _CCY_SYM:
         raise ValueError(f"No currency symbol mapping for base ccy {ccy!r}")
     sign = "-" if amount < 0 else ""
-    return f"{sign}{ccy} {abs(amount):,.2f}"
+    return f"{sign}{ccy} {abs(amount):,.0f}"
 
 
 def fmt_ccy_label(amount: float | None, ccy: str) -> str:
@@ -95,6 +108,10 @@ def variant_display_label(structure_id: str, pv) -> str:
         direction = "call" if _is_call_spread(pv) else "put"
         return f"{ratio} Ratio {direction} spread"
 
+    if structure_id == "1x2x1_spread" and len(pv.strikes) >= 3:
+        direction = "call" if _is_call_spread(pv) else "put"
+        return f"1x2x1 Butterfly ({direction})"
+
     if structure_id == "seagull" and len(pv.strikes) >= 3:
         wing_ratio = pv.wing_ratio if pv.wing_ratio is not None else 1.0
         is_call_spread = _is_call_spread(pv)
@@ -156,6 +173,36 @@ def variant_label_with_strikes(structure_id: str, pv) -> str:
     return label
 
 
+def _premium_headline(structure_id: str, pv, ms, is_call: bool, target, base_ccy: str) -> str:
+    """Total + per-leg premium for the variant headline.
+
+    Total premium comes from the variant (net). Per-leg premiums come from the
+    product model's unit premiums, signed so long legs read as a cost paid and
+    short legs as premium received; they sum to the net. Best-effort — the leg
+    breakdown is omitted if the product structure can't be built.
+    """
+    total = f"Premium: {pv.net_premium_pct:+.2%}"
+    if pv.net_premium_ccy is not None:
+        total += f" ({fmt_ccy(pv.net_premium_ccy, base_ccy)})"
+    parts = [total]
+    try:
+        from agentic.standard_pack import _priced_structure_for
+        ps = _priced_structure_for(
+            structure_id, pv.variant_label, ms, is_call, target,
+            getattr(ms, "surface", None), None,
+        )
+        legs = getattr(ps, "priced_legs", None) if ps is not None else None
+        if legs and ms.spot:
+            leg_pcts = [pl.notional * pl.unit_premium / ms.spot for pl in legs]
+            # Only show the per-leg split when it reconciles to the net premium —
+            # barrier / digital packages don't expose clean per-leg unit premiums.
+            if abs(sum(leg_pcts) - pv.net_premium_pct) < 5e-4:
+                parts.append("legs: " + " / ".join(f"{p:+.2%}" for p in leg_pcts))
+    except Exception:
+        pass
+    return "  ·  ".join(parts)
+
+
 def target_price(flow: ConversationFlow) -> float | None:
     if not (flow.view and flow.view.magnitude_pct):
         return None
@@ -194,19 +241,79 @@ def _build_smile(flow: ConversationFlow):
         return None
 
 
+def _df_key(prefix: str, suffix: str) -> str | None:
+    """Stable, unique st.dataframe key when a prefix is supplied (e.g. the Batch page
+    renders these tables once per trade on one page). Empty prefix → None, preserving
+    the single-render Trade View behaviour exactly."""
+    return f"{prefix}{suffix}" if prefix else None
+
+
+def _fit_height(prefix: str, n_rows: int) -> int | None:
+    """Full pixel height for a dataframe so it shows every row WITHOUT an internal
+    scrollbar — only when a key_prefix is set (Batch page). A capped-height table
+    traps the mouse wheel and blocks the page from scrolling past it; sizing to the
+    content removes that trap. Empty prefix → None → Streamlit's default height
+    (Trade View unchanged)."""
+    if not prefix:
+        return None
+    return 38 + 35 * max(n_rows, 1) + 2  # header + rows + border
+
+
+def _show_df(df, *, key=None, height=None, column_config=None) -> None:
+    """st.dataframe wrapper that OMITS height when None. Some Streamlit versions
+    reject height=None (must be a positive int / 'content' / 'stretch'), so we only
+    pass it when set — Trade View gets the default capped table, Batch gets a full
+    content height (no inner scrollbar)."""
+    kwargs = {"use_container_width": True, "hide_index": True}
+    if key is not None:
+        kwargs["key"] = key
+    if height is not None:
+        kwargs["height"] = height
+    if column_config is not None:
+        kwargs["column_config"] = column_config
+    st.dataframe(df, **kwargs)
+
+
+# Header tooltip for the Kelly capital-at-risk column (st.dataframe supports a header
+# help tooltip, not per-cell hover; the per-row sized notional is the Notional column).
+_KELLY_RISK_HELP = (
+    "Full-Kelly capital at risk = f* × max loss, as a share of W, BEFORE the λ haircut "
+    "(the Notional column already applies λ). f* is the growth-optimal notional as a "
+    "multiple of W, so the full-Kelly notional is f*×W."
+)
+
+# Header tooltip / caption line for the PnL score column — the fixed, reused explanation
+# of the term across surfaces (Trade View, Batch, tester rollout).
+_PNL_SCORE_HELP = (
+    "PnL score reflects how a structure performs across a range of possible market "
+    "outcomes, tuned to match an expert practitioner's process."
+)
+
+
 def render_structure_variants(
     flow: ConversationFlow,
     is_call: bool,
     target: float | None,
     stop_price: float | None,
     loss_budget: float | None,
+    key_prefix: str = "",
+    scenario_pnl: dict | None = None,
+    eval_result: "EvalResult | None" = None,
 ) -> None:
+    """``scenario_pnl`` (optional): {(structure_id, variant_label): score_ccy} — the
+    context-weighted scenario P&L in base ccy per variant. When supplied (Batch), a
+    'PnL score' column is added to each variant table; Trade View omits it.
+
+    ``eval_result`` (optional): a precomputed EvalResult. When supplied, each
+    structure's expander also shows the top-3 / bottom-3 scenario-cell P&L drivers
+    for its best-ranked variant."""
     from analytics.structure_pricer import price_variants as _price_variants
 
     ms = flow.market_state
     _base_ccy = flow.view.pair[:3]
     _primary_items = flow.selector_result.shortlist
     _smile = _build_smile(flow)
+    _W = sizing_capital()
 
     # Single pricing pass: collect priced variants and any structures whose
     # digital legs hit a smile arbitrage (dropped rather than mis-marked).
@@ -217,7 +324,9 @@ def render_structure_variants(
         try:
             _pvs = _price_variants(
                 ms, _item.structure_id, target=target, is_call=is_call,
-                stop_price=stop_price, loss_budget=loss_budget, smile=_smile, warnings=_warns,
+                stop_price=stop_price, loss_budget=loss_budget, linear_notional=_W,
+                sizing_spec=getattr(flow, "sizing_spec", None),
+                smile=_smile, warnings=_warns,
             )
         except Exception as _e:
             st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
@@ -235,8 +344,13 @@ def render_structure_variants(
         ("Indicative pricing — interpolated smile vol per strike. " if _smile is not None
          else "Indicative pricing — flat ATM vol for all strikes. ")
         + "Premium and payoff as % of spot. "
-        "**Payout/$1**: gross payoff at target per $1 of max loss (zero-cost seagull: "
-        "loss on short wing at stop price, expiry basis — understates MtM risk before expiry)."
+        "**R/R**: gross payoff at target per unit of max loss (zero-cost seagull: "
+        "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
+        "**% of W**: the variant's max loss as a share of the sizing capital. "
+        "**Kelly risk**: full-Kelly capital at risk (f*×max loss, pre-λ) as a share of W; "
+        "shown under Kelly sizing (hover the header for the notional relationship). "
+        "**(cap)**: the 10·W notional cap bound before the loss budget was reached — "
+        "the shown max loss is the achieved one, below budget."
     )
 
     if _unpriced:
@@ -268,191 +382,387 @@ def render_structure_variants(
                     f"{_payoff:.0%}  ({fmt_ccy(pv.payoff_at_target_ccy, _base_ccy)})"
                     if _payoff is not None else "—"
                 )
+                _notional_cell = fmt_ccy(pv.structure_notional, _base_ccy)
+                if getattr(pv, "capped", False):
+                    _notional_cell += "  (cap)"
+                _pct_of_w = (
+                    f"{pv.max_loss_ccy / _W:.2%}"
+                    if pv.max_loss_ccy is not None and _W > 0 else "—"
+                )
                 r = {
                     "Variant":    variant_display_label(_item.structure_id, pv),
                     "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
-                    "Notional":   fmt_ccy(pv.structure_notional, _base_ccy),
+                    "Notional":   _notional_cell,
                     "Premium":    _prem_cell,
                     "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
                     "Payout at target": _payoff_cell,
                     "Max loss":   f"{pv.max_loss_pct:.1%}  ({fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
-                    "Payout/$1":  _payout_per_1,
+                    "R/R":        _payout_per_1,
+                    "% of W":     _pct_of_w,
                 }
+                if getattr(pv, "kelly_fraction", None) is not None:
+                    _car = pv.kelly_fraction * (pv.max_loss_pct or 0.0)
+                    r["Kelly risk"] = f"{_car:.0%}"
+                if scenario_pnl is not None:
+                    _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
+                    r["PnL score"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"
                 if _has_barrier:
                     r["Barrier"] = f"{pv.barrier:.4f}" if pv.barrier is not None else "—"
                 if _has_wing:
                     r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
                 _rows.append(r)
-            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+            _kelly_cfg = {}
+            if any("Kelly risk" in _r for _r in _rows):
+                _kelly_cfg["Kelly risk"] = st.column_config.Column(help=_KELLY_RISK_HELP)
+            if any("PnL score" in _r for _r in _rows):
+                _kelly_cfg["PnL score"] = st.column_config.Column(help=_PNL_SCORE_HELP)
+            _show_df(
+                pd.DataFrame(_rows),
+                key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
+                height=_fit_height(key_prefix, len(_rows)),
+                column_config=_kelly_cfg or None,
+            )
+            if eval_result is not None:
+                _render_cell_drivers(eval_result, _item.structure_id, _base_ccy)
+
+
+# User-facing names for the scenario-grid columns (drivers display).
+_CELL_COL_LABELS = {
+    "S": "No move",
+    "t%→K": "Early touch & retrace",
+    "K−½σ": "Falls just short",
+    "K": "Target hit",
+    "K+½σ": "Overshoot",
+    "−½σ": "Mild adverse",
+    "−1σ": "Full reversal",
+    "Δvol": "Vol shock (adverse)",
+}
+
+
+def _cell_label(cell) -> str:
+    return f"{_CELL_COL_LABELS.get(cell.col, cell.col)} · {cell.row}"
+
+
+def _render_cell_drivers(eval_result, structure_id: str, base_ccy: str) -> None:
+    """Top-3 / bottom-3 scenario-cell P&L drivers for the structure's best-ranked
+    variant. Contributions are the weighted P&L contribution of each grid cell,
+    in % of notional (and base ccy $), summing to the variant's weighted P&L."""
+    ev = next((v for v in eval_result.variants if v.structure_id == structure_id), None)
+    if ev is None or not getattr(ev.score, "cells", None):
+        return
+    cells = [c for c in ev.score.cells if c.normalized_weight > 0]
+    pos = sorted((c for c in cells if c.contrib_pct > 0), key=lambda c: -c.contrib_pct)[:3]
+    neg = sorted((c for c in cells if c.contrib_pct < 0), key=lambda c: c.contrib_pct)[:3]
+    if not pos and not neg:
+        return
+
+    def _line(c) -> str:
+        amt = f" ({fmt_ccy(c.contrib_ccy, base_ccy)})" if c.contrib_ccy is not None else ""
+        return f"`{c.contrib_pct:+.2%}`{amt} — {_cell_label(c)}"
+
+    st.markdown(f"**Key P&L drivers** — {ev.variant_label} (weighted contribution)")
+    col_pos, col_neg = st.columns(2)
+    with col_pos:
+        st.caption("Top contributors")
+        for c in pos:
+            st.markdown(f"🟢 {_line(c)}")
+        if not pos:
+            st.caption("none positive")
+    with col_neg:
+        st.caption("Top detractors")
+        for c in neg:
+            st.markdown(f"🔴 {_line(c)}")
+        if not neg:
+            st.caption("none negative")
 
 
 # ---------------------------------------------------------------------------
 # Structure evaluation (scenario-weighted P&L tables)
 # ---------------------------------------------------------------------------
 
+# Driver decomposition now lives in the engine so the agent pack can share it.
+# Re-exported here for the existing UI imports (structure_eval, batch_view).
+from knowledge_engine.scenario_scorer import DRIVER_BUCKETS, driver_contribs  # noqa: E402,F401
+
+
+@dataclass
+class VariantEval:
+    """One priced variant scored across the grid under baseline + context weights.
+
+    ``(structure_id, variant_label)`` is a stable identity across trades — the
+    delta-based labels in structure_variants.json are pair/tenor-independent — so
+    the Batch pivot can align the same variant across different trades.
+    """
+    structure_id: str
+    struct_label: str
+    variant_label: str
+    pv: object
+    rows: list
+    score: object        # ScoreResult — context (PM-overlay) weighted
+    score_base: object   # ScoreResult — baseline (pre-overlay) weighted
+
+    @property
+    def score_pct(self) -> float:
+        return self.score.score_pct
+
+    @property
+    def score_base_pct(self) -> float:
+        return self.score_base.score_pct
+
+    @property
+    def delta_pct(self) -> float:
+        """Weighting effect: context − baseline. This is what re-tuning moves."""
+        return self.score.score_pct - self.score_base.score_pct
+
+    @property
+    def drivers(self) -> dict[str, float]:
+        return driver_contribs(self.score)
+
+
+@dataclass
+class EvalResult:
+    """Pure output of compute_structure_evaluation — everything the render and the
+    Batch pivot need, with no Streamlit dependency."""
+    ms: object
+    is_call: bool
+    target: float
+    stop: float
+    loss_budget: float
+    inputs: dict
+    scenarios: list
+    smile: object
+    weighter: object
+    weights: dict
+    multipliers: dict
+    base_weights: dict
+    base_fired: object
+    overlay_fired: list
+    fired_all: list
+    active_ctx: str
+    base_ccy: str
+    structs: list        # legacy [{item, variants:[{pv,rows,score,score_base}], label}]
+    variants: list       # flat list[VariantEval], ranked by context score_ccy desc
+
+
+def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -> "EvalResult | None":
+    """Price every shortlist variant across the scenario grid, weight each under
+    the baseline and the active PM-overlay context, and rank them. Pure compute —
+    no rendering. Returns None when the flow has nothing to evaluate.
+
+    render_structure_evaluation renders from this; the Batch pivot consumes the
+    returned EvalResult (its ``variants`` + per-variant ``drivers``) directly.
+    """
+    if not (flow.market_state and flow.selector_result and flow.selector_result.shortlist and target is not None):
+        return None
+
+    from analytics.structure_pricer import PricedVariant as _PricedVariant, price_variants as _pv_fn
+    from analytics.scenario_generator import generate_scenarios as _gen_sc
+    from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
+    from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
+    from knowledge_engine.scenario_scorer import score_structure as _score_struct
+
+    ms = flow.market_state
+    is_call = flow.view.direction == "base_higher"
+    move = abs(target - ms.fwd) / ms.fwd
+    stop_pct = move / flow.target_rr
+    stop = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
+    _W = sizing_capital()
+    loss_budget = _W * stop_pct
+
+    weighter = _compute_w(
+        ms,
+        primary_objective=getattr(flow, "primary_objective", "Balanced"),
+        trade_management=getattr(flow, "trade_management", "Standard hold"),
+        user_email=getattr(flow, "user_email", None),
+    )
+    weights = weighter.weights
+    multipliers = weighter.multipliers
+    base_fired = getattr(weighter, "base_fired", None)
+    if base_fired is not None:
+        base_weights = {
+            cid: base_fired.multipliers[cid] / sum(base_fired.multipliers.values())
+            for cid in base_fired.multipliers
+        }
+    else:
+        base_weights = weights
+
+    base_ccy = flow.view.pair[:3]
+    inputs = {
+        "spot": ms.spot,
+        "forward": ms.fwd,
+        "implied_vol": ms.vol,
+        "tenor_years": ms.T,
+        "target": target,
+        "r_d": ms.r_d,
+        "r_f": ms.r_f,
+    }
+    scenarios = _gen_sc(inputs)
+    smile = _build_smile(flow)
+
+    structs: list = []
+    for item in flow.selector_result.shortlist:
+        try:
+            pvs = _pv_fn(
+                ms, item.structure_id,
+                target=target, is_call=is_call,
+                stop_price=stop, loss_budget=loss_budget, linear_notional=_W,
+                sizing_spec=getattr(flow, "sizing_spec", None),
+                smile=smile,
+            )
+        except Exception:
+            continue
+        if not pvs:
+            continue
+        variants = []
+        for pv in pvs:
+            rows = _price_sc(pv, item.structure_id, scenarios, inputs, is_call, surface=smile)
+            variants.append({
+                "pv": pv,
+                "rows": rows,
+                "score": _score_struct(rows, weights),
+                "score_base": _score_struct(rows, base_weights),
+            })
+        if not variants:
+            continue
+        structs.append({"item": item, "variants": variants, "label": item.display_name})
+
+    # Linear benchmark (delta-1, max-loss capped) — mirrors Trade View.
+    linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
+    linear_pv = _PricedVariant(
+        variant_label="Delta 1 (max-loss capped)",
+        strikes=[], barrier=None, net_premium_pct=0.0, breakeven=None,
+        payoff_at_target_pct=None, rr_at_target=None, max_loss_pct=stop_pct,
+        wing_ratio=None, is_zero_cost=True, structure_notional=_W,
+        net_premium_ccy=0.0, payoff_at_target_ccy=None, max_loss_ccy=loss_budget,
+    )
+    linear_rows = _price_linear_sc(scenarios, inputs, is_call, _W, loss_budget)
+    structs.append({
+        "item": linear_item,
+        "variants": [{
+            "pv": linear_pv, "rows": linear_rows,
+            "score": _score_struct(linear_rows, weights),
+            "score_base": _score_struct(linear_rows, base_weights),
+        }],
+        "label": linear_item.display_name,
+    })
+
+    if not structs:
+        return None
+
+    # Active-context label (base + any overlays, first-match fallback).
+    overlay_fired = getattr(weighter, "overlay_fired", [])
+    fired_all = getattr(weighter, "fired", [])
+    active_parts: list[str] = []
+    if base_fired:
+        active_parts.append(base_fired.id.replace("_", " ").title())
+    if overlay_fired:
+        active_parts.extend(c.id.replace("_", " ").title() for c in overlay_fired)
+    if not active_parts and fired_all:
+        active_parts.append(fired_all[0].id.replace("_", " ").title())
+    active_ctx = " + ".join(active_parts) if active_parts else "Baseline grid"
+
+    flat = [
+        VariantEval(
+            structure_id=s["item"].structure_id,
+            struct_label=s["label"],
+            variant_label=v["pv"].variant_label,
+            pv=v["pv"], rows=v["rows"], score=v["score"], score_base=v["score_base"],
+        )
+        for s in structs for v in s["variants"]
+    ]
+    flat.sort(key=lambda ve: ve.score.score_ccy if ve.score.score_ccy is not None else 0.0, reverse=True)
+
+    return EvalResult(
+        ms=ms, is_call=is_call, target=target, stop=stop, loss_budget=loss_budget,
+        inputs=inputs, scenarios=scenarios, smile=smile,
+        weighter=weighter, weights=weights, multipliers=multipliers, base_weights=base_weights,
+        base_fired=base_fired, overlay_fired=overlay_fired, fired_all=fired_all,
+        active_ctx=active_ctx, base_ccy=base_ccy, structs=structs, variants=flat,
+    )
+
+
 def render_structure_evaluation(
     flow: ConversationFlow,
     is_admin: bool,
     target: float | None,
+    key_prefix: str = "",
+    eval_result: "EvalResult | None" = None,
 ) -> None:
-    if not (flow.market_state and flow.selector_result and flow.selector_result.shortlist and target is not None):
+    # Reuse a precomputed EvalResult when given (Batch page caches one per trade
+    # so toggling the pivot doesn't re-price every grid on each Streamlit rerun).
+    _res = eval_result if eval_result is not None else compute_structure_evaluation(flow, target)
+    if _res is None:
         return
 
-    _ev_ms = flow.market_state
-    _ev_is_call = flow.view.direction == "base_higher"
-    _ev_target = target
-    _ev_move = abs(_ev_target - _ev_ms.fwd) / _ev_ms.fwd
-    _ev_stop_pct = _ev_move / flow.target_rr
-    _ev_stop = _ev_ms.fwd * (1 - _ev_stop_pct) if _ev_is_call else _ev_ms.fwd * (1 + _ev_stop_pct)
-    _ev_loss_budget = LINEAR_NOTIONAL * _ev_stop_pct
-
-    from analytics.structure_pricer import PricedVariant as _PricedVariant, price_variants as _pv_fn
     from analytics.scenario_generator import (
         GRID_COLS as _SC_GRID_COLS,
-        generate_scenarios as _gen_sc,
+        col_label as _sc_col_label,
         valid_grid_rows as _valid_grid_rows,
     )
-    from analytics.scenario_pricer import price_linear_scenarios as _price_linear_sc, price_scenarios as _price_sc
-    from knowledge_engine.scenario_weighter import compute_family_weights as _compute_w
-    from knowledge_engine.scenario_scorer  import score_structure       as _score_struct
-    from conversation.explanation_context import (
-        render_explanation_pack_overview as _render_expl_overview,
-        render_structure_comparisons as _render_structure_comparisons,
-        render_variant_comparisons as _render_variant_comparisons,
-    )
     from knowledge_engine.comparator import (
-        VariantEvaluation as _VariantEvaluation,
-        build_recommendation_pack as _build_expl_pack,
         summarize_scenario_rows as _summarize_scenario_rows,
     )
-
-    _ev_weighter = _compute_w(
-        _ev_ms,
-        primary_objective=getattr(flow, "primary_objective", "Balanced"),
-        trade_management=getattr(flow, "trade_management", "Standard hold"),
+    from knowledge_engine.structure_attributes import (
+        attributes as _attributes,
+        deciding_axis as _deciding_axis,
+        render_findings as _render_findings,
     )
-    _ev_weights  = _ev_weighter.weights
-    _ev_multipliers = _ev_weighter.multipliers
-    _ev_base_fired = getattr(_ev_weighter, "base_fired", None)
-    if _ev_base_fired is not None:
-        _ev_base_weights = {
-            _cid: _ev_base_fired.multipliers[_cid] / sum(_ev_base_fired.multipliers.values())
-            for _cid in _ev_base_fired.multipliers
-        }
-    else:
-        _ev_base_weights = _ev_weights
 
-    _ev_base = flow.view.pair[:3]
-
-    _ev_inputs = {
-        "spot": _ev_ms.spot,
-        "forward": _ev_ms.fwd,
-        "implied_vol": _ev_ms.vol,
-        "tenor_years": _ev_ms.T,
-        "target": _ev_target,
-        "r_d": _ev_ms.r_d,
-        "r_f": _ev_ms.r_f,
-    }
-    _ev_scenarios = _gen_sc(_ev_inputs)
-    _ev_smile = _build_smile(flow)
-
-    _ev_structs = []
-    for _ev_item in flow.selector_result.shortlist:
-        try:
-            _ev_pvs = _pv_fn(
-                _ev_ms, _ev_item.structure_id,
-                target=_ev_target, is_call=_ev_is_call,
-                stop_price=_ev_stop, loss_budget=_ev_loss_budget,
-                smile=_ev_smile,
-            )
-        except Exception:
-            continue
-        if not _ev_pvs:
-            continue
-        _ev_variants = []
-        for _ev_pv in _ev_pvs:
-            _ev_rows = _price_sc(
-                _ev_pv, _ev_item.structure_id, _ev_scenarios, _ev_inputs, _ev_is_call,
-                surface=_ev_smile,
-            )
-            _ev_score = _score_struct(_ev_rows, _ev_weights)
-            _ev_score_base = _score_struct(_ev_rows, _ev_base_weights)
-            _ev_variants.append({
-                "pv": _ev_pv,
-                "rows": _ev_rows,
-                "score": _ev_score,
-                "score_base": _ev_score_base,
-            })
-        if not _ev_variants:
-            continue
-        _ev_structs.append({
-            "item":     _ev_item,
-            "variants": _ev_variants,
-            "label":    _ev_item.display_name,
-        })
-
-    _linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
-    _linear_pv = _PricedVariant(
-        variant_label="Delta 1 (max-loss capped)",
-        strikes=[],
-        barrier=None,
-        net_premium_pct=0.0,
-        breakeven=None,
-        payoff_at_target_pct=None,
-        rr_at_target=None,
-        max_loss_pct=_ev_stop_pct,
-        wing_ratio=None,
-        is_zero_cost=True,
-        structure_notional=LINEAR_NOTIONAL,
-        net_premium_ccy=0.0,
-        payoff_at_target_ccy=None,
-        max_loss_ccy=_ev_loss_budget,
-    )
-    _linear_rows = _price_linear_sc(
-        _ev_scenarios,
-        _ev_inputs,
-        _ev_is_call,
-        LINEAR_NOTIONAL,
-        _ev_loss_budget,
-    )
-    _linear_score = _score_struct(_linear_rows, _ev_weights)
-    _linear_score_base = _score_struct(_linear_rows, _ev_base_weights)
-    _ev_structs.append({
-        "item": _linear_item,
-        "variants": [{
-            "pv": _linear_pv,
-            "rows": _linear_rows,
-            "score": _linear_score,
-            "score_base": _linear_score_base,
-        }],
-        "label": _linear_item.display_name,
-    })
-
-    if not _ev_structs:
-        return
+    _ev_ms = _res.ms
+    _ev_is_call = _res.is_call
+    _ev_target = _res.target
+    _ev_weighter = _res.weighter
+    _ev_weights = _res.weights
+    _ev_multipliers = _res.multipliers
+    _ev_base_weights = _res.base_weights
+    _ev_base = _res.base_ccy
+    _ev_structs = _res.structs
+    _base_fired = _res.base_fired
+    _overlay_fired = _res.overlay_fired
+    _fired_all = _res.fired_all
+    _active_ctx = _res.active_ctx
 
     st.session_state["last_scenario_results"] = _ev_structs[-1]["variants"][-1]["rows"]
 
     st.subheader("Structure Evaluation")
-
-    _base_fired = getattr(_ev_weighter, "base_fired", None)
-    _overlay_fired = getattr(_ev_weighter, "overlay_fired", [])
-    _fired_all = getattr(_ev_weighter, "fired", [])
-    _active_parts = []
-    if _base_fired:
-        _active_parts.append(_base_fired.id.replace("_", " ").title())
-    if _overlay_fired:
-        _active_parts.extend(_ctx.id.replace("_", " ").title() for _ctx in _overlay_fired)
-    if not _active_parts and _fired_all:
-        _active_parts.append(_fired_all[0].id.replace("_", " ").title())
-    _active_ctx = " + ".join(_active_parts) if _active_parts else "Baseline grid"
     st.markdown(f"**Active scenario weighting:** {_active_ctx}")
+    _ue = getattr(flow, "user_email", None)
+    try:
+        from knowledge_engine.scenario_weighter import get_scenario_weights_source as _src_fn
+        _wsrc = _src_fn(_ue)
+    except Exception:
+        _wsrc = ""
+    if _wsrc.startswith("supabase (personal"):
+        st.caption(f"⚙️ Weights profile: **personal** — {_ue}")
+    else:
+        st.caption("⚙️ Weights profile: **global**")
+
+    # Verbal spec of the active context's scoring philosophy + driver glossary, from
+    # the GLOBAL commentary store. Both omitted gracefully if absent.
+    from knowledge_engine.scenario_weighter import (
+        get_context_commentary as _get_comm,
+        get_driver_glossary as _get_gloss,
+    )
+    _ctx_id = getattr(_base_fired, "id", None)
+    _comm = _get_comm(_ctx_id) if _ctx_id else {}
+    if _comm.get("market_behavior") or _comm.get("trade_guidance"):
+        with st.expander("About this context — scoring philosophy", expanded=False):
+            if _comm.get("market_behavior"):
+                st.markdown(f"**Market behaviour** — {_comm['market_behavior']}")
+            if _comm.get("trade_guidance"):
+                st.markdown(f"**Privileges** — {_comm['trade_guidance']}")
+    _gloss = _get_gloss()
+    if _gloss:
+        with st.expander("What the P&L drivers mean", expanded=False):
+            for _b in ("Carry", "Directional", "Adverse", "Vega"):
+                if _gloss.get(_b):
+                    st.markdown(f"**{_b}** — {_gloss[_b]}")
 
     _carry_lbl = {0: "noisy", 1: "potential", 2: "high"}[_ev_ms.carry_regime]
     _dir_lbl = "with-carry" if _ev_ms.with_carry else "counter-carry"
     _tz_lbl = (
-        f"target {abs(_ev_ms.target_z):.2f}σ from forward"
-        if _ev_ms.target_z is not None else "no target"
+        f"target {abs(_ev_ms.target_z_spot):.2f}σ from spot ({abs(_ev_ms.target_z):.2f}σ from fwd)"
+        if _ev_ms.target_z_spot is not None else "no target"
     )
     _tenor_days = int(round(_ev_ms.T * 365))
     _tenor_lbl = f"{_tenor_days}d tenor"
@@ -473,75 +783,70 @@ def render_structure_evaluation(
                     continue
                 _w_rows.append({
                     "Row": _row,
-                    "Scenario": _col,
+                    "Scenario": _sc_col_label(_col),
                     "Multiplier": f"{_ev_multipliers[_cid]:.1f}",
                     "Weight": f"{_ev_weights[_cid]:.1%}",
                 })
-        st.dataframe(pd.DataFrame(_w_rows), use_container_width=True, hide_index=True)
+        _show_df(
+            pd.DataFrame(_w_rows),
+            key=_df_key(key_prefix, "weights"),
+            height=_fit_height(key_prefix, len(_w_rows)),
+        )
         if _fired_all:
             _ctx_rows = [{
                 "Layer": "Base" if _ctx == _base_fired else "Overlay",
                 "Weighting": _ctx.id.replace("_", " "),
                 "Reasoning": _ctx.comment,
             } for _ctx in _fired_all]
-            st.dataframe(pd.DataFrame(_ctx_rows), use_container_width=True, hide_index=True)
+            _show_df(
+                pd.DataFrame(_ctx_rows),
+                key=_df_key(key_prefix, "ctx"),
+                height=_fit_height(key_prefix, len(_ctx_rows)),
+            )
         else:
             st.caption("No context-specific weighting active — the baseline grid applies unchanged.")
 
     if is_admin:
+        # Scoring findings — the IP-clean qualitative characterization the agent
+        # narrates over (no scores / weights / methodology). This is the SAME
+        # attribute vocabulary the Agent page uses; shown here as the commentary
+        # input that replaced the old comparator explanation pack.
         try:
-            _expl_variants = {
-                _s["item"].structure_id: [_v["pv"] for _v in _s["variants"]]
-                for _s in _ev_structs
-            }
-            _expl_scores = {
-                _s["item"].structure_id: _s["variants"][0]["score"]
-                for _s in _ev_structs
-            }
-            _expl_variant_evals = {
-                _s["item"].structure_id: [
-                    _VariantEvaluation(
-                        variant=_v["pv"],
-                        rows=_v["rows"],
-                        base_score=_v["score_base"],
-                        pm_score=_v["score"],
-                        aggregates=_summarize_scenario_rows(_v["rows"]),
-                    )
-                    for _v in _s["variants"]
-                ]
-                for _s in _ev_structs
-            }
-            _expl_pack = _build_expl_pack(
-                _ev_ms,
-                flow.selector_result,
-                _expl_variants,
-                _expl_scores,
-                variant_evaluations_by_structure=_expl_variant_evals,
+            _find_rows = []          # (score_ccy, display_name, tags)
+            _axis_aggs = []          # (score_ccy, aggregates)
+            for _s in _ev_structs:
+                _best = max(
+                    _s["variants"],
+                    key=lambda v: v["score"].score_ccy if v["score"].score_ccy is not None else float("-inf"),
+                )
+                _aggs = _summarize_scenario_rows(_best["rows"])
+                _tags = _attributes(_s["item"].structure_id, _best["score"], _aggs)
+                _sc = _best["score"].score_ccy
+                _find_rows.append((_sc, _s["item"].display_name, _tags))
+                _axis_aggs.append((_sc, _aggs))
+            _key = lambda x: x[0] if x[0] is not None else float("-inf")
+            _find_rows.sort(key=_key, reverse=True)
+            _axis_aggs.sort(key=_key, reverse=True)
+            _deciding = (
+                _deciding_axis(_axis_aggs[0][1], _axis_aggs[1][1])
+                if len(_axis_aggs) >= 2 else None
             )
-            from conversation.explanation_context import render_explanation_pack as _render_full_pack
-            from interface.advisor_chat import build_chat_system_prompt as _build_chat_system
-            _full_pack_text = _render_full_pack(_expl_pack)
-            with st.expander("Full LLM prompt", expanded=False):
-                st.code(_build_chat_system(_full_pack_text), language="text")
-            with st.expander("Explanation pack preview", expanded=False):
-                st.code(_render_expl_overview(_expl_pack), language="text")
-                if _expl_pack.variant_comparisons:
-                    with st.expander("Variant comparisons", expanded=False):
-                        st.code(
-                            _render_variant_comparisons(_expl_pack.variant_comparisons),
-                            language="text",
-                        )
-                if _expl_pack.comparisons:
-                    with st.expander("Structure comparisons", expanded=False):
-                        st.code(
-                            _render_structure_comparisons(list(_expl_pack.comparisons.values())),
-                            language="text",
-                        )
-                if not _expl_pack.variant_comparisons and not _expl_pack.comparisons:
-                    st.caption("No comparator sections available for this pack.")
+            _findings_text = _render_findings(
+                [(_name, _tags) for _, _name, _tags in _find_rows],
+                deciding=_deciding,
+            )
+            with st.expander("Scoring findings (LLM commentary input)", expanded=False):
+                st.caption(
+                    "Qualitative characterization the agent narrates over — no scores, "
+                    "weights, or scoring methodology. Same vocabulary as the Agent page."
+                )
+                if _findings_text:
+                    st.code(_findings_text, language="text")
+                else:
+                    st.caption("No findings available for this view.")
         except Exception as _e:
-            with st.expander("Explanation pack preview", expanded=False):
-                st.caption(f"Unable to build explanation pack preview: {_e}")
+            with st.expander("Scoring findings (LLM commentary input)", expanded=False):
+                st.caption(f"Unable to build scoring findings: {_e}")
 
     _all_ranked = sorted(
         [
@@ -553,7 +858,7 @@ def render_structure_evaluation(
         reverse=True,
     )
     st.session_state["kelly_ranked_trade_rec_variants"] = _all_ranked
-    for _ranked_entry in _all_ranked:
+    for _rank_idx, _ranked_entry in enumerate(_all_ranked):
         _ev_v = _ranked_entry["ev_v"]
         _pv0 = _ev_v["pv"]
         _score = _ev_v["score"]
@@ -567,6 +872,9 @@ def render_structure_evaluation(
             _variant_title += f"  ·  Notional: {_notional_str}"
         elif _pv0.is_zero_cost and _pv0.max_loss_pct < 1e-9:
             _variant_title += "  ·  Notional: unscaled"
+        _variant_title += "  ·  " + _premium_headline(
+            _ranked_entry["item"].structure_id, _pv0, _ev_ms, _ev_is_call, _ev_target, _ev_base,
+        )
         _base_pct = f"{_score_base.score_pct:.2%}"
         _base_ccy_str = (
             f"  ({fmt_ccy_label(_score_base.score_ccy, _ev_base)})"
@@ -580,7 +888,7 @@ def render_structure_evaluation(
             else ("  (unscaled)" if _pv0.structure_notional is None else "")
         )
         _variant_title += (
-            f"  ·  Scenario weighted P&L: {_base_pct}{_base_ccy_str}"
+            f"  ·  PnL score: {_base_pct}{_base_ccy_str}"
             f"  ·  PM overlay weighted P&L: {_ctx_pct}{_ctx_ccy_str}"
         )
 
@@ -595,7 +903,7 @@ def render_structure_evaluation(
                         continue
                     _summary_rows.append({
                         "Row": _row,
-                        "Scenario": _col,
+                        "Scenario": _sc_col_label(_col),
                         "P&L": f"{_bd.pnl_pct:+.2%}  ({fmt_ccy(_bd.pnl_ccy, _ev_base)})",
                         "Multiplier": f"{_bd.multiplier:.1f}",
                         "Weight": f"{_bd.normalized_weight:.1%}",
@@ -605,7 +913,11 @@ def render_structure_evaluation(
                         ),
                     })
             if _summary_rows:
-                st.dataframe(pd.DataFrame(_summary_rows), use_container_width=True, hide_index=True)
+                _show_df(
+                    pd.DataFrame(_summary_rows),
+                    key=_df_key(key_prefix, f"sum_{_rank_idx}"),
+                    height=_fit_height(key_prefix, len(_summary_rows)),
+                )
 
             with st.expander("Scenarios", expanded=False):
                 _ev_by_row: dict[str, list] = {}
@@ -614,10 +926,14 @@ def render_structure_evaluation(
                 for _row in _valid_grid_rows(_ev_ms.T):
                     if _row not in _ev_by_row:
                         continue
-                    st.markdown(f"**{_row}**")
                     _row_rows = sorted(_ev_by_row[_row], key=lambda x: _SC_GRID_COLS.index(x["col"]))
+                    # Per-row roll-down forward = the no-move (S) cell's scenario forward,
+                    # which decays toward spot as the horizon shrinks (carry reference).
+                    _s_cell = next((x for x in _row_rows if x["col"] == "S"), None)
+                    _fwd_lbl = f"  ·  fwd {_s_cell['scenario_fwd']:.4f}" if _s_cell else ""
+                    st.markdown(f"**{_row}**{_fwd_lbl}")
                     _row_df = pd.DataFrame([{
-                        "Scenario":  r["col"],
+                        "Scenario":  _sc_col_label(r["col"]),
                         "T%":        f"{r['time_fraction']:.0%}",
                         "Fwd":       f"{r['scenario_fwd']:.4f}",
                         "Spot":      f"{r['scenario_spot']:.4f}",
@@ -626,4 +942,8 @@ def render_structure_evaluation(
                         "Price":     f"{r['price_pct']:.2%}  ({fmt_ccy(r['price_ccy'], _ev_base)})",
                         "P&L":       f"{r['pnl_pct']:+.2%}  ({fmt_ccy(r['pnl_ccy'], _ev_base)})",
                     } for r in _row_rows])
-                    st.dataframe(_row_df, use_container_width=True, hide_index=True)
+                    _show_df(
+                        _row_df,
+                        key=_df_key(key_prefix, f"row_{_rank_idx}_{_row}"),
+                        height=_fit_height(key_prefix, len(_row_df)),
+                    )

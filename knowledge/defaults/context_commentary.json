@@ -1,0 +1,39 @@
+{
+  "_comment": "GLOBAL context commentary — the verbal spec of each scenario-weighting context's scoring philosophy (mirrors both the affinity scores and the scenario weights). Shared across ALL profiles (not per-account). Keyed by base-weighting context id. Editable on the Scenario Weightings page; stored in config_history under key 'context_commentary'. JSON deploys immediately (no version bump).",
+  "contexts": {
+    "classic_carry": {
+      "market_behavior": "Spot is sticky or slow-moving toward the target; the forward roll-down dominates and vol is not a main driver, though adverse moves can still happen. Overshoot is rare; undershoot is more likely.",
+      "trade_guidance": "Privilege trades that are decay-resistant, benefit from the carry, and accrue most of their value later in the life — low delta at the onset."
+    },
+    "big_move": {
+      "market_behavior": "The regime is dominated by vol and the possibility of a very large move. An early move to (or towards) the target is possible; overshoot is likely and undershoot less likely.",
+      "trade_guidance": "Favour trades with larger delta at the onset — vanilla and low-TV digitals are better than 1x1 or higher-TV digitals. Avoid tails and KO; seagulls not necessary. Privilege trades that accrue value earlier in the lifecycle; expiry is less important."
+    },
+    "carry_momentum_extended": {
+      "market_behavior": "Carry dominates and reinforces the move; spot moves steadily towards the target and likely overshoots, with undershoot less a feature. Vol is not a very important driver and adverse moves are less likely.",
+      "trade_guidance": "Favour digitals, 1x1 and 1x1.5; avoid 1x2 due to overshooting risk. Look to have delta at the onset; low-TV digitals are better than high-TV digitals."
+    },
+    "counter_carry": {
+      "market_behavior": "The regime is dominated by carry and the trade fights the market's natural tendency. Decay is an important feature and so is vol; adverse moves, no-move and undershoot are probable while overshoot is rare.",
+      "trade_guidance": "Favour low-delta trades at the onset and trades that help fight the carry — 1x1, digitals, 1x1.5, ERKO."
+    },
+    "directional_low_carry": {
+      "market_behavior": "Vol dominates carry; the trade is subject to mean reversion. It is unlikely not to move; adverse moves are likely and undershoot is more likely than overshoot.",
+      "trade_guidance": "Privilege trades with smaller delta at the onset, which are vol-resistant but also perform in undershoot scenarios — e.g. digitals, 1x1.5, 1x2, ERKO. Avoid seagulls."
+    },
+    "long_dated": {
+      "market_behavior": "Long tenor (>6 months) — a large window for spot to reach the target early and then drift away before expiry, and for vol moves to compound. Early-touch-then-retrace is a real risk, especially for capped structures.",
+      "trade_guidance": "Privilege trades that lock in value on the path or hold up if the target is reached early and then given back; beware capped structures that only pay at expiry."
+    },
+    "short_dated": {
+      "market_behavior": "Short tenor (<1 month) — theta and pin risk dominate; there is little time for path scenarios to develop independently of the final outcome, so terminal intrinsic value is what matters.",
+      "trade_guidance": "Privilege trades whose value is the terminal payoff at the target with low time-decay drag; path-dependent and slow-accrual structures have little room to work."
+    }
+  },
+  "driver_glossary": {
+    "Carry": "Decay / roll-down — value from the forward grinding toward (or against) spot at unchanged spot (the 'no move' cell). Positive when the carry works for the view.",
+    "Directional": "Directional capture — value as spot progresses toward, reaches, or overshoots the target.",
+    "Adverse": "Adverse moves — P&L when spot moves the wrong way (half / full sigma against the view).",
+    "Vega": "Vol shock — P&L from a vol move at unchanged spot (isolated vega)."
+  }
+}

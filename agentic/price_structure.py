@@ -66,6 +66,7 @@ def price_structure(
     target: float | None = None,
     stop_price: float | None = None,
     loss_budget: float | None = None,
+    linear_notional: float = 100.0,
     smile: object = _UNSET,
 ) -> PriceStructureResult:
     """Price a single PM-requested structure against the current market state.
@@ -78,6 +79,10 @@ def price_structure(
         target:       target spot level, from the session view (Tier-1 input).
         stop_price:   optional stop level (seagull max-loss sizing).
         loss_budget:  optional base-ccy loss budget → populates the ccy fields.
+        linear_notional: the PM's real sizing capital (W) — bounds the notional cap
+                      (10×W) applied in ``_size_variant``. Must match the session's
+                      bankroll or the cap clips the sized notional to a placeholder
+                      value regardless of loss_budget.
         smile:        VolSurface; defaults to ``ms.surface`` so entry pricing uses
                       the same surface the pack was built against.
     """
@@ -96,6 +101,7 @@ def price_structure(
         is_call=is_call,
         stop_price=stop_price,
         loss_budget=loss_budget,
+        linear_notional=linear_notional,
         smile=surface,
         warnings=warnings,
         variants_override=[variant_dict],
@@ -124,6 +130,44 @@ def price_structure(
         request=parsed, variant=priced[0], warnings=tuple(warnings),
         priced_structure=legs_struct,
     )
+
+
+def characterize_against_pack(
+    variant,
+    family: str,
+    ms: MarketState,
+    *,
+    is_call: bool,
+    target: float | None,
+    smile: object,
+    weights: dict | None,
+) -> frozenset:
+    """IP-clean qualitative tags for a PM-named structure, scored against the
+    *frozen* pack (same scenario grid + same resolved weights). Mirrors the
+    pack-build path so an off-menu structure lands in the identical vocabulary.
+
+    Best-effort: returns an empty set if the structure can't be scenario-scored
+    (e.g. no target, or no resolved weights on the pack).
+    """
+    if target is None or not weights:
+        return frozenset()
+    try:
+        from analytics.scenario_generator import generate_scenarios
+        from analytics.scenario_pricer import price_scenarios
+        from knowledge_engine.scenario_scorer import score_structure
+        from knowledge_engine.comparator import summarize_scenario_rows
+        from knowledge_engine.structure_attributes import attributes
+
+        trade_inputs = {
+            "spot": ms.spot, "forward": ms.fwd, "implied_vol": ms.vol,
+            "tenor_years": ms.T, "target": target, "r_d": ms.r_d, "r_f": ms.r_f,
+        }
+        scenarios = generate_scenarios(trade_inputs)
+        rows = price_scenarios(variant, family, scenarios, trade_inputs, is_call, surface=smile)
+        pm_score = score_structure(rows, weights)
+        return attributes(family, pm_score, summarize_scenario_rows(rows))
+    except Exception:
+        return frozenset()
 
 
 def _unavailable_detail(family: str, target: float | None, warnings: list[str]) -> str:

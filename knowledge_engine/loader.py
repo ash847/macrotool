@@ -27,20 +27,25 @@ def _load(path: Path) -> dict:
 # Facts (convention files — immutable)
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_PAIRS = ["USDBRL", "USDTRY", "EURPLN"]
+def _supported_pairs() -> list[str]:
+    """Every pair with a facts file — the source of truth for which pairs have
+    conventions loaded. Adding knowledge/facts/{PAIR}.json is what "expanding the
+    set" means here; no separate allowlist to keep in sync."""
+    return sorted(p.stem for p in _FACTS_DIR.glob("*.json"))
 
 
 @lru_cache(maxsize=None)
 def load_convention_facts(pair: str) -> dict:
     """Load raw convention facts for a currency pair."""
-    if pair not in _SUPPORTED_PAIRS:
-        raise ValueError(f"Unsupported pair '{pair}'. Supported: {_SUPPORTED_PAIRS}")
+    supported = _supported_pairs()
+    if pair not in supported:
+        raise ValueError(f"Unsupported pair '{pair}'. Supported: {supported}")
     return _load(_FACTS_DIR / f"{pair}.json")
 
 
 @lru_cache(maxsize=None)
 def load_all_convention_facts() -> dict[str, dict]:
-    return {pair: load_convention_facts(pair) for pair in _SUPPORTED_PAIRS}
+    return {pair: load_convention_facts(pair) for pair in _supported_pairs()}
 
 
 # ---------------------------------------------------------------------------
@@ -75,20 +80,34 @@ def load_structure_profiles() -> dict:
 _affinity_cache: dict | None = None
 
 
+def _merge_affinity(local: dict, remote: dict) -> dict:
+    """Overlay the remote (Supabase) config on the local defaults.
+
+    Remote wins for everything it defines (top-level keys + tuned per-family
+    scores), but families present only in the local defaults are preserved —
+    so adding a new structure family to the local JSON is not silently dropped
+    when a Supabase config exists that predates it. `enabled: false` in
+    structure_profiles remains the way to disable a family."""
+    merged = {**local, **remote}
+    merged["structures"] = {**local.get("structures", {}), **remote.get("structures", {})}
+    return merged
+
+
 def load_affinity_scores() -> dict:
     global _affinity_cache
     if _affinity_cache is not None:
         return _affinity_cache
+    with open(_DEFAULTS_DIR / "affinity_scores.json") as f:
+        local = json.load(f)
     try:
         from interface.supabase_logger import fetch_config_for_engine
-        data = fetch_config_for_engine("affinity_scores")
-        if data:
-            _affinity_cache = data
+        remote = fetch_config_for_engine("affinity_scores")
+        if remote:
+            _affinity_cache = _merge_affinity(local, remote)
             return _affinity_cache
     except Exception:
         pass
-    with open(_DEFAULTS_DIR / "affinity_scores.json") as f:
-        _affinity_cache = json.load(f)
+    _affinity_cache = local
     return _affinity_cache
 
 

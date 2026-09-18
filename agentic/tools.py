@@ -39,8 +39,10 @@ _HAS_LEG = re.compile(r"[0-9%]|atmf|atm|sigma|target|tgt")
 _DIRECTIONS = ("base_higher", "base_lower")
 _CONVICTIONS = ("high", "medium", "low")
 _MODES = ("recommend", "critique")
-# Pairs wired into the engine (rate context, df curves). The snapshot carries more.
-SUPPORTED_PAIRS = ("USDBRL", "USDTRY", "EURPLN", "GBPUSD")
+# Supported pairs are NOT hardcoded: the run_standard_pack gate below checks the loaded
+# market snapshot (session.snapshot.currencies), and the agent's system prompt is built
+# per-session from that same list — so adding a pair to the snapshot exposes it with no
+# code change. Every snapshot pair is priceable (all have a USD/EUR/GBP base + df curve).
 
 
 TOOL_SCHEMAS = [
@@ -67,7 +69,7 @@ TOOL_SCHEMAS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "pair": {"type": "string", "description": "e.g. USDBRL, USDTRY, EURPLN, GBPUSD"},
+                "pair": {"type": "string", "description": "any pair in the loaded market data (e.g. USDBRL, EURUSD, USDJPY); the tool returns the available set if not present"},
                 "horizon_days": {"type": "integer", "description": "tenor in days"},
                 "target_level": {
                     "type": "number",
@@ -155,9 +157,10 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
     magnitude_pct = args.get("magnitude_pct")
     target_level = args.get("target_level")
 
-    if pair not in SUPPORTED_PAIRS:
+    available = tuple(session.snapshot.currencies.keys())
+    if pair not in available:
         raise _ToolError(
-            f"Unsupported pair '{pair}'. Supported: {', '.join(SUPPORTED_PAIRS)}."
+            f"Unsupported pair '{pair}'. Supported: {', '.join(available)}."
         )
     if not isinstance(horizon_days, (int, float)) or horizon_days <= 0:
         raise _ToolError("horizon_days must be a positive integer.")
@@ -193,12 +196,20 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         return render_pack(cached, view) + "\n\n(reused cached pack — view unchanged)"
 
     ccy = session.snapshot.get(view.pair)
+    # NOTE (deferred — fix after the Kelly integration work on the separate worktree
+    # lands): the agent uses GLOBAL scenario weights (no user_email), the session's
+    # default PM preferences (Balanced / Standard hold / No restriction), and the
+    # session target_rr. Trade View / Batch instead use the logged-in user's personal
+    # weights profile and the PM-preference widgets, so their rankings can differ from
+    # the agent's. Thread user_email + PM prefs (+ aligned target_rr) through here once
+    # Kelly is merged so all surfaces rank identically.
     pack = build_pack(
         view, ccy, session.cfg,
         structure_constraint=session.structure_constraint,
         primary_objective=session.primary_objective,
         trade_management=session.trade_management,
         target_rr=session.target_rr,
+        linear_notional=session.linear_notional,
     )
     session.store(view, pack)
     session.view, session.pack = view, pack
@@ -214,6 +225,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
         )
 
     request = args.get("request", "")
+    base_ccy = session.view.pair[:3] if session.view is not None else "base ccy"
 
     # Family-only request (e.g. "1x1.5 spread", "the digital") → return the
     # already-priced recommended construction from the pack, don't demand strikes.
@@ -221,7 +233,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
     if fam_only is not None:
         rec = next((r for r in session.pack.recommended if r.structure_id == fam_only), None)
         if rec is not None:
-            return render_recommended(rec), False
+            return render_recommended(rec, base_ccy), False
 
     ms = session.pack.market_state
     try:
@@ -231,6 +243,7 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             is_call=session.pack.is_call,
             target=session.pack.target,
             loss_budget=session.pack.loss_budget,
+            linear_notional=session.linear_notional,
             smile=getattr(ms, "surface", None),
         )
     except StructureRequestError as e:
@@ -242,5 +255,13 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
         return render_unavailable(result), False
     if isinstance(result, PricedStructure):
         session.priced.append(result)
-        return render_priced_structure(result), False
+        # Characterize the off-menu structure in the same IP-clean vocabulary as the
+        # recommended set (scored against the frozen pack) so the LLM can contrast it.
+        from agentic.price_structure import characterize_against_pack
+        tags = characterize_against_pack(
+            result.variant, result.request.family, ms,
+            is_call=session.pack.is_call, target=session.pack.target,
+            smile=getattr(ms, "surface", None), weights=session.pack.scenario_weights,
+        )
+        return render_priced_structure(result, tags, base_ccy), False
     return "Unexpected pricing result.", True

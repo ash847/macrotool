@@ -52,6 +52,10 @@
     "atmfsratio": [
       1.5,
       2.0
+    ],
+    "carry_alignment": [
+      0.25,
+      0.65
     ]
   },
   "structures": {
@@ -269,6 +273,42 @@
         "Avoid capped structures": -5.0,
         "Avoid complex structures": -5.0,
         "Avoid tail-risky structures": -5.0
+      }
+    },
+    "1x2x1_spread": {
+      "gates": {
+        "target_z_abs_max": 1.5
+      },
+      "target_z_abs": {
+        "no_target": 0.01,
+        "near": 2.01,
+        "moderate": 0.51,
+        "extended": 0.01,
+        "far": 0.01
+      },
+      "carry_regime": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 2.0
+      },
+      "atmfsratio": {
+        "low": 0.5,
+        "medium": 1.0,
+        "high": 3.0
+      },
+      "carry_alignment": {
+        "with_low": 0.0,
+        "with_medium": 1.0,
+        "with_high": 2.0,
+        "counter_low": 1.0,
+        "counter_medium": 0.5,
+        "counter_high": 0.0
+      },
+      "structure_constraint": {
+        "No restriction": 0.0,
+        "Avoid capped structures": -5.0,
+        "Avoid complex structures": -5.0,
+        "Avoid tail-risky structures": 0.0
       }
     },
     "european_rko": {

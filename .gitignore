@@ -9,3 +9,6 @@ dist/
 .DS_Store
 .claude/
 logs/*.log
+
+# Retired codex worktrees (local only)
+.codex-worktrees/

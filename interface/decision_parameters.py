@@ -24,7 +24,7 @@ _SCORES_PATH = pathlib.Path(__file__).parent.parent / "knowledge" / "defaults" /
 _DIMS = ["target_z_abs", "carry_regime", "atmfsratio", "carry_alignment", "structure_constraint"]
 
 _DIM_LABELS = {
-    "target_z_abs":         "Target Z (distance from forward)",
+    "target_z_abs":         "Target Z (distance from spot)",
     "carry_regime":         "Carry Regime",
     "atmfsratio":           "ATM/F-S Ratio",
     "carry_alignment":      "Carry Alignment",

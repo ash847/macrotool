@@ -32,6 +32,7 @@ _CONSTRAINT_GATED_STRUCTURES = {
         "rko",
         "european_rko",
         "european_digital_rko",
+        "1x2x1_spread",
     },
     "Avoid tail-risky structures": {
         "seagull",
@@ -160,6 +161,25 @@ def get_scoring_detail(
     return rows
 
 
+def max_possible_score() -> float:
+    """The theoretical affinity-score ceiling: for each scored dimension, the highest
+    bucket value that appears anywhere in the config, summed. A structure that landed
+    in its best bucket on every dimension would score this. Used to express a
+    structure's total as a % of the maximum possible (a fixed, ranking-preserving
+    normaliser). The penalty-only ``structure_constraint`` dimension contributes 0."""
+    scores_cfg = load_affinity_scores()
+    struct_scores = scores_cfg["structures"]
+    ceiling = 0.0
+    for dim in _SCORED_DIMS:
+        dim_max = 0.0
+        for cfg in struct_scores.values():
+            for v in (cfg.get(dim) or {}).values():
+                if isinstance(v, (int, float)):
+                    dim_max = max(dim_max, float(v))
+        ceiling += dim_max
+    return ceiling
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -177,16 +197,16 @@ def _passes_gates(
     # Structural gate from structure_profiles.json — structure needs a target level to be built
     if profile.get("requires_target") and ms.target_z is None:
         return False
-    # target_z_abs_min — target must be at least this many σ from the forward.
+    # target_z_abs_min — target must be at least this many σ from SPOT (scoring anchor).
     # Defined in affinity_scores.json _gates_schema. Prevents recommending spread/seagull
-    # when the target is so near the forward that the sold strike contributes no premium saving.
+    # when the target is so near that the sold strike contributes no premium saving.
     if "target_z_abs_min" in gates:
-        if ms.target_z is None or abs(ms.target_z) < gates["target_z_abs_min"]:
+        if ms.target_z_spot is None or abs(ms.target_z_spot) < gates["target_z_abs_min"]:
             return False
-    # target_z_abs_max — target must be no more than this many σ from the forward.
+    # target_z_abs_max — target must be no more than this many σ from SPOT.
     # Defined in affinity_scores.json _gates_schema.
     if "target_z_abs_max" in gates:
-        if ms.target_z is None or abs(ms.target_z) > gates["target_z_abs_max"]:
+        if ms.target_z_spot is None or abs(ms.target_z_spot) > gates["target_z_abs_max"]:
             return False
     return True
 
@@ -196,11 +216,13 @@ def _compute_buckets(
     thresholds: dict,
     structure_constraint: str = "No restriction",
 ) -> dict[str, str]:
+    # SPOT-anchored σ-distance drives the target_z_abs bucket (scoring layer).
+    # `target_z` (forward) is retained on MarketState for construction/eligibility.
     tz_cuts = thresholds["target_z_abs"]
-    if ms.target_z is None:
+    if ms.target_z_spot is None:
         tz_bucket = "no_target"
     else:
-        az = abs(ms.target_z)
+        az = abs(ms.target_z_spot)
         if az < tz_cuts[0]:
             tz_bucket = "near"
         elif az < tz_cuts[1]:
@@ -218,7 +240,20 @@ def _compute_buckets(
     else:
         atm_bucket = "high"
 
-    carry_alignment = f"with_{atm_bucket}" if ms.with_carry else f"counter_{atm_bucket}"
+    # carry_alignment s/m/l is delimited by the carry-to-vol ratio |c|
+    # (ln(fwd/spot)/(σ√T)) — NOT the atmfsratio payout ratio. |c| is always
+    # defined, so there is no None case. Falls back to the carry_regime cuts
+    # if a remote/legacy config omits the dedicated threshold.
+    ca_cuts = thresholds.get("carry_alignment", thresholds["carry_regime"])
+    cv = abs(ms.c)
+    if cv < ca_cuts[0]:
+        ca_bucket = "low"
+    elif cv < ca_cuts[1]:
+        ca_bucket = "medium"
+    else:
+        ca_bucket = "high"
+
+    carry_alignment = f"with_{ca_bucket}" if ms.with_carry else f"counter_{ca_bucket}"
 
     return {
         "target_z_abs":       tz_bucket,

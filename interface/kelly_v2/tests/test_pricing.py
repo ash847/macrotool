@@ -156,7 +156,9 @@ def test_trade_rec_call_spread_payoff_in_base_ccy():
     )
 
 
-def test_trade_rec_digital_payoff_scales_by_entry_spot():
+def test_trade_rec_digital_payoff_is_base_ccy_cash_or_nothing():
+    # European digital = base-ccy cash-or-nothing: 100% (1.0) of notional if ITM,
+    # else 0.0 — NOT the legacy spot/target basis.
     payoff = base_ccy_payoff_for_trade_rec(
         "european_digital",
         strikes=[5.5],
@@ -165,4 +167,4 @@ def test_trade_rec_digital_payoff_scales_by_entry_spot():
         entry_spot=5.0,
     )
     prices = np.array([5.4, 5.6])
-    np.testing.assert_allclose(payoff(prices), [0.0, 5.0 / 5.6], atol=1e-12)
+    np.testing.assert_allclose(payoff(prices), [0.0, 1.0], atol=1e-12)

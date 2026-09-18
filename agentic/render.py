@@ -7,12 +7,25 @@ agent can cite the right source, and they surface only computed numbers.
 
 from __future__ import annotations
 
+import re
+
 from agentic.price_structure import PricedStructure, PricingUnavailable
 from agentic.standard_pack import StandardPack
 from analytics.product_model import AnchorKind
 from knowledge_engine.models import TradeView
+from knowledge_engine.payoff_profile import payoff_profile, render_payoff
+from knowledge_engine.scenario_scorer import cell_label
 
 _TOP_N = 3   # recommended structures shown by default; rest surfaced only on request
+
+# The engine rationale carries a trailing "[scores on: <affinity dimensions>]" /
+# "[penalised by: ...]" suffix — that is scoring METHODOLOGY (IP). Strip it before the
+# LLM sees it; keep only the plain description. The full version stays in the admin UI.
+_RATIONALE_METHOD_SUFFIX = re.compile(r"\s*\[(?:scores on|penalised by)[^\]]*\]")
+
+
+def _clean_rationale(text: str) -> str:
+    return _RATIONALE_METHOD_SUFFIX.sub("", text or "").strip()
 
 
 def _anchor_label(anchor) -> str:
@@ -30,7 +43,7 @@ def _anchor_label(anchor) -> str:
     return f"K={anchor.value:.4f}"
 
 
-def _legs_breakdown(ps, base_notional: float | None = None) -> list[str]:
+def _legs_breakdown(ps, base_notional: float | None = None, ccy: str = "") -> list[str]:
     """Explicit per-leg lines from a product-model PricedStructure — each leg's side /
     anchor / right / strike + the ACTUAL sized notional (leg ratio × the structure's sized
     base notional). The leg ratio (1, 1.5, …) is the structure name, not the notional."""
@@ -43,17 +56,46 @@ def _legs_breakdown(ps, base_notional: float | None = None) -> list[str]:
         instr = "Digital " if pl.leg.instrument.value == "digital" else ""
         head = f"      {side} {_anchor_label(pl.leg.anchor)} {instr}{right} @ {pl.strike:.4f}"
         if base_notional is not None:
-            head += f"  · notional ≈{abs(pl.notional) * base_notional:,.0f}"
+            head += f"  · notional ≈{abs(pl.notional) * base_notional:,.0f} {ccy}".rstrip()
         lines.append(head)
     if ps.barrier is not None:
         lines.append(f"      knock-out barrier @ {ps.barrier:.4f}")
     return lines
 
 
+def _payoff_line(priced_structure, variant, structure_id: str, indent: str = "     ") -> str | None:
+    """The engine-authored PAYOFF line (terminal geometry) for one priced structure.
+
+    Best-effort — mirrors the per-leg breakdown, which also needs the product-model
+    ``priced_structure``. Every number it prints (strikes / barrier) is already shown
+    elsewhere in the pack; the line only connects them, so no number is minted and the
+    'numbers come from a tool' invariant holds. The agent relays this INSTEAD of
+    authoring payoff geometry itself.
+    """
+    if priced_structure is None or not getattr(priced_structure, "priced_legs", None):
+        return None
+    legs = [
+        (pl.notional, pl.strike, pl.leg.right.value == "call")
+        for pl in priced_structure.priced_legs
+    ]
+    is_call = priced_structure.priced_legs[0].leg.right.value == "call"
+    prof = payoff_profile(
+        structure_id,
+        legs,
+        net_premium_pct=variant.net_premium_pct,
+        is_zero_cost=variant.is_zero_cost,
+        is_call=is_call,
+        strikes=list(variant.strikes),
+        barrier=variant.barrier,
+    )
+    return render_payoff(prof, indent) if prof else None
+
+
 def render_pack(pack: StandardPack, view: TradeView) -> str:
     """Render the deterministic standard pack as labelled text for the agent."""
     ms = pack.market_state
     direction = "Long" if view.direction == "base_higher" else "Short"
+    base_ccy = view.pair[:3]   # ccy1 — all base-ccy amounts below are in this currency
     lines: list[str] = []
 
     lines.append(
@@ -84,15 +126,42 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     if ms.target_z is not None:
         lines.append(f"  target_z(fwd)={ms.target_z:+.2f}σ  put_call={ms.put_call}")
 
+    # Context guidance — the verbal spec of how this regime is scored (the scenario-
+    # weighting lens). Relay when explaining WHY a structure suits the regime; it does
+    # not override the engine's ranked pick.
+    _ctx_id = getattr(pack, "active_context", None)
+    if _ctx_id:
+        from knowledge_engine.scenario_weighter import get_context_commentary
+        _comm = get_context_commentary(_ctx_id)
+        if _comm.get("market_behavior") or _comm.get("trade_guidance"):
+            lines.append("\nCONTEXT GUIDANCE — the scoring lens for the current regime. Paraphrase this in your own"
+                         " words to explain the fit; do NOT state any internal regime/label name. It explains the"
+                         " engine's ranking, it never overrides it:")
+            if _comm.get("market_behavior"):
+                lines.append(f"  Market behaviour: {_comm['market_behavior']}")
+            if _comm.get("trade_guidance"):
+                lines.append(f"  Privileges: {_comm['trade_guidance']}")
+
     if pack.recommended:
         lines.append(
             "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
-            "scenario-weighted P&L; use these):"
+            "PnL score; use these):"
         )
-        if pack.loss_budget is not None:
+        cap_note = f"notional capped at 10×W = {10 * pack.linear_notional:,.0f} {base_ccy}"
+        if pack.sizing_method == "kelly":
             lines.append(
-                f"  (each variant sized so its max loss = the loss budget "
-                f"{pack.loss_budget:,.2f} base ccy, on a 100-unit linear notional, R:R-derived)"
+                f"  SIZING REGIME: KELLY (the PM is operating under Kelly sizing — use ONLY "
+                f"this regime's framing). Bankroll W = {pack.linear_notional:,.0f} {base_ccy}, "
+                f"fractional-Kelly λ = {pack.kelly_lambda:.2f}. Each variant is sized to λ·f*·W "
+                f"from the PM's elicited edge distribution, where f* is that structure's "
+                f"full-Kelly fraction (stated per structure below); {cap_note}, net-credit fixed at 10×W."
+            )
+        elif pack.loss_budget is not None:
+            lines.append(
+                f"  SIZING REGIME: FIXED-LOSS (the PM is operating under fixed-loss sizing — use "
+                f"ONLY this regime's framing). Each variant is sized so its max loss = the loss "
+                f"budget {pack.loss_budget:,.0f} {base_ccy} (= W × the R:R-derived stop%); "
+                f"{cap_note}, net-credit fixed at 10×W."
             )
         top = pack.recommended[:_TOP_N]
         for r in top:
@@ -100,39 +169,59 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
                 f"  {r.rank}. {r.display_name} — {r.variant.variant_label} [{r.structure_id}]"
             )
             lines.append("     " + _variant_summary(r.variant))
-            lines.extend(_legs_breakdown(r.priced_structure, r.variant.structure_notional))
-            ccy = _ccy_summary(r.variant)
+            lines.extend(_legs_breakdown(r.priced_structure, r.variant.structure_notional, base_ccy))
+            payoff = _payoff_line(r.priced_structure, r.variant, r.structure_id)
+            if payoff:
+                lines.append(payoff)
+            ccy = _ccy_summary(r.variant, base_ccy)
             if ccy:
                 lines.append("     " + ccy)
-            if r.major_risk:
-                lines.append(f"     risk (engine): {r.major_risk}")
-            lines.append(f"     — {r.rationale}")
+            if pack.sizing_method == "kelly" and getattr(r.variant, "kelly_fraction", None) is not None:
+                _car = r.variant.kelly_fraction * (r.variant.max_loss_pct or 0.0)
+                lines.append(
+                    f"     Kelly: full-Kelly risks {_car:.0%} of W (capital at risk); "
+                    f"f* = {r.variant.kelly_fraction:.1f}× W notional, sized notional = λ·f*·W"
+                )
+            # Qualitative, IP-clean findings — what the scoring *learned* about this
+            # structure, with no scores / weights / methodology. The raw driver split
+            # (r.drivers) stays server-side; it only DERIVES these tags.
+            lines.extend(_findings_lines(r.attributes))
+            lines.extend(_cell_driver_lines(r.cell_drivers))
+            # major_risk is intentionally NOT surfaced by default — it's a generic
+            # family-level caveat the PM rarely wants unprompted. It stays in the
+            # data and is rendered on request via render_recommended (price_structure).
+            lines.append(f"     — {_clean_rationale(r.rationale)}")
         extra = len(pack.recommended) - len(top)
         if extra > 0:
             lines.append(
-                f"  (+{extra} more structures considered — list them only if the PM asks.)"
+                f"  (+{extra} more structures considered — this is a COUNT only, their identities "
+                f"are not included here. If the PM asks what they are, say you don't have their "
+                f"names rather than guessing.)"
+            )
+        if pack.deciding_axis:
+            lines.append(
+                f"  WHAT SEPARATED THE TOP PICK: {pack.deciding_axis}. "
+                "(Use to explain the choice; synthesize the findings into a view — "
+                "do not list them mechanically, and state no score.)"
             )
     else:
         # No representative priced (e.g. no target supplied) — fall back to families.
         lines.append("\nSTRUCTURE SHORTLIST (scored families):")
         for s in pack.selector_result.shortlist:
             tag = " (overlay)" if s.is_exotic else ""
-            lines.append(f"  {s.rank}. {s.display_name} [{s.structure_id}]{tag} — {s.rationale}")
+            lines.append(f"  {s.rank}. {s.display_name} [{s.structure_id}]{tag} — {_clean_rationale(s.rationale)}")
         if not pack.selector_result.shortlist:
             lines.append("  (no eligible structures for this view)")
 
-    if pack.sizing is not None:
+    # Only the R:R-derived stop is surfaced here. The conviction-mapped Kelly
+    # fraction / adjusted-Kelly / Kelly notional are deliberately NOT rendered:
+    # they are heuristic defaults, not the elicited Kelly-criterion number from
+    # the dedicated Kelly Sizing screen, and the agent must not quote them.
+    if pack.sizing is not None and pack.sizing.stop_level is not None:
         sz = pack.sizing
+        sd = f"{sz.stop_distance_pct:.2%}" if sz.stop_distance_pct is not None else "n/a"
         lines.append("\nSIZING (baseline, top structure):")
-        lines.append(
-            f"  kelly={sz.kelly_fraction:.3f} (conviction {sz.kelly_conviction_used})"
-            f"  adjusted={sz.adjusted_kelly:.3f}"
-        )
-        if sz.kelly_notional_usd is not None:
-            lines.append(f"  notional≈{sz.kelly_notional_usd:,.0f} (base ccy)")
-        if sz.stop_level is not None:
-            sd = f"{sz.stop_distance_pct:.2%}" if sz.stop_distance_pct is not None else "n/a"
-            lines.append(f"  stop={sz.stop_level:.4f} (dist {sd})")
+        lines.append(f"  stop={sz.stop_level:.4f} (dist {sd})")
 
     if pack.smile_distribution is not None or pack.flat_distribution is not None:
         lines.append("\nDISTRIBUTIONS: available (smile + flat) for scenario context.")
@@ -140,15 +229,55 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     return "\n".join(lines)
 
 
-def _ccy_summary(v) -> str | None:
-    """Base-ccy notional/premium/max-loss on the standard linear-notional basis
-    (sized so max loss = the R:R-derived loss budget — same as the Trade View
-    variants table). None when the variant wasn't dollar-sized."""
+def _cell_driver_lines(cell_drivers, indent: str = "     ") -> list[str]:
+    """Top / bottom scenario-grid cells by weighted P&L contribution — the specific
+    market outcomes that most help or hurt this structure's ranked score. Percent
+    of the scoring notional (NOT the structure's sized notional shown elsewhere)."""
+    if not cell_drivers:
+        return []
+    pos, neg = cell_drivers
+    out = []
+    if pos:
+        out.append(
+            f"{indent}top contributors: "
+            + "; ".join(f"{c.contrib_pct:+.2%} {cell_label(c)}" for c in pos)
+        )
+    if neg:
+        out.append(
+            f"{indent}top detractors:   "
+            + "; ".join(f"{c.contrib_pct:+.2%} {cell_label(c)}" for c in neg)
+        )
+    return out
+
+
+def _findings_lines(tags, indent: str = "     ") -> list[str]:
+    """Per-structure qualitative findings (edges / caveats) from attribute tags.
+
+    IP-clean by construction: only phrasebook glosses, no numbers or method.
+    """
+    if not tags:
+        return []
+    from knowledge_engine.structure_attributes import ATTRIBUTES
+    ordered = [t for t in ATTRIBUTES if t in tags]
+    edges = [ATTRIBUTES[t].gloss for t in ordered if ATTRIBUTES[t].polarity == "edge"]
+    caveats = [ATTRIBUTES[t].gloss for t in ordered if ATTRIBUTES[t].polarity in ("caveat", "neutral")]
+    out = []
+    if edges:
+        out.append(f"{indent}findings — edges:   " + "; ".join(edges))
+    if caveats:
+        out.append(f"{indent}findings — caveats: " + "; ".join(caveats))
+    return out
+
+
+def _ccy_summary(v, ccy: str = "base ccy") -> str | None:
+    """Notional/premium/max-loss in the pair's base currency, on the standard
+    linear-notional basis (sized so max loss = the R:R-derived loss budget — same
+    as the Trade View variants table). None when the variant wasn't sized."""
     if v.structure_notional is None:
         return None
     return (
-        f"sized: notional≈{v.structure_notional:,.0f}  premium≈{v.net_premium_ccy:,.0f}  "
-        f"max_loss≈{v.max_loss_ccy:,.0f} (base ccy, linear-notional basis)"
+        f"sized: notional≈{v.structure_notional:,.0f} {ccy}  premium≈{v.net_premium_ccy:,.0f} {ccy}  "
+        f"max_loss≈{v.max_loss_ccy:,.0f} {ccy} (linear-notional basis)"
     )
 
 
@@ -162,7 +291,15 @@ def _variant_summary(v) -> str:
         parts.append(f"legs=1×1×{v.wing_ratio:g} (long/short/wing)")
     if v.barrier:
         parts.append(f"barrier={v.barrier:.4f}")
-    parts.append(f"premium={v.net_premium_pct:.2%}")
+    # Sign tag disambiguates the premium: a net debit is premium the PM PAYS; a net credit is
+    # premium the PM RECEIVES. Keeps the agent from reading a positive premium as "receiving".
+    if v.is_zero_cost or abs(v.net_premium_pct) < 1e-9:
+        prem_tag = "zero-cost"
+    elif v.net_premium_pct < 0:
+        prem_tag = "net credit — PM receives"
+    else:
+        prem_tag = "net debit — PM pays"
+    parts.append(f"premium={v.net_premium_pct:.2%} ({prem_tag})")
     if v.payoff_at_target_pct is not None:
         parts.append(f"payoff@target={v.payoff_at_target_pct:.2%}")
     if v.rr_at_target is not None:
@@ -173,32 +310,46 @@ def _variant_summary(v) -> str:
     return "  ".join(parts)
 
 
-def render_priced_structure(ps: PricedStructure) -> str:
-    """Render a single PM-requested priced structure (Tier-2 result)."""
+def render_priced_structure(ps: PricedStructure, attributes=frozenset(), base_ccy: str = "base ccy") -> str:
+    """Render a single PM-requested priced structure (Tier-2 result).
+
+    ``attributes`` are the IP-clean findings computed against the frozen pack so
+    a PM-named (off-menu) structure is characterized in the same vocabulary as
+    the recommended set — the LLM can then contrast it by diffing the findings.
+    """
     v = ps.variant
     lines = [f"PM-REQUESTED STRUCTURE: {ps.request.canonical}", "  " + _variant_summary(v)]
-    lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None), v.structure_notional))
-    ccy = _ccy_summary(v)
+    lines.extend(_legs_breakdown(getattr(ps, "priced_structure", None), v.structure_notional, base_ccy))
+    payoff = _payoff_line(getattr(ps, "priced_structure", None), v, ps.request.family, indent="  ")
+    if payoff:
+        lines.append(payoff)
+    ccy = _ccy_summary(v, base_ccy)
     if ccy:
         lines.append("  " + ccy)
+    lines.extend(_findings_lines(attributes, indent="  "))
     if ps.warnings:
         lines.append("  warnings: " + "; ".join(ps.warnings))
     return "\n".join(lines)
 
 
-def render_recommended(rec) -> str:
+def render_recommended(rec, base_ccy: str = "base ccy") -> str:
     """Render a recommended (already-priced) structure pulled from the pack."""
     lines = [
         f"RECOMMENDED {rec.display_name} — {rec.variant.variant_label} [{rec.structure_id}]",
         "  " + _variant_summary(rec.variant),
     ]
-    lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None), rec.variant.structure_notional))
-    ccy = _ccy_summary(rec.variant)
+    lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None), rec.variant.structure_notional, base_ccy))
+    payoff = _payoff_line(getattr(rec, "priced_structure", None), rec.variant, rec.structure_id, indent="  ")
+    if payoff:
+        lines.append(payoff)
+    ccy = _ccy_summary(rec.variant, base_ccy)
     if ccy:
         lines.append("  " + ccy)
+    lines.extend(_findings_lines(getattr(rec, "attributes", frozenset()), indent="  "))
+    lines.extend(_cell_driver_lines(getattr(rec, "cell_drivers", None), indent="  "))
     if rec.major_risk:
         lines.append(f"  risk (engine): {rec.major_risk}")
-    lines.append(f"  — {rec.rationale}")
+    lines.append(f"  — {_clean_rationale(rec.rationale)}")
     return "\n".join(lines)
 
 
