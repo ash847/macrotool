@@ -177,7 +177,8 @@ if "flow" not in st.session_state:
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 if "page" not in st.session_state:
-    st.session_state.page = "Trade view"
+    # A ?chat=<id> link opens straight into that saved conversation.
+    st.session_state.page = "Agent" if st.query_params.get("chat") else "Trade view"
 
 # "Admin test" (admin-only) shows the full admin surface; "Trade view" always
 # renders with tester visibility so both surfaces are live simultaneously.
@@ -252,6 +253,11 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
+
+    if st.session_state.page == "Agent":
+        from interface.conversations_ui import render_conversation_sidebar
+        render_conversation_sidebar(USER_EMAIL)
+        st.divider()
 
     if st.session_state.page == "Kelly Sizing":
         from interface.kelly_v2.app import (
@@ -1117,11 +1123,149 @@ def _render_agent_diagnostic(session) -> None:
             st.text(t["result"] or "")
 
 
-def _render_agent() -> None:
-    from agentic.agent_flow import AgentFlow
-    from agentic.agent_llm import AnthropicToolLLM, DEFAULT_MODEL
+def _new_agent_session():
+    """A fresh AgentSession on the current snapshot + the PM's current settings."""
     from agentic.session import AgentSession
     from config.loader import load_config
+
+    return AgentSession(
+        snapshot=_get_effective_snapshot(),
+        cfg=load_config(),
+        structure_constraint=st.session_state.pref_structure_constraint,
+        primary_objective=st.session_state.pref_primary_objective,
+        trade_management=st.session_state.pref_trade_management,
+        target_rr=st.session_state.target_rr,
+        linear_notional=sizing_capital(),
+        sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
+        kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
+        kelly_probs=st.session_state.get("kelly_probs"),
+        kelly_bins=st.session_state.get("kelly_bins"),
+    )
+
+
+def _agent_llm():
+    from agentic.agent_llm import AnthropicToolLLM, DEFAULT_MODEL
+
+    return AnthropicToolLLM(
+        api_key=get_provider_api_key("anthropic"),
+        model=get_provider_model("anthropic") or DEFAULT_MODEL,
+    )
+
+
+def _agent_start_new(svc) -> None:
+    from agentic.agent_flow import AgentFlow
+
+    conv = svc.new_conversation()
+    st.session_state.agent_flow = AgentFlow(_agent_llm(), _new_agent_session())
+    st.session_state.agent_chat = []
+    st.session_state.agent_chat_id = conv.id
+    st.session_state.ws_conv = conv
+    st.session_state.ws_seq = 0
+    st.session_state.ws_stale = False
+    st.session_state.ws_note = None
+    st.session_state.ws_info = None
+    st.query_params.pop("chat", None)
+
+
+def _agent_open(svc, conversation_id: str) -> bool:
+    """Load a saved conversation into the Agent page. False if it can't be opened."""
+    from agentic.agent_flow import AgentFlow
+    from workspace.service import display_turns
+    from workspace.store import StoreError
+
+    try:
+        with st.spinner("Loading conversation…"):
+            res = svc.resume(conversation_id, _new_agent_session)
+    except StoreError as e:
+        log_error("workspace_resume", e)
+        res = None
+    if res is None:
+        return False
+    chat = display_turns(res.turns)
+    st.session_state.agent_flow = AgentFlow(_agent_llm(), res.session)
+    st.session_state.agent_chat = chat
+    st.session_state.agent_chat_id = res.conversation.id
+    st.session_state[f"chatseq_{res.conversation.id}"] = len(chat)   # telemetry seq continues
+    st.session_state.ws_conv = res.conversation
+    st.session_state.ws_seq = (res.turns[-1].seq + 1) if res.turns else 0
+    st.session_state.ws_stale = res.stale
+    st.session_state.ws_note = res.note
+    st.session_state.ws_info = None
+    st.query_params["chat"] = res.conversation.id
+    return True
+
+
+def _agent_refresh(svc, *, force_turn: bool = False) -> None:
+    """Re-run the active idea on the current snapshot (see ConversationService.refresh)."""
+    sess = st.session_state.agent_flow.session
+    try:
+        with st.spinner("Refreshing the trade…"):
+            out = svc.refresh(st.session_state.ws_conv, sess,
+                              seq=st.session_state.ws_seq, force_turn=force_turn)
+    except Exception as e:
+        log_error("workspace_refresh", e)
+        st.session_state.ws_info = f"Couldn't refresh the trade ({type(e).__name__})."
+        return
+    st.session_state.ws_conv = out.conversation
+    st.session_state.ws_stale = False
+    if out.changed:
+        st.session_state.agent_chat.append(("assistant", out.message))
+        st.session_state.ws_seq += 1
+        st.session_state.ws_info = None
+    else:
+        st.session_state.ws_info = out.message
+
+
+def _render_agent_header(svc) -> None:
+    """Chat title (= active idea), as-of date, Refresh, and rename/archive."""
+    from interface.conversations_ui import NEW, request_open
+    from workspace.store import StoreError
+
+    conv = st.session_state.ws_conv
+    cols = st.columns([6, 1.3, 0.6])
+    cols[0].markdown(f"**{conv.title}**")
+    if conv.last_snapshot_date:
+        cols[0].caption(f"Market data as of {conv.last_snapshot_date.strftime('%d %b %Y')}")
+    elif conv.active_idea_id is None:
+        cols[0].caption("No trade yet — describe your view to start.")
+    if cols[1].button("↻ Refresh", use_container_width=True,
+                      disabled=conv.active_idea_id is None,
+                      help="Re-run the active trade on the latest market data"):
+        _agent_refresh(svc)
+        st.rerun()
+    with cols[2].popover("⋯", use_container_width=True):
+        if st.session_state.get("ws_seq", 0) == 0:   # nothing persisted yet
+            st.caption("Saved after your first message.")
+        else:
+            name = st.text_input("Rename", value=conv.title if conv.title_custom else "",
+                                 placeholder="Leave blank to follow the active trade",
+                                 key=f"ws_rename_{conv.id}")
+            if st.button("Save name", key=f"ws_rename_btn_{conv.id}"):
+                try:
+                    st.session_state.ws_conv = svc.rename(conv, name)
+                except StoreError as e:
+                    log_error("workspace_rename", e)
+                st.rerun()
+            if st.button("Archive conversation", key=f"ws_archive_{conv.id}"):
+                try:
+                    svc.archive(conv)
+                except StoreError as e:
+                    log_error("workspace_archive", e)
+                request_open(NEW)
+
+    if st.session_state.get("ws_note"):
+        st.warning(st.session_state.ws_note)
+    if st.session_state.get("ws_stale"):
+        st.info("Market data has changed since this conversation was last evaluated. "
+                "Figures above are from the earlier evaluation; your next question "
+                "refreshes the trade first (or press ↻ Refresh).")
+    if st.session_state.get("ws_info"):
+        st.caption(st.session_state.ws_info)
+
+
+def _render_agent() -> None:
+    from interface.conversations_ui import NEW, get_workspace
+    from workspace.store import StoreError
 
     st.subheader("Conversational structuring")
     st.caption(
@@ -1136,27 +1280,26 @@ def _render_agent() -> None:
             f"{provider_label(provider)}). Set LLM_PROVIDER=anthropic to use it."
         )
 
-    if "agent_flow" not in st.session_state:
-        llm = AnthropicToolLLM(
-            api_key=get_provider_api_key("anthropic"),
-            model=get_provider_model("anthropic") or DEFAULT_MODEL,
-        )
-        session = AgentSession(
-            snapshot=_get_effective_snapshot(),
-            cfg=load_config(),
-            structure_constraint=st.session_state.pref_structure_constraint,
-            primary_objective=st.session_state.pref_primary_objective,
-            trade_management=st.session_state.pref_trade_management,
-            target_rr=st.session_state.target_rr,
-            linear_notional=sizing_capital(),
-            sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
-            kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
-            kelly_probs=st.session_state.get("kelly_probs"),
-            kelly_bins=st.session_state.get("kelly_bins"),
-        )
-        st.session_state.agent_flow = AgentFlow(llm, session)
-        st.session_state.agent_chat = []
-        st.session_state.agent_chat_id = str(uuid.uuid4())
+    svc, ws_warning = get_workspace(USER_EMAIL)
+    if ws_warning:
+        st.caption(f"⚠️ {ws_warning}")
+
+    # Open requests: sidebar click / "New conversation" / a ?chat=<id> link.
+    request = st.session_state.pop("ws_open", None)
+    current = st.session_state.get("ws_conv")
+    qp_chat = st.query_params.get("chat")
+    if (request is None and qp_chat and (current is None or current.id != qp_chat)
+            and st.session_state.get("ws_qp_failed") != qp_chat):
+        request = qp_chat
+    if request == NEW or (request is None and "agent_flow" not in st.session_state):
+        _agent_start_new(svc)
+    elif request is not None and (current is None or request != current.id):
+        if not _agent_open(svc, request):
+            st.session_state.ws_qp_failed = request
+            st.warning("That conversation couldn't be opened — starting a new one.")
+            _agent_start_new(svc)
+    elif "ws_conv" not in st.session_state:   # agent_flow from before this feature
+        _agent_start_new(svc)
 
     # Keep the agent's R:R + sizing regime live with the session controls.
     _asess = st.session_state.agent_flow.session
@@ -1167,18 +1310,7 @@ def _render_agent() -> None:
     _asess.kelly_probs = st.session_state.get("kelly_probs")
     _asess.kelly_bins = st.session_state.get("kelly_bins")
 
-    cols = st.columns([1, 4])
-    if cols[0].button("New conversation", use_container_width=True):
-        st.session_state.pop("agent_flow", None)
-        st.session_state.agent_chat = []
-        st.session_state.pop("agent_chat_id", None)
-        st.rerun()
-    sess = st.session_state.agent_flow.session
-    if sess.view is not None:
-        cols[1].caption(
-            f"Live view: {sess.view.pair} · {sess.view.direction} · {sess.view.horizon_days}d"
-            + (f" · target {sess.pack.target:.4f}" if sess.pack and sess.pack.target else "")
-        )
+    _render_agent_header(svc)
 
     _chat_id = st.session_state.get("agent_chat_id", "unknown")
     _view = getattr(st.session_state.agent_flow.session, "view", None)
@@ -1189,9 +1321,18 @@ def _render_agent() -> None:
                 _render_reply_reaction("agent_tab", _chat_id, idx, _view)
 
     if prompt := st.chat_input("e.g. long USDBRL 3m, target +6% — what should I trade?"):
+        st.session_state.ws_info = None
+        if st.session_state.get("ws_stale"):
+            # Resumed on changed data: put the refreshed pack in front of the model
+            # before it answers anything.
+            _agent_refresh(svc)
+            if st.session_state.agent_chat and st.session_state.agent_chat[-1][0] == "assistant":
+                with st.chat_message("assistant"):
+                    st.markdown(st.session_state.agent_chat[-1][1])
         st.session_state.agent_chat.append(("user", prompt))
         with st.chat_message("user"):
             st.markdown(prompt)
+        failed = False
         with st.chat_message("assistant"):
             with st.spinner("Thinking…"):
                 _pre = len(st.session_state.agent_flow.session.messages)
@@ -1200,6 +1341,7 @@ def _render_agent() -> None:
                 except Exception as e:
                     log_error("agent_advance", e)
                     reply = f"⚠️ {type(e).__name__}: {e}"
+                    failed = True
             st.markdown(reply)
             _idx = len(st.session_state.agent_chat)
             _render_reply_reaction("agent_tab", _chat_id, _idx,
@@ -1207,6 +1349,20 @@ def _render_agent() -> None:
         st.session_state.agent_chat.append(("assistant", reply))
         _log_chat_exchange("agent_tab", _chat_id,
                            st.session_state.agent_flow.session, prompt, reply, _pre)
+        try:
+            before = st.session_state.ws_conv
+            st.session_state.ws_conv = svc.record_exchange(
+                before, st.session_state.agent_flow.session,
+                seq=st.session_state.ws_seq, prompt=prompt, reply=reply,
+                pre_len=_pre, failed=failed,
+            )
+            st.session_state.ws_seq += 1
+            st.query_params["chat"] = st.session_state.ws_conv.id
+            if st.session_state.ws_seq == 1 or before.title != st.session_state.ws_conv.title:
+                st.rerun()   # first save / new active idea: refresh header + sidebar list
+        except StoreError as e:
+            log_error("workspace_record", e)
+            st.caption("⚠️ This exchange couldn't be saved.")
 
     _render_agent_diagnostic(st.session_state.agent_flow.session)
 
