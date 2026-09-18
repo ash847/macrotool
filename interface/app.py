@@ -1356,6 +1356,35 @@ def _finalize_agent_jobs(svc, jobs: dict) -> None:
         st.rerun()
 
 
+def _freeze_agent_header_css() -> None:
+    """Make the ``agent_sticky`` container (chat header + sizing strip) stick to the top
+    of the page while the transcript scrolls. Streamlit has no sticky container, but a
+    keyed container gets a stable ``st-key-<key>`` class. The background must be opaque
+    and match the active light/dark theme; a tall open editor scrolls within itself."""
+    try:
+        dark = getattr(st.context.theme, "type", None) == "dark"
+    except Exception:
+        dark = False
+    bg = "#0e1117" if dark else "#ffffff"
+    st.markdown(
+        # Streamlit wraps every element in a div exactly its own height, and a sticky
+        # element can't leave its parent — so the WRAPPER (the child of the page's tall
+        # vertical block) is made sticky, selected via :has().
+        f"""<style>
+        div:has(> .st-key-agent_sticky) {{
+            position: sticky; top: 3.75rem; z-index: 990;
+        }}
+        .st-key-agent_sticky {{
+            background-color: {bg};
+            padding: 0.5rem 0 0.6rem 0;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+            max-height: 75vh; overflow-y: auto;
+        }}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_agent() -> None:
     from interface.conversations_ui import NEW, get_workspace
 
@@ -1403,14 +1432,17 @@ def _render_agent() -> None:
     conv_id = st.session_state.ws_conv.id
     pending = jobs.get(conv_id)
 
-    _render_agent_header(svc, busy=pending is not None)
-    from interface.agent_settings_ui import render_agent_settings
-    _aview = st.session_state.agent_flow.session.view
-    render_agent_settings(
-        svc, busy=pending is not None, capital=sizing_capital(), set_capital=_set_w,
-        capital_ccy=_aview.pair[:3] if _aview is not None else "base ccy",
-        on_error=log_error,
-    )
+    # Header + sizing strip are frozen at the top while the chat scrolls beneath.
+    _freeze_agent_header_css()
+    with st.container(key="agent_sticky"):
+        _render_agent_header(svc, busy=pending is not None)
+        from interface.agent_settings_ui import render_agent_settings
+        _aview = st.session_state.agent_flow.session.view
+        render_agent_settings(
+            svc, busy=pending is not None, capital=sizing_capital(), set_capital=_set_w,
+            capital_ccy=_aview.pair[:3] if _aview is not None else "base ccy",
+            on_error=log_error,
+        )
 
     _chat_id = st.session_state.get("agent_chat_id", "unknown")
     _view = getattr(st.session_state.agent_flow.session, "view", None)

@@ -55,11 +55,9 @@ def render_agent_settings(
     settings = ChatSettings.from_dict(conv.settings)
     pref_label = merged_pref_label(settings.structure_constraint, settings.trade_management)
 
-    st.markdown(
-        f"<div style='font-size:0.9rem'>Sizing: {sizing_summary(settings, session)} · "
-        f"W {capital:,.0f} {capital_ccy} · {pref_label}</div>",
-        unsafe_allow_html=True,
-    )
+    # Plain markdown (not an HTML wrapper — markdown isn't rendered inside raw HTML).
+    st.markdown(f"Sizing: {sizing_summary(settings, session)} · "
+                f"W {capital:,.0f} {capital_ccy} · {pref_label}")
 
     k = f"ags_{conv.id[:8]}_"          # widget keys are per chat
     with st.expander("✎ Sizing & preferences for this chat", expanded=False):
