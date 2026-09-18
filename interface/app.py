@@ -533,9 +533,20 @@ def _render_sizing_panel() -> None:
             else:
                 st.markdown(f"Bankroll W: **{fmt_ccy(_W, _ccy)}** · "
                             f"λ = {float(st.session_state.kelly_lambda):.2f}")
-                st.caption("Each variant is sized to its own λ·x*·W from your edge "
-                           "distribution (elicited below the trade form); per-variant worst "
-                           "loss and % of W are in the variants table. Notional cap 10·W.")
+                st.caption(
+                    "Kelly is a sizing framework that compares your own odds on the trade to "
+                    "the market's implied odds, and sizes the position bigger the more they "
+                    "disagree in your favour. Needs a distribution of prices from you so that "
+                    "it can compute the difference in odds and use that information to adjust "
+                    "sizing."
+                )
+                st.caption(
+                    "The Kelly fraction can be adjusted to account for risk aversion. Traders "
+                    "typically use “Half a Kelly” when sizing bets. The linear Kelly "
+                    "is calculated based on your target vs S/L, while the structure's Kelly is "
+                    "adjusted for the probability of S/L to make the metrics comparable "
+                    "between linear and non-linear instruments."
+                )
 
 
 def _submit_structured_view(pair: str, direction: str, horizon_days: int, target: float) -> str | None:
