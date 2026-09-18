@@ -150,6 +150,12 @@ def _forward_for(session: AgentSession, pair: str, horizon_days: int) -> float:
     return rate_context_for_snapshot(ccy, horizon_days / 365.0).forward
 
 
+def _kelly_curve_kwargs(session: AgentSession, view: TradeView) -> dict:
+    """The PM's stated curve for this trade only (else none → market distribution)."""
+    curve = session.stated_curve_for(view)
+    return {"kelly_probs": curve[0], "kelly_bins": curve[1]} if curve else {}
+
+
 def _run_standard_pack(session: AgentSession, args: dict) -> str:
     pair = args.get("pair")
     horizon_days = args.get("horizon_days")
@@ -210,6 +216,9 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         trade_management=session.trade_management,
         target_rr=session.target_rr,
         linear_notional=session.linear_notional,
+        sizing_method=session.sizing_method,
+        kelly_lambda=session.kelly_lambda,
+        **_kelly_curve_kwargs(session, view),
     )
     session.store(view, pack)
     session.view, session.pack = view, pack

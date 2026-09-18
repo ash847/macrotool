@@ -104,6 +104,7 @@ class StandardPack:
     sizing_method: str = "fixed_loss"         # active sizing regime the trades were sized under
     kelly_lambda: float = 0.5                 # fractional-Kelly multiplier (Kelly regime only)
     linear_notional: float = 100.0            # sizing capital W
+    kelly_distribution_source: str | None = None   # Kelly only: "explicit" (PM-stated) | "market"
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -308,16 +309,22 @@ def build_pack(
         pass  # distributions are enrichment; never break the pack
 
     is_call = view.direction == "base_higher"
-    # Build the Kelly SizingSpec when the PM is in the Kelly regime with a distribution;
-    # else None → fixed-loss sizing (the default). The pack (recommendations, notionals,
-    # per-structure f*) is then sized under the regime the PM is actually operating.
+    # Kelly regime: size against the PM's stated distribution for THIS trade (the
+    # caller passes it only if it was stated for this pair + horizon), else against
+    # the market distribution (no edge) — never a synthesised edge. Fixed-loss: None.
     sizing_spec = None
-    if sizing_method == "kelly" and kelly_probs and kelly_bins:
-        from analytics.sizing import SizingSpec
+    if sizing_method == "kelly":
+        from analytics.sizing import SizingSpec, market_distribution
+        if kelly_probs and kelly_bins:
+            probs, bins, source = tuple(kelly_probs), tuple(kelly_bins), "explicit"
+        else:
+            probs, bins = market_distribution(
+                market_state.spot, market_state.fwd, market_state.vol, market_state.T)
+            source = "market"
         sizing_spec = SizingSpec(
             method="kelly", target_rr=target_rr, kelly_lambda=kelly_lambda,
-            bankroll=linear_notional,
-            kelly_probs=tuple(kelly_probs), kelly_bins=tuple(kelly_bins),
+            bankroll=linear_notional, kelly_probs=probs, kelly_bins=bins,
+            distribution_source=source,
         )
 
     recommended: list[RecommendedStructure] = []
@@ -357,4 +364,5 @@ def build_pack(
         sizing_method=("kelly" if sizing_spec is not None else "fixed_loss"),
         kelly_lambda=kelly_lambda,
         linear_notional=linear_notional,
+        kelly_distribution_source=(sizing_spec.distribution_source if sizing_spec else None),
     )

@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import streamlit as st
 
-from analytics.sizing import view_implied_distribution
+from analytics.sizing import curve_key as _curve_key, market_distribution
 from interface.kelly_v2.elicitation import (
     Distribution,
     default_sigma_boundaries,
@@ -71,12 +71,17 @@ def _renormalise(n: int) -> None:
         st.session_state[_KP + f"bucket_{i}"] = int(rounded[i])
 
 
-def render_kelly_elicitation(ms, target: float | None = None, direction: str | None = None):
-    """Render the elicitation block (inputs + chart + means); return (probs, bins) or (None, None)."""
+def render_kelly_elicitation(ms, target: float | None = None, direction: str | None = None,
+                             *, pair: str, horizon_days: int):
+    """Render the elicitation block (inputs + chart + means); return (probs, bins) or (None, None).
+
+    The curve written to session state is tagged with ``kelly_curve_key`` =
+    (pair, horizon_days): it is the PM's stated distribution for THAT trade only, and
+    every consumer ignores it for any other trade."""
     # Market-implied baseline = lognormal centred at the forward (ATM vol). Both the
     # baseline series and the elicitation inputs seed from this, so at inception the
     # elicited distribution matches the market one.
-    mk_probs, mk_bins = view_implied_distribution(ms.spot, ms.fwd, ms.vol, ms.T, ms.fwd)
+    mk_probs, mk_bins = market_distribution(ms.spot, ms.fwd, ms.vol, ms.T)
     bp, bb = np.array(mk_probs), np.array(mk_bins)
     baseline = Distribution(bins=bb, probs=bp)
 
@@ -85,7 +90,7 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
     mode = c_mode.radio("Input style", [_CDF, _PDF], horizontal=True, key=_KP + "mode")
     n = int(c_n.selectbox("Buckets", _N_OPTIONS, index=0, key=_KP + "n"))
 
-    sig = (round(ms.fwd, 6), round(ms.vol, 6), round(ms.T, 6), mode, n)
+    sig = (pair, int(horizon_days), round(ms.fwd, 6), round(ms.vol, 6), round(ms.T, 6), mode, n)
     reseed = st.session_state.get(_KP + "sig") != sig
     if st.button("Reset to market baseline", key=_KP + "reset"):
         reseed = True
@@ -105,6 +110,7 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
             if reseed or k not in st.session_state:
                 st.session_state[k] = round(seed[i], 4)
             prices.append(c.number_input(f"{int(q*100)}%", format="%.4f", key=k))
+        edited = any(abs(pr - round(sd, 4)) > 1e-9 for pr, sd in zip(prices, seed))
         try:
             dist = elicit_from_cdf_anchors(prices, list(quantiles), n_bins=_N_BINS)
         except ValueError as e:
@@ -129,6 +135,7 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
             probs_pct.append(int(cols[i].number_input(
                 f"{boundaries[i]:.2f}", min_value=0, max_value=100, step=1, format="%d", key=k,
             )))
+        edited = probs_pct != [int(seed_pct[i]) if i < len(seed_pct) else 0 for i in range(n)]
         total = int(sum(probs_pct))
         if total == 100:
             st.success("Bucket probabilities sum to 100% ✓")
@@ -149,8 +156,19 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
 
     probs = tuple(float(p) for p in dist.probs)
     bins = tuple(float(b) for b in dist.bins)
-    st.session_state.kelly_probs = probs
-    st.session_state.kelly_bins = bins
+    if edited:
+        # The PM has stated a curve for this trade.
+        st.session_state.kelly_probs = probs
+        st.session_state.kelly_bins = bins
+        st.session_state.kelly_curve_key = _curve_key(pair, horizon_days)
+    else:
+        # Untouched = the market curve: no edge stated. Clear any stored curve so
+        # every consumer sizes (and labels) against the market distribution.
+        st.session_state.kelly_probs = None
+        st.session_state.kelly_bins = None
+        st.session_state.kelly_curve_key = None
+        st.caption("Showing the market distribution — no edge stated. Move the curve "
+                   "to state your view; Kelly sizes against the market until you do.")
 
     # Market reference uses the same elicitation lens as the elicited curve, so the
     # delta is purely the PM's move (zero at inception, not a truncation artefact).

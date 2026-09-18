@@ -29,8 +29,11 @@ class AgentSession:
     # Active sizing regime the PM is operating under — the agent is locked to it.
     sizing_method: str = "fixed_loss"       # "fixed_loss" | "kelly"
     kelly_lambda: float = 0.5
-    kelly_probs: tuple[float, ...] | None = None   # elicited edge distribution (Kelly only)
+    kelly_probs: tuple[float, ...] | None = None   # PM-stated distribution (Kelly only)
     kelly_bins: tuple[float, ...] | None = None
+    # (pair, horizon_days) the stated curve belongs to — it is used ONLY for that
+    # trade; any other trade is sized against the market distribution.
+    kelly_curve_key: tuple | None = None
 
     view: TradeView | None = None
     pack: StandardPack | None = None
@@ -56,7 +59,14 @@ class AgentSession:
             self.kelly_lambda,
             self.kelly_probs,
             self.kelly_bins,
+            self.kelly_curve_key,
         )
+
+    def stated_curve_for(self, view: TradeView):
+        """The PM's stated Kelly curve if it was stated for this view's pair + horizon."""
+        from analytics.sizing import curve_for_trade
+        return curve_for_trade(self.kelly_curve_key, self.kelly_probs, self.kelly_bins,
+                               view.pair, view.horizon_days)
 
     def get_cached(self, view: TradeView) -> StandardPack | None:
         return self._cache.get(self.cache_key(view))

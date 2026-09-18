@@ -198,8 +198,6 @@ if "sizing_capital_text" not in st.session_state:
     st.session_state.sizing_capital_text = f"{st.session_state.sizing_capital:,.0f}"
 if "kelly_lambda" not in st.session_state:
     st.session_state.kelly_lambda = 0.5
-if "kelly_conviction" not in st.session_state:
-    st.session_state.kelly_conviction = "medium"
 if "kelly_n_bins" not in st.session_state:
     st.session_state.kelly_n_bins = 41
 if "clarification" not in st.session_state:
@@ -379,6 +377,7 @@ def _preview_market_numbers():
         rate_ctx = rate_context_for_snapshot(ccy, T)
         ms_like = SimpleNamespace(
             spot=ccy.spot, fwd=rate_ctx.forward, vol=interpolate_atm_vol(ccy, horizon_days), T=T,
+            pair=pair, horizon_days=int(horizon_days),
         )
         return ms_like, float(target)
     except Exception:
@@ -401,7 +400,8 @@ def _render_sizing_section(ms_like, target, direction=None) -> None:
     st.subheader("Kelly edge distribution")
     with st.container(border=True):
         if ms_like is not None:
-            render_kelly_elicitation(ms_like, target, direction)
+            render_kelly_elicitation(ms_like, target, direction,
+                                     pair=ms_like.pair, horizon_days=ms_like.horizon_days)
         else:
             st.info("Pick a pair and horizon above to elicit your Kelly edge distribution.")
 
@@ -1173,6 +1173,7 @@ def _new_agent_session():
         kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
         kelly_probs=st.session_state.get("kelly_probs"),
         kelly_bins=st.session_state.get("kelly_bins"),
+        kelly_curve_key=st.session_state.get("kelly_curve_key"),
     )
 
 
@@ -1395,6 +1396,7 @@ def _render_agent() -> None:
     _asess.kelly_lambda = st.session_state.get("kelly_lambda", 0.5)
     _asess.kelly_probs = st.session_state.get("kelly_probs")
     _asess.kelly_bins = st.session_state.get("kelly_bins")
+    _asess.kelly_curve_key = st.session_state.get("kelly_curve_key")
 
     jobs = st.session_state.setdefault("agent_jobs", {})
     _finalize_agent_jobs(svc, jobs)
@@ -1483,19 +1485,6 @@ def _render_trade_chat(flow) -> None:
     if st.session_state.get("tv_chat_sig") != sig:
         try:
             ccy = flow._snapshot.get(view.pair)
-            pack = build_pack(
-                view, ccy, load_config(),
-                structure_constraint=st.session_state.pref_structure_constraint,
-                primary_objective=st.session_state.pref_primary_objective,
-                trade_management=st.session_state.pref_trade_management,
-                target_rr=flow.target_rr,
-                user_email=USER_EMAIL,
-                linear_notional=sizing_capital(),
-                sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
-                kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
-                kelly_probs=st.session_state.get("kelly_probs"),
-                kelly_bins=st.session_state.get("kelly_bins"),
-            )
             session = AgentSession(
                 snapshot=flow._snapshot,
                 cfg=load_config(),
@@ -1508,6 +1497,21 @@ def _render_trade_chat(flow) -> None:
                 kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
                 kelly_probs=st.session_state.get("kelly_probs"),
                 kelly_bins=st.session_state.get("kelly_bins"),
+                kelly_curve_key=st.session_state.get("kelly_curve_key"),
+            )
+            _curve = session.stated_curve_for(view)   # this trade's stated curve only
+            pack = build_pack(
+                view, ccy, load_config(),
+                structure_constraint=st.session_state.pref_structure_constraint,
+                primary_objective=st.session_state.pref_primary_objective,
+                trade_management=st.session_state.pref_trade_management,
+                target_rr=flow.target_rr,
+                user_email=USER_EMAIL,
+                linear_notional=sizing_capital(),
+                sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
+                kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
+                kelly_probs=_curve[0] if _curve else None,
+                kelly_bins=_curve[1] if _curve else None,
             )
             seed_session_from_pack(session, view, pack)
             llm = AnthropicToolLLM(
@@ -1626,6 +1630,16 @@ else:
     # it renders here at the top for post-run resizing. A revised W sticks for the session.
     if flow.view:
         _render_sizing_panel()
+        # Kelly curve for the LIVE trade — the pre-trade form (where it otherwise lives)
+        # is gone, and Kelly never sizes on an edge the PM didn't state for this trade.
+        if flow.market_state is not None:
+            from types import SimpleNamespace as _NS
+            _ms = flow.market_state
+            _render_sizing_section(
+                _NS(spot=_ms.spot, fwd=_ms.fwd, vol=_ms.vol, T=_ms.T,
+                    pair=flow.view.pair, horizon_days=int(flow.view.horizon_days)),
+                target_price(flow), flow.view.direction,
+            )
 
     if flow.view and "last_prompt" in st.session_state and st.session_state.last_prompt:
         st.info(f"**View:** {st.session_state.last_prompt}")
@@ -1717,14 +1731,13 @@ else:
                 "sizing_method": st.session_state.get("sizing_method", "fixed_loss"),
                 "target_rr": flow.target_rr or st.session_state.target_rr,
                 "kelly_lambda": st.session_state.get("kelly_lambda", 0.5),
-                "conviction": st.session_state.get("kelly_conviction", "medium"),
-                "kelly_n_bins": st.session_state.get("kelly_n_bins", 41),
                 "kelly_probs": st.session_state.get("kelly_probs"),
                 "kelly_bins": st.session_state.get("kelly_bins"),
+                "kelly_curve_key": st.session_state.get("kelly_curve_key"),
                 "bankroll": sizing_capital(),
             },
             ms=ms,
-            target=_target,
+            trade_key=(flow.view.pair, int(flow.view.horizon_days)),
         )
         _kelly_mode = flow.sizing_spec is not None and flow.sizing_spec.method == "kelly"
         if _target is not None:
@@ -1821,11 +1834,16 @@ else:
                 log_error("compute_structure_evaluation", _e)
 
         if can_see("recommended_variants", ROLE):
+            if (flow.sizing_spec is not None and flow.sizing_spec.method == "kelly"
+                    and flow.sizing_spec.distribution_source == "market"):
+                st.warning(meaning_banner("kelly", "market"))
             if ROLE == "tester":
                 from interface.tester_view import render_tester_recommendations
                 render_tester_recommendations(flow, _is_call, _target)
             else:
-                st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
+                st.caption(meaning_banner(
+                    flow.sizing_spec.method if flow.sizing_spec else "fixed_loss",
+                    getattr(flow.sizing_spec, "distribution_source", None)))
                 render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget,
                                           eval_result=_evals)
             _render_recommendation_reaction("trade_view", flow, _target)

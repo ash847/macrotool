@@ -22,9 +22,6 @@ from typing import Literal
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-# Conviction → weight toward the target (vs the forward) for the view-implied seed.
-_CONVICTION_WEIGHT = {"low": 0.33, "medium": 0.66, "high": 1.0}
-
 DEFAULT_BANKROLL = 100.0          # nominal W; == interface LINEAR_NOTIONAL for scale continuity
 DEFAULT_KELLY_LAMBDA = 0.5        # fractional-Kelly multiplier (full Kelly is fragile)
 _F_MAX = 1000.0                   # search ceiling for x = notional/bankroll; real cap applied downstream
@@ -42,6 +39,10 @@ class SizingSpec:
     # engine layer needs no dependency on the UI's Distribution type.
     kelly_probs: tuple[float, ...] | None = None
     kelly_bins: tuple[float, ...] | None = None
+    # Where the distribution came from: "explicit" (the PM stated it for this trade)
+    # or "market" (the market-implied curve — no edge stated). Never anything else:
+    # the tool does not synthesise an edge the PM didn't give.
+    distribution_source: Literal["explicit", "market"] = "explicit"
 
     def has_distribution(self) -> bool:
         return self.kelly_probs is not None and self.kelly_bins is not None
@@ -96,29 +97,25 @@ def kelly_notional(probs, pnl_per_notional, spec: SizingSpec, cap: float) -> flo
     return min(spec.kelly_lambda * x_star * spec.bankroll, cap)
 
 
-def view_implied_distribution(
+def market_distribution(
     spot: float,
     fwd: float,
     vol: float,
     T: float,
-    target: float,
-    conviction: str = "medium",
     n_bins: int = 41,
     sigma_extent: float = 4.0,
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    """A real-world (edged) terminal-spot distribution synthesised from the PM's view.
+    """The market-implied terminal-spot distribution: a lognormal centred on the
+    forward with width ``vol·√T`` (ATM vol, flat). It states **no edge** — the
+    elicitation's starting point, and the curve Kelly sizes against when the PM has
+    not stated one for this trade. Returns ``(probs, bins)`` as plain tuples.
 
-    A lognormal whose log-centre is blended between the forward and the target by
-    conviction (`high` → fully at the target), with width `vol·√T`. Because the
-    centre sits off the forward, it carries directional edge — so Kelly will size a
-    bet (unlike the risk-neutral/market-implied distribution, which has zero edge).
-    Used as the low-friction default seed and for the Batch ranking sweep. Returns
-    `(probs, bins)` as plain tuples — the shape `SizingSpec` carries."""
-    if target <= 0 or fwd <= 0 or spot <= 0:
-        raise ValueError("spot/fwd/target must be positive")
-    w = _CONVICTION_WEIGHT.get(conviction, 0.66)
+    Deliberately takes no target/conviction: the tool never synthesises an edge
+    the PM didn't explicitly give."""
+    if fwd <= 0 or spot <= 0:
+        raise ValueError("spot/fwd must be positive")
     sig = max(vol * math.sqrt(max(T, 1e-9)), 1e-6)
-    ln_center = (1.0 - w) * math.log(fwd) + w * math.log(target)
+    ln_center = math.log(fwd)
     bins = np.linspace(
         math.exp(ln_center - sigma_extent * sig),
         math.exp(ln_center + sigma_extent * sig),
@@ -128,3 +125,21 @@ def view_implied_distribution(
     dens = np.exp(-0.5 * z * z) / bins            # lognormal pdf shape
     probs = dens / dens.sum()
     return tuple(float(p) for p in probs), tuple(float(b) for b in bins)
+
+
+def curve_key(pair: str, horizon_days: int) -> tuple[str, int]:
+    """Identity of the trade an elicited distribution was stated for. A curve is a
+    set of probabilities over *that pair's* spot levels at *that expiry*, so it is
+    only valid for the same pair + horizon (the target doesn't change the belief)."""
+    return (str(pair), int(horizon_days))
+
+
+def curve_for_trade(
+    stated_key, probs, bins, pair: str, horizon_days: int
+) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
+    """The PM's stated curve if it was stated for this pair + horizon, else None."""
+    if probs is None or bins is None or stated_key is None:
+        return None
+    if tuple(stated_key) != curve_key(pair, horizon_days):
+        return None
+    return tuple(probs), tuple(bins)

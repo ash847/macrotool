@@ -13,9 +13,10 @@ from analytics.market_state import compute_market_state
 from analytics.sizing import (
     SizingSpec,
     kelly_fraction_per_notional,
-    view_implied_distribution,
+    market_distribution,
 )
 from analytics.structure_pricer import price_variants
+from tests._curves import stated_lognormal
 
 _LAMBDAS = [0.1, 0.25, 0.5, 1.0]
 
@@ -56,7 +57,7 @@ class TestLambdaInvariance:
         # Off-cap, a variant's notional scales linearly with λ (N = λ·x*·W).
         ms = compute_market_state(spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
                                   target=5.30, direction="base_higher")
-        probs, bins = view_implied_distribution(ms.spot, ms.fwd, ms.vol, ms.T, 5.30, "medium")
+        probs, bins = stated_lognormal(5.215, ms.vol, ms.T)   # explicit bullish curve
         n_by_lambda = {}
         for lam in [0.1, 0.2]:
             spec = SizingSpec(method="kelly", kelly_lambda=lam, bankroll=100.0,
@@ -81,27 +82,29 @@ class TestLambdaInvariance:
         assert len(rankings) == 2  # ranking flips → cap is the (only) flip driver
 
 
-class TestViewImpliedDistribution:
+class TestMarketDistribution:
     def test_sums_to_one_and_positive(self):
-        probs, bins = view_implied_distribution(5.0, 5.05, 0.15, 0.25, 5.30, "medium")
+        probs, bins = market_distribution(5.0, 5.05, 0.15, 0.25)
         assert abs(sum(probs) - 1.0) < 1e-9
-        assert all(b > 0 for b in bins)
-        assert all(p >= 0 for p in probs)
+        assert all(b > 0 for b in bins) and all(p >= 0 for p in probs)
 
-    def test_carries_directional_edge(self):
-        # Bullish target → mean spot sits above the forward (positive edge for a call).
-        probs, bins = view_implied_distribution(5.0, 5.05, 0.15, 0.25, 5.30, "high")
-        mean_spot = float(np.dot(np.array(probs), np.array(bins)))
-        assert mean_spot > 5.05
+    def test_centred_on_the_forward(self):
+        probs, bins = market_distribution(5.0, 5.05, 0.15, 0.25)
+        cdf = np.cumsum(probs)
+        median = float(np.interp(0.5, cdf, bins))
+        assert median == pytest.approx(5.05, rel=0.01)
 
-    def test_higher_conviction_more_edge(self):
+    def test_takes_no_target_or_conviction(self):
+        import inspect
+        params = set(inspect.signature(market_distribution).parameters)
+        assert not params & {"target", "conviction"}
+
+    def test_kelly_sizes_nothing_without_a_stated_edge(self):
         ms = compute_market_state(spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
                                   target=5.30, direction="base_higher")
-        f = {}
-        for conv in ("low", "high"):
-            probs, bins = view_implied_distribution(ms.spot, ms.fwd, ms.vol, ms.T, 5.30, conv)
-            pv = price_variants(ms, "vanilla", target=5.30, is_call=True,
-                                sizing_spec=SizingSpec(method="kelly", kelly_probs=probs,
-                                                       kelly_bins=bins), linear_notional=1e9)[0]
-            f[conv] = pv.structure_notional
-        assert f["high"] > f["low"]
+        probs, bins = market_distribution(ms.spot, ms.fwd, ms.vol, ms.T)
+        spec = SizingSpec(method="kelly", kelly_probs=probs, kelly_bins=bins,
+                          distribution_source="market")
+        pv = price_variants(ms, "vanilla", target=5.30, is_call=True, sizing_spec=spec,
+                            linear_notional=1e9)[0]
+        assert (pv.structure_notional or 0.0) == pytest.approx(0.0, abs=1e-6)

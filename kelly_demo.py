@@ -1,11 +1,14 @@
 """Kelly vs fixed-loss sizing — CLI comparison (no LLM, no UI).
 
 Prices each shortlisted family's representative variant two ways — equal max loss
-(today's default) and Kelly (sized to the growth-optimal bet under a view-implied
-distribution) — and prints the notionals side by side, so the comparative effect
-is visible without the Streamlit UI.
+(today's default) and Kelly (sized to the growth-optimal bet under a distribution
+YOU state on the command line) — and prints the notionals side by side, so the
+comparative effect is visible without the Streamlit UI.
 
-    .venv/bin/python kelly_demo.py --pair USDTRY --magnitude 6 --lambda 0.5
+The distribution is explicit: a lognormal at the ``--median`` you give (ATM width).
+Omit ``--median`` to size against the market distribution (no edge → ~zero Kelly).
+
+    .venv/bin/python kelly_demo.py --pair USDTRY --magnitude 6 --median 45 --lambda 0.5
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ from analytics.sizing import (
     SizingSpec,
     kelly_fraction_per_notional,
     per_notional_pnl,
-    view_implied_distribution,
+    market_distribution,
 )
 from analytics.structure_pricer import price_variants
 from config.loader import load_config
@@ -26,10 +29,22 @@ from data.snapshot_loader import load_snapshot
 from knowledge_engine.models import TradeView
 
 
-def run(pair, direction, horizon, magnitude, conviction, lam):
+def _stated_lognormal(median, vol, T, n_bins=41, sigma_extent=4.0):
+    """The operator's explicit curve: lognormal at the stated median, ATM width."""
+    import numpy as np
+    sig = max(vol * math.sqrt(T), 1e-6)
+    bins = np.linspace(median * math.exp(-sigma_extent * sig),
+                       median * math.exp(sigma_extent * sig), n_bins)
+    z = (np.log(bins) - math.log(median)) / sig
+    dens = np.exp(-0.5 * z * z) / bins
+    probs = dens / dens.sum()
+    return tuple(float(x) for x in probs), tuple(float(b) for b in bins)
+
+
+def run(pair, direction, horizon, magnitude, median, lam):
     ccy = load_snapshot().get(pair)
     cfg = load_config()
-    view = TradeView(pair=pair, direction=direction, direction_conviction=conviction,
+    view = TradeView(pair=pair, direction=direction, direction_conviction="medium",
                      horizon_days=horizon, magnitude_pct=magnitude, mode="recommend")
     pack = build_pack(view, ccy, cfg)
     ms, target = pack.market_state, pack.target
@@ -37,14 +52,18 @@ def run(pair, direction, horizon, magnitude, conviction, lam):
     loss_budget = pack.loss_budget
 
     import numpy as np
-    probs, bins = view_implied_distribution(ms.spot, ms.fwd, ms.vol, ms.T, target, conviction)
+    if median is None:
+        probs, bins = market_distribution(ms.spot, ms.fwd, ms.vol, ms.T)
+    else:
+        probs, bins = _stated_lognormal(median, ms.vol, ms.T)
     probs_a, bins_a = np.array(probs), np.array(bins)
     df_f = math.exp(-ms.r_f * ms.T)
     spec = SizingSpec(method="kelly", kelly_lambda=lam, bankroll=100.0,
                       kelly_probs=probs, kelly_bins=bins)
 
     print(f"\n{pair}  {direction}  {horizon}d  target≈{target:.4f}  "
-          f"spot={ms.spot:.4f} fwd={ms.fwd:.4f} vol={ms.vol:.1%}  conviction={conviction}  λ={lam}")
+          f"spot={ms.spot:.4f} fwd={ms.fwd:.4f} vol={ms.vol:.1%}  "
+          f"distribution={'market' if median is None else f'stated median {median}'}  λ={lam}")
     print(f"{'family':<18}{'fixed N':>12}{'kelly N':>12}{'x* (full)':>12}{'flag':>14}")
     print("-" * 68)
     cap = 1000.0
@@ -80,7 +99,8 @@ if __name__ == "__main__":
     p.add_argument("--direction", default="base_higher", choices=["base_higher", "base_lower"])
     p.add_argument("--horizon", default=91, type=int)
     p.add_argument("--magnitude", default=6.0, type=float)
-    p.add_argument("--conviction", default="high", choices=["high", "medium", "low"])
+    p.add_argument("--median", default=None, type=float,
+                   help="your stated terminal-spot median (omit → market distribution)")
     p.add_argument("--lambda", dest="lam", default=0.5, type=float)
     a = p.parse_args()
-    run(a.pair, a.direction, a.horizon, a.magnitude, a.conviction, a.lam)
+    run(a.pair, a.direction, a.horizon, a.magnitude, a.median, a.lam)
