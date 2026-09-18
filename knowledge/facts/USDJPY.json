@@ -8,6 +8,15 @@
     "settlement_days": 2,
     "holiday_calendars": ["USD", "JPY"]
   },
+  "deliverable": {
+    "settlement_currency": "JPY",
+    "settlement_type": "physical_delivery",
+    "delivery_notes": [
+      "Physical JPY delivery; standard correspondent banking settlement",
+      "No fixing lag — settles T+2 on standard basis (Tokyo cut for options)",
+      "One of the most liquid FX markets globally; tight bid-offer across the curve"
+    ]
+  },
   "options": {
     "premium_currency": "USD",
     "delta_convention": "forward_delta",

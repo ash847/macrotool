@@ -78,6 +78,9 @@ class RecommendedStructure:
     drivers: dict | None = None      # P&L driver split (Carry/Directional/Adverse/Vega), pct
                                      # — kept server-side for derivation; NOT rendered to the LLM
     attributes: frozenset = frozenset()   # IP-clean qualitative tags (the LLM-facing findings)
+    cell_drivers: tuple[list, list] | None = None   # (top contributors, top detractors) —
+                                     # CellBreakdown lists from top_bottom_cells(pm_score);
+                                     # same numbers as Trade View's "Key P&L drivers" panel
 
 
 @dataclass
@@ -147,7 +150,7 @@ def _recommend_ranked(
         user_email=user_email,
     )
 
-    from knowledge_engine.scenario_scorer import driver_contribs
+    from knowledge_engine.scenario_scorer import driver_contribs, top_bottom_cells
     from knowledge_engine.structure_attributes import attributes as _attributes, deciding_axis as _deciding_axis
 
     out: list[RecommendedStructure] = []
@@ -160,6 +163,7 @@ def _recommend_ranked(
             else (evals[0] if evals else None)
         )
         if best is not None:
+            _cd_pos, _cd_neg = top_bottom_cells(best.pm_score)
             out.append(RecommendedStructure(
                 structure_id=item.structure_id,
                 display_name=item.display_name,
@@ -174,6 +178,7 @@ def _recommend_ranked(
                 ),
                 drivers=driver_contribs(best.pm_score),
                 attributes=_attributes(item.structure_id, best.pm_score, best.aggregates),
+                cell_drivers=(_cd_pos, _cd_neg) if (_cd_pos or _cd_neg) else None,
             ))
             agg_by_sid[item.structure_id] = best.aggregates
 
