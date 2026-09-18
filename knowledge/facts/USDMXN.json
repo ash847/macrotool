@@ -8,6 +8,15 @@
     "settlement_days": 2,
     "holiday_calendars": ["USD", "MXN"]
   },
+  "deliverable": {
+    "settlement_currency": "MXN",
+    "settlement_type": "physical_delivery",
+    "delivery_notes": [
+      "Physical MXN delivery; requires MXN custody and local settlement infrastructure",
+      "No fixing lag — settles T+2 on standard basis",
+      "Deliverable (not NDF) but effectively traded like an EM pair given Banxico rate sensitivity"
+    ]
+  },
   "options": {
     "premium_currency": "USD",
     "delta_convention": "forward_delta",

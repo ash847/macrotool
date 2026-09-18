@@ -56,6 +56,39 @@ def driver_contribs(score: "ScoreResult") -> dict[str, float]:
     }
 
 
+# User-facing names for the scenario-grid columns — backs the agent's "top
+# contributors / top detractors" lines (agentic/render.py). Trade View's own
+# "Key P&L drivers" panel (interface/structure_eval.py) keeps its own copy of
+# this label set; duplicated rather than shared to avoid touching that
+# already-shipped, Kelly-integrated UI code for an unrelated agent-side change.
+CELL_COL_LABELS: dict[str, str] = {
+    "S": "No move",
+    "t%→K": "Early touch & retrace",
+    "K−½σ": "Falls just short",
+    "K": "Target hit",
+    "K+½σ": "Overshoot",
+    "−½σ": "Mild adverse",
+    "−1σ": "Full reversal",
+    "Δvol": "Vol shock (adverse)",
+}
+
+
+def cell_label(cell: "CellBreakdown") -> str:
+    return f"{CELL_COL_LABELS.get(cell.col, cell.col)} · {cell.row}"
+
+
+def top_bottom_cells(
+    score: "ScoreResult", n: int = 3
+) -> tuple[list["CellBreakdown"], list["CellBreakdown"]]:
+    """Top-``n`` / bottom-``n`` scenario-grid cells by weighted P&L contribution
+    (``contrib_pct``), restricted to cells with positive scenario weight. Backs
+    the agent's "top contributors" / "top detractors" lines."""
+    cells = [c for c in score.cells if c.normalized_weight > 0]
+    pos = sorted((c for c in cells if c.contrib_pct > 0), key=lambda c: -c.contrib_pct)[:n]
+    neg = sorted((c for c in cells if c.contrib_pct < 0), key=lambda c: c.contrib_pct)[:n]
+    return pos, neg
+
+
 def score_structure(
     scenario_rows: list[dict],
     multipliers: dict[str, float],
