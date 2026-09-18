@@ -10,6 +10,7 @@ Session-state keys used across both:
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 
 import streamlit as st
@@ -58,8 +59,20 @@ def get_workspace(user_email: str | None) -> tuple[ConversationService, str | No
 
 
 def request_open(target: str) -> None:
+    """Open a saved conversation (or NEW) on the Agent page, from any page."""
     st.session_state.ws_open = target
+    st.session_state.page = "Agent"
     st.rerun()
+
+
+def is_new_chat_open() -> bool:
+    """True when the Agent page is showing (or about to show) a fresh, unsaved chat."""
+    pending = st.session_state.get("ws_open")
+    if pending is not None:
+        return pending == NEW
+    if st.session_state.get("ws_conv") is None:
+        return True
+    return st.session_state.get("ws_seq", 0) == 0
 
 
 def _short_date(iso: str) -> str:
@@ -69,25 +82,46 @@ def _short_date(iso: str) -> str:
         return ""
 
 
-def render_conversation_sidebar(user_email: str | None) -> None:
-    """Sidebar list: New conversation + the user's recent conversations."""
+_LIST_TTL_S = 60.0
+
+
+def _cached_conversations(svc) -> list:
+    """The conversation list, re-queried only when the open chat changes (a new turn,
+    rename, archive, switch) or after a minute — the sidebar renders on every rerun
+    of every page, and Trade View reruns on each widget change."""
+    conv = st.session_state.get("ws_conv")
+    key = (svc.user_email, conv.id if conv else None, conv.updated_at if conv else None,
+           conv.title if conv else None)
+    cached = st.session_state.get("ws_list_cache")
+    now = time.monotonic()
+    if cached and cached[0] == key and now - cached[1] < _LIST_TTL_S:
+        return cached[2]
+    convs = svc.list_conversations(limit=30)
+    st.session_state.ws_list_cache = (key, now, convs)
+    return convs
+
+
+def render_conversation_sidebar(user_email: str | None, on_agent_page: bool = True) -> None:
+    """Sidebar list of the user's saved conversations (shown on every page). New chats
+    start from the "Agent (new chat)" nav button."""
     svc, _ = get_workspace(user_email)
     # The sidebar renders before the Agent page processes an open request, so a
-    # pending request (just clicked) is the conversation about to be shown.
+    # pending request (just clicked) is the conversation about to be shown. Nothing
+    # is highlighted off the Agent page.
     pending = st.session_state.get("ws_open")
     current = st.session_state.get("ws_conv")
     if pending == NEW:
         current_id = None
     elif pending is not None:
         current_id = pending
+    elif on_agent_page and current is not None:
+        current_id = current.id
     else:
-        current_id = current.id if current is not None else None
+        current_id = None
 
     st.markdown("**Conversations**")
-    if st.button("＋ New conversation", key="ws_new", use_container_width=True):
-        request_open(NEW)
     try:
-        convs = svc.list_conversations(limit=30)
+        convs = _cached_conversations(svc)
     except StoreError:
         st.caption("Couldn't load saved conversations.")
         return

@@ -245,10 +245,24 @@ with st.sidebar:
         )
     else:
         nav_labels = ("Trade view", "Agent")
+    from interface.conversations_ui import (
+        NEW as _WS_NEW,
+        is_new_chat_open as _ws_new_chat_open,
+        render_conversation_sidebar,
+    )
     for label in nav_labels:
-        active = st.session_state.page == label
+        if label == "Agent":
+            # "Agent (new chat)" always starts a fresh conversation; saved ones are
+            # reopened from the Conversations list below. Lit only while the open
+            # chat is that new, not-yet-saved one (a saved chat is lit in the list).
+            active = st.session_state.page == "Agent" and _ws_new_chat_open()
+            text = "Agent (new chat)"
+        else:
+            active = st.session_state.page == label
+            text = label
         if st.button(
-            label,
+            text,
+            key=f"nav_{label}",
             use_container_width=True,
             type="primary" if active else "secondary",
         ):
@@ -258,15 +272,16 @@ with st.sidebar:
                 st.session_state.submitted = False
                 st.session_state.last_prompt = ""
                 st.session_state.clarification = ""
+            if label == "Agent":
+                st.session_state.ws_open = _WS_NEW
             st.session_state.page = label
             st.rerun()
 
     st.divider()
 
-    if st.session_state.page == "Agent":
-        from interface.conversations_ui import render_conversation_sidebar
-        render_conversation_sidebar(USER_EMAIL)
-        st.divider()
+    # Saved conversations are listed on every page; clicking one opens it on Agent.
+    render_conversation_sidebar(USER_EMAIL, on_agent_page=st.session_state.page == "Agent")
+    st.divider()
 
     if st.session_state.page == "Kelly Sizing":
         from interface.kelly_v2.app import (
