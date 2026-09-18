@@ -39,10 +39,10 @@ class SizingSpec:
     # engine layer needs no dependency on the UI's Distribution type.
     kelly_probs: tuple[float, ...] | None = None
     kelly_bins: tuple[float, ...] | None = None
-    # Where the distribution came from: "explicit" (the PM stated it for this trade)
-    # or "market" (the market-implied curve — no edge stated). Never anything else:
-    # the tool does not synthesise an edge the PM didn't give.
-    distribution_source: Literal["explicit", "market"] = "explicit"
+    # Kelly was selected but the PM has stated no distribution for this trade, so the
+    # trade is sized FIXED-LOSS instead (and the UI/agent must say so). The tool never
+    # synthesises an edge the PM didn't give.
+    kelly_fallback: bool = False
 
     def has_distribution(self) -> bool:
         return self.kelly_probs is not None and self.kelly_bins is not None
@@ -127,19 +127,31 @@ def market_distribution(
     return tuple(float(p) for p in probs), tuple(float(b) for b in bins)
 
 
-def curve_key(pair: str, horizon_days: int) -> tuple[str, int]:
-    """Identity of the trade an elicited distribution was stated for. A curve is a
-    set of probabilities over *that pair's* spot levels at *that expiry*, so it is
-    only valid for the same pair + horizon (the target doesn't change the belief)."""
-    return (str(pair), int(horizon_days))
+def expiry_for(snapshot_date, horizon_days: int):
+    """The trade's expiry date: pricing (snapshot) date + horizon."""
+    from datetime import timedelta
+    return snapshot_date + timedelta(days=int(horizon_days))
 
 
-def curve_for_trade(
-    stated_key, probs, bins, pair: str, horizon_days: int
-) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
-    """The PM's stated curve if it was stated for this pair + horizon, else None."""
-    if probs is None or bins is None or stated_key is None:
+def curve_key(pair: str, expiry) -> str:
+    """Identity of the trade a stated distribution belongs to: ``"PAIR|YYYY-MM-DD"``.
+
+    A distribution is a set of probabilities over *that pair's* spot levels at *that
+    expiry*, so it is valid only for the same pair + expiry date. Keyed on the expiry
+    DATE (not horizon days) so a saved view stays attached to its trade as time passes
+    (a 91d trade reopened later is a 70d trade to the same date). The target doesn't
+    change the belief, so it is not part of the key."""
+    exp = expiry.isoformat() if hasattr(expiry, "isoformat") else str(expiry)
+    return f"{pair}|{exp[:10]}"
+
+
+def curve_for_trade(curves: dict | None, pair: str, expiry):
+    """The PM's stated ``(probs, bins)`` for this pair + expiry from a
+    ``{curve_key: (probs, bins)}`` map, else None."""
+    if not curves:
         return None
-    if tuple(stated_key) != curve_key(pair, horizon_days):
+    hit = curves.get(curve_key(pair, expiry))
+    if not hit:
         return None
+    probs, bins = hit
     return tuple(probs), tuple(bins)

@@ -50,6 +50,7 @@ class InMemoryStore:
     """Dict-backed store. Lives for the browser session when used as the fallback."""
 
     persistent = False
+    settings_persist = True
 
     def __init__(self) -> None:
         self._convs: dict[str, Conversation] = {}
@@ -152,9 +153,21 @@ class SupabaseStore:
         except Exception as e:
             raise StoreError(f"{what}: {e}") from e
 
+    # Columns added after the first schema release; a DB that hasn't run the ALTER yet
+    # degrades to saving without them (chat settings then last the session only).
+    _LATE_CONV_COLUMNS = ("settings", "distributions")
+    settings_persist = True
+
     def save_conversation(self, conv):
-        self._run("save_conversation", lambda: self._t(T_CONVERSATIONS)
-                  .upsert(conv.to_row()).execute())
+        row = conv.to_row()
+        try:
+            self._t(T_CONVERSATIONS).upsert(row).execute()
+            return
+        except Exception:
+            pass
+        slim = {k: v for k, v in row.items() if k not in self._LATE_CONV_COLUMNS}
+        self._run("save_conversation", lambda: self._t(T_CONVERSATIONS).upsert(slim).execute())
+        self.settings_persist = False
 
     def get_conversation(self, user_email, conversation_id):
         res = self._run("get_conversation", lambda: self._t(T_CONVERSATIONS).select("*")

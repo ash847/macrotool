@@ -193,6 +193,8 @@ class Conversation:
     archived: bool = False
     active_idea_id: str | None = None
     last_snapshot_date: date | None = None
+    settings: dict = field(default_factory=dict)        # ChatSettings.to_dict()
+    distributions: dict = field(default_factory=dict)   # {curve_key: {"probs", "bins"}}
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=utcnow)
     updated_at: str = field(default_factory=utcnow)
@@ -208,6 +210,7 @@ class Conversation:
             "last_snapshot_date": (
                 self.last_snapshot_date.isoformat() if self.last_snapshot_date else None
             ),
+            "settings": self.settings, "distributions": self.distributions,
             "created_at": self.created_at, "updated_at": self.updated_at,
         }
 
@@ -221,6 +224,8 @@ class Conversation:
             archived=bool(r.get("archived")),
             active_idea_id=r.get("active_idea_id"),
             last_snapshot_date=_date(r.get("last_snapshot_date")),
+            settings=r.get("settings") or {},
+            distributions=r.get("distributions") or {},
             created_at=r.get("created_at") or utcnow(),
             updated_at=r.get("updated_at") or utcnow(),
         )
@@ -238,7 +243,7 @@ class Turn:
     llm_messages: list = field(default_factory=list)   # JSON-safe (see serialize)
     idea_version_id: str | None = None
     snapshot_date: date | None = None
-    kind: str = "exchange"              # "exchange" | "refresh"
+    kind: str = "exchange"              # "exchange" | "refresh" | "settings"
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=utcnow)
 

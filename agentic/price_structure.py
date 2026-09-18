@@ -68,6 +68,7 @@ def price_structure(
     loss_budget: float | None = None,
     linear_notional: float = 100.0,
     smile: object = _UNSET,
+    sizing_spec: object = None,
 ) -> PriceStructureResult:
     """Price a single PM-requested structure against the current market state.
 
@@ -85,6 +86,8 @@ def price_structure(
                       value regardless of loss_budget.
         smile:        VolSurface; defaults to ``ms.surface`` so entry pricing uses
                       the same surface the pack was built against.
+        sizing_spec:  the pack's SizingSpec (Kelly) so a PM-named structure is sized
+                      under the same regime as the recommendations; None → fixed-loss.
     """
     parsed = parse_structure_request(request_text)
     if isinstance(parsed, ClarificationNeeded):
@@ -105,6 +108,7 @@ def price_structure(
         smile=surface,
         warnings=warnings,
         variants_override=[variant_dict],
+        sizing_spec=sizing_spec,
     )
 
     if not priced:

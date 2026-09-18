@@ -91,10 +91,9 @@ def _payoff_line(priced_structure, variant, structure_id: str, indent: str = "  
     return render_payoff(prof, indent) if prof else None
 
 
-def _kelly_source_phrase(pack) -> str:
-    if pack.kelly_distribution_source == "market":
-        return "the MARKET-implied distribution (no PM edge stated for this trade)"
-    return "the PM's stated distribution for this trade"
+def _trade_tag(pack, view) -> str:
+    exp = pack.expiry.strftime("%d-%b-%y") if getattr(pack, "expiry", None) else f"{view.horizon_days}d"
+    return f"{view.pair} {exp}"
 
 
 def render_pack(pack: StandardPack, view: TradeView) -> str:
@@ -159,17 +158,21 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
                 f"  SIZING REGIME: KELLY (the PM is operating under Kelly sizing — use ONLY "
                 f"this regime's framing). Bankroll W = {pack.linear_notional:,.0f} {base_ccy}, "
                 f"fractional-Kelly λ = {pack.kelly_lambda:.2f}. Each variant is sized to λ·f*·W "
-                f"from {_kelly_source_phrase(pack)}, where f* is that structure's "
-                f"full-Kelly fraction (stated per structure below); {cap_note}, net-credit fixed at 10×W."
+                f"from the PM's stated distribution for {_trade_tag(pack, view)}, where f* is "
+                f"that structure's full-Kelly fraction (stated per structure below); "
+                f"{cap_note}, net-credit fixed at 10×W."
             )
-            if pack.kelly_distribution_source == "market":
-                lines.append(
-                    "  DISTRIBUTION: MARKET — the PM has NOT stated a distribution for this "
-                    "trade, so Kelly is sized against the market-implied curve (no edge); "
-                    "sizes are therefore small or zero. Tell the PM this plainly, and that "
-                    "to size under Kelly they must state their distribution for this trade. "
-                    "Never describe these sizes as reflecting the PM's view."
-                )
+        elif pack.loss_budget is not None and getattr(pack, "kelly_fallback", False):
+            lines.append(
+                f"  SIZING REGIME: FIXED-LOSS — the PM selected KELLY, but has NOT set up a "
+                f"distribution for {_trade_tag(pack, view)}, so these trades are sized "
+                f"fixed-loss instead. LEAD your reply with this: say the sizes are fixed-loss "
+                f"because there is no distribution for this pair/expiry, and ask them to set "
+                f"one up (sizing settings above the chat) to size under Kelly. Each variant is "
+                f"sized so its max loss = the loss budget {pack.loss_budget:,.0f} {base_ccy} "
+                f"(= W × the R:R-derived stop%); {cap_note}, net-credit fixed at 10×W. Never "
+                f"state a Kelly number for this trade."
+            )
         elif pack.loss_budget is not None:
             lines.append(
                 f"  SIZING REGIME: FIXED-LOSS (the PM is operating under fixed-loss sizing — use "

@@ -104,7 +104,9 @@ class StandardPack:
     sizing_method: str = "fixed_loss"         # active sizing regime the trades were sized under
     kelly_lambda: float = 0.5                 # fractional-Kelly multiplier (Kelly regime only)
     linear_notional: float = 100.0            # sizing capital W
-    kelly_distribution_source: str | None = None   # Kelly only: "explicit" (PM-stated) | "market"
+    kelly_fallback: bool = False              # Kelly selected, no stated distribution → fixed-loss
+    expiry: object | None = None              # trade expiry date (pricing date + horizon)
+    sizing_spec: object | None = None         # the SizingSpec used (Tier-2 reuses it)
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -310,22 +312,23 @@ def build_pack(
 
     is_call = view.direction == "base_higher"
     # Kelly regime: size against the PM's stated distribution for THIS trade (the
-    # caller passes it only if it was stated for this pair + horizon), else against
-    # the market distribution (no edge) — never a synthesised edge. Fixed-loss: None.
+    # caller passes it only if it was stated for this pair + expiry). No stated
+    # distribution → FIXED-LOSS, flagged (kelly_fallback) so the PM is told — the tool
+    # never sizes on an edge the PM didn't give.
     sizing_spec = None
+    kelly_fallback = False
     if sizing_method == "kelly":
-        from analytics.sizing import SizingSpec, market_distribution
         if kelly_probs and kelly_bins:
-            probs, bins, source = tuple(kelly_probs), tuple(kelly_bins), "explicit"
+            from analytics.sizing import SizingSpec
+            sizing_spec = SizingSpec(
+                method="kelly", target_rr=target_rr, kelly_lambda=kelly_lambda,
+                bankroll=linear_notional,
+                kelly_probs=tuple(kelly_probs), kelly_bins=tuple(kelly_bins),
+            )
         else:
-            probs, bins = market_distribution(
-                market_state.spot, market_state.fwd, market_state.vol, market_state.T)
-            source = "market"
-        sizing_spec = SizingSpec(
-            method="kelly", target_rr=target_rr, kelly_lambda=kelly_lambda,
-            bankroll=linear_notional, kelly_probs=probs, kelly_bins=bins,
-            distribution_source=source,
-        )
+            kelly_fallback = True
+    from analytics.sizing import expiry_for
+    expiry = expiry_for(ccy.as_of, view.horizon_days) if getattr(ccy, "as_of", None) else None
 
     recommended: list[RecommendedStructure] = []
     loss_budget: float | None = None
@@ -364,5 +367,7 @@ def build_pack(
         sizing_method=("kelly" if sizing_spec is not None else "fixed_loss"),
         kelly_lambda=kelly_lambda,
         linear_notional=linear_notional,
-        kelly_distribution_source=(sizing_spec.distribution_source if sizing_spec else None),
+        kelly_fallback=kelly_fallback,
+        expiry=expiry,
+        sizing_spec=sizing_spec,
     )

@@ -68,58 +68,90 @@ def test_kelly_notional_is_lambda_times_fstar_times_w(ctx):
         assert pv.structure_notional == pytest.approx(expected, rel=1e-9)
 
 
-def test_kelly_without_stated_curve_sizes_on_market_distribution(ctx):
-    # Kelly with no stated curve → the MARKET distribution (no edge), stated as such —
-    # never a synthesised edge, and never a silent switch to fixed-loss.
+def test_kelly_without_distribution_falls_back_to_fixed_loss_and_flags_it(ctx):
+    # Kelly selected but no distribution for this trade → sized FIXED-LOSS, and the
+    # pack tells the model to say so and ask the PM to set one up. Never a synthesised
+    # (conviction/market) edge.
     snap, cfg, view, ccy, _, _ = ctx
     pack = build_pack(view, ccy, cfg, linear_notional=100_000_000, sizing_method="kelly")
-    assert pack.sizing_method == "kelly"
-    assert pack.kelly_distribution_source == "market"
+    assert pack.sizing_method == "fixed_loss" and pack.kelly_fallback is True
+    assert pack.recommended[0].variant.kelly_fraction is None
     txt = render_pack(pack, view)
-    assert "SIZING REGIME: KELLY" in txt and "DISTRIBUTION: MARKET" in txt
-    assert "FIXED-LOSS" not in txt
+    assert "the PM selected KELLY, but has NOT set up a distribution" in txt
+    assert pack.expiry is not None and pack.expiry.strftime("%d-%b-%y") in txt
+    assert "Kelly f*" not in txt
 
 
-def test_stated_curve_is_labelled_explicit(ctx):
+def test_stated_distribution_sizes_kelly(ctx):
     snap, cfg, view, ccy, probs, bins = ctx
     pack = build_pack(view, ccy, cfg, linear_notional=100_000_000, sizing_method="kelly",
                       kelly_probs=probs, kelly_bins=bins)
-    assert pack.kelly_distribution_source == "explicit"
-    assert "DISTRIBUTION: MARKET" not in render_pack(pack, view)
+    assert pack.sizing_method == "kelly" and pack.kelly_fallback is False
+    assert pack.sizing_spec is not None and pack.sizing_spec.method == "kelly"
+    assert "has NOT set up a distribution" not in render_pack(pack, view)
 
 
 def _agent_session(snap, cfg, probs, bins, key):
     from agentic.session import AgentSession
     return AgentSession(snapshot=snap, cfg=cfg, linear_notional=100_000_000,
-                        sizing_method="kelly", kelly_probs=probs, kelly_bins=bins,
-                        kelly_curve_key=key)
+                        sizing_method="kelly",
+                        kelly_curves={key: (probs, bins)} if key else {})
+
+
+def _key(snap, pair, days):
+    from analytics.sizing import curve_key, expiry_for
+    return curve_key(pair, expiry_for(snap.snapshot_date, days))
 
 
 def test_agent_passes_the_sizing_regime_to_the_engine(ctx):
     # Regression: run_standard_pack used to drop sizing_method → always fixed-loss.
     from agentic.tools import dispatch
     snap, cfg, _, _, probs, bins = ctx
-    s = _agent_session(snap, cfg, probs, bins, ("USDBRL", 90))
+    s = _agent_session(snap, cfg, probs, bins, _key(snap, "USDBRL", 90))
     out, err = dispatch(s, "run_standard_pack",
                         {"pair": "USDBRL", "horizon_days": 90, "direction": "base_higher",
                          "magnitude_pct": 6.0})
     assert not err
-    assert s.pack.sizing_method == "kelly" and s.pack.kelly_distribution_source == "explicit"
+    assert s.pack.sizing_method == "kelly" and not s.pack.kelly_fallback
 
 
-def test_agent_never_uses_a_curve_stated_for_another_trade(ctx):
+def test_agent_never_uses_a_distribution_stated_for_another_trade(ctx):
     from agentic.tools import dispatch
     snap, cfg, _, _, probs, bins = ctx
-    for other_key, args in [
-        (("USDBRL", 90), {"pair": "USDJPY", "horizon_days": 90, "direction": "base_higher",
-                          "magnitude_pct": 3.0}),                       # other pair
-        (("USDBRL", 60), {"pair": "USDBRL", "horizon_days": 90, "direction": "base_higher",
-                          "magnitude_pct": 6.0}),                       # other horizon
-        (None, {"pair": "USDBRL", "horizon_days": 90, "direction": "base_higher",
-                "magnitude_pct": 6.0}),                                 # untagged curve
+    brl = {"pair": "USDBRL", "horizon_days": 90, "direction": "base_higher", "magnitude_pct": 6.0}
+    for stated_key, args in [
+        (_key(snap, "USDBRL", 90), {"pair": "USDJPY", "horizon_days": 90,
+                                    "direction": "base_higher", "magnitude_pct": 3.0}),
+        (_key(snap, "USDBRL", 60), brl),                 # same pair, other expiry
+        (None, brl),                                     # nothing stated
     ]:
-        s = _agent_session(snap, cfg, probs, bins, other_key)
+        s = _agent_session(snap, cfg, probs, bins, stated_key)
         out, err = dispatch(s, "run_standard_pack", args)
         assert not err
-        assert s.pack.kelly_distribution_source == "market", other_key
-        assert "DISTRIBUTION: MARKET" in out
+        assert s.pack.sizing_method == "fixed_loss" and s.pack.kelly_fallback, stated_key
+        assert "has NOT set up a distribution" in out
+
+
+def test_distribution_key_is_the_expiry_date_not_the_horizon(ctx):
+    # A saved view reopened later is a shorter-horizon trade to the SAME expiry: the
+    # PM's distribution must still apply.
+    from analytics.sizing import curve_for_trade, curve_key, expiry_for
+    from datetime import timedelta
+    snap, *_ , probs, bins = ctx
+    exp = expiry_for(snap.snapshot_date, 90)
+    curves = {curve_key("USDBRL", exp): (probs, bins)}
+    later = snap.snapshot_date + timedelta(days=20)
+    assert curve_for_trade(curves, "USDBRL", expiry_for(later, 70)) is not None
+    assert curve_for_trade(curves, "USDBRL", expiry_for(later, 90)) is None
+
+
+def test_price_structure_uses_the_packs_kelly_sizing(ctx):
+    # Tier-2: a PM-named structure is sized under the same regime as the pack.
+    from agentic.tools import dispatch
+    snap, cfg, _, _, probs, bins = ctx
+    s = _agent_session(snap, cfg, probs, bins, _key(snap, "USDBRL", 90))
+    dispatch(s, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90,
+                                      "direction": "base_higher", "magnitude_pct": 6.0})
+    out, err = dispatch(s, "price_structure", {"request": "25Δ vanilla"})
+    assert not err
+    assert s.priced and s.priced[-1].variant.kelly_fraction is not None

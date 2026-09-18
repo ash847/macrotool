@@ -49,7 +49,8 @@ from interface.structure_eval import (
     render_structure_variants,
     render_structure_evaluation,
 )
-from interface.kelly_sizing_ui import build_sizing_spec, meaning_banner
+from interface.kelly_sizing_ui import KELLY_FALLBACK_MSG, build_sizing_spec, meaning_banner
+from analytics.sizing import expiry_for as _expiry_for
 from interface.prefs import (
     DEFAULT_MERGED_PREF,
     FIXED_PRIMARY_OBJECTIVE,
@@ -377,7 +378,7 @@ def _preview_market_numbers():
         rate_ctx = rate_context_for_snapshot(ccy, T)
         ms_like = SimpleNamespace(
             spot=ccy.spot, fwd=rate_ctx.forward, vol=interpolate_atm_vol(ccy, horizon_days), T=T,
-            pair=pair, horizon_days=int(horizon_days),
+            pair=pair, expiry=_expiry_for(flow._snapshot.snapshot_date, int(horizon_days)),
         )
         return ms_like, float(target)
     except Exception:
@@ -401,7 +402,7 @@ def _render_sizing_section(ms_like, target, direction=None) -> None:
     with st.container(border=True):
         if ms_like is not None:
             render_kelly_elicitation(ms_like, target, direction,
-                                     pair=ms_like.pair, horizon_days=ms_like.horizon_days)
+                                     pair=ms_like.pair, expiry=ms_like.expiry)
         else:
             st.info("Pick a pair and horizon above to elicit your Kelly edge distribution.")
 
@@ -1156,25 +1157,26 @@ def _render_agent_diagnostic(session) -> None:
             st.text(t["result"] or "")
 
 
-def _new_agent_session():
-    """A fresh AgentSession on the current snapshot + the PM's current settings."""
+def _new_agent_session(conv=None):
+    """A fresh AgentSession on the current snapshot, configured from the CHAT's own
+    settings + stated distributions (``conv``; defaults for a brand-new chat come from
+    the last chat used). Only capital W is global."""
     from agentic.session import AgentSession
     from config.loader import load_config
+    from workspace.settings import ChatSettings, curves_from
 
-    return AgentSession(
+    settings = ChatSettings.from_dict(
+        conv.settings if conv is not None and conv.settings
+        else st.session_state.get("ws_last_settings"))
+    session = AgentSession(
         snapshot=_get_effective_snapshot(),
         cfg=load_config(),
-        structure_constraint=st.session_state.pref_structure_constraint,
-        primary_objective=st.session_state.pref_primary_objective,
-        trade_management=st.session_state.pref_trade_management,
-        target_rr=st.session_state.target_rr,
         linear_notional=sizing_capital(),
-        sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
-        kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
-        kelly_probs=st.session_state.get("kelly_probs"),
-        kelly_bins=st.session_state.get("kelly_bins"),
-        kelly_curve_key=st.session_state.get("kelly_curve_key"),
+        user_email=USER_EMAIL,
+        kelly_curves=curves_from(conv.distributions if conv is not None else None),
     )
+    settings.apply_to(session)
+    return session
 
 
 def _agent_llm():
@@ -1189,8 +1191,11 @@ def _agent_llm():
 def _agent_start_new(svc) -> None:
     from agentic.agent_flow import AgentFlow
 
+    from workspace.settings import ChatSettings
+
     conv = svc.new_conversation()
-    st.session_state.agent_flow = AgentFlow(_agent_llm(), _new_agent_session())
+    conv.settings = ChatSettings.from_dict(st.session_state.get("ws_last_settings")).to_dict()
+    st.session_state.agent_flow = AgentFlow(_agent_llm(), _new_agent_session(conv))
     st.session_state.agent_chat = []
     st.session_state.agent_chat_id = conv.id
     st.session_state.ws_conv = conv
@@ -1388,15 +1393,10 @@ def _render_agent() -> None:
     elif "ws_conv" not in st.session_state:   # agent_flow from before this feature
         _agent_start_new(svc)
 
-    # Keep the agent's R:R + sizing regime live with the session controls.
-    _asess = st.session_state.agent_flow.session
-    _asess.target_rr = st.session_state.target_rr
-    _asess.linear_notional = sizing_capital()
-    _asess.sizing_method = st.session_state.get("sizing_method", "fixed_loss")
-    _asess.kelly_lambda = st.session_state.get("kelly_lambda", 0.5)
-    _asess.kelly_probs = st.session_state.get("kelly_probs")
-    _asess.kelly_bins = st.session_state.get("kelly_bins")
-    _asess.kelly_curve_key = st.session_state.get("kelly_curve_key")
+    # Capital W is the only global sizing input; everything else is the chat's own.
+    st.session_state.agent_flow.session.linear_notional = sizing_capital()
+    if st.session_state.ws_conv.settings:
+        st.session_state.ws_last_settings = st.session_state.ws_conv.settings
 
     jobs = st.session_state.setdefault("agent_jobs", {})
     _finalize_agent_jobs(svc, jobs)
@@ -1404,6 +1404,13 @@ def _render_agent() -> None:
     pending = jobs.get(conv_id)
 
     _render_agent_header(svc, busy=pending is not None)
+    from interface.agent_settings_ui import render_agent_settings
+    _aview = st.session_state.agent_flow.session.view
+    render_agent_settings(
+        svc, busy=pending is not None, capital=sizing_capital(), set_capital=_set_w,
+        capital_ccy=_aview.pair[:3] if _aview is not None else "base ccy",
+        on_error=log_error,
+    )
 
     _chat_id = st.session_state.get("agent_chat_id", "unknown")
     _view = getattr(st.session_state.agent_flow.session, "view", None)
@@ -1434,6 +1441,13 @@ def _render_agent() -> None:
         st.rerun()
 
     _render_agent_diagnostic(st.session_state.agent_flow.session)
+
+
+def _trade_view_curves() -> dict:
+    """Trade View's stated distribution as a ``{curve_key: (probs, bins)}`` map."""
+    key = st.session_state.get("kelly_curve_key")
+    probs, bins = st.session_state.get("kelly_probs"), st.session_state.get("kelly_bins")
+    return {key: (probs, bins)} if key and probs and bins else {}
 
 
 def _trade_chat_signature(flow) -> tuple:
@@ -1495,9 +1509,8 @@ def _render_trade_chat(flow) -> None:
                 linear_notional=sizing_capital(),
                 sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
                 kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
-                kelly_probs=st.session_state.get("kelly_probs"),
-                kelly_bins=st.session_state.get("kelly_bins"),
-                kelly_curve_key=st.session_state.get("kelly_curve_key"),
+                kelly_curves=_trade_view_curves(),
+                user_email=USER_EMAIL,
             )
             _curve = session.stated_curve_for(view)   # this trade's stated curve only
             pack = build_pack(
@@ -1636,8 +1649,8 @@ else:
             from types import SimpleNamespace as _NS
             _ms = flow.market_state
             _render_sizing_section(
-                _NS(spot=_ms.spot, fwd=_ms.fwd, vol=_ms.vol, T=_ms.T,
-                    pair=flow.view.pair, horizon_days=int(flow.view.horizon_days)),
+                _NS(spot=_ms.spot, fwd=_ms.fwd, vol=_ms.vol, T=_ms.T, pair=flow.view.pair,
+                    expiry=_expiry_for(flow._snapshot.snapshot_date, int(flow.view.horizon_days))),
                 target_price(flow), flow.view.direction,
             )
 
@@ -1737,7 +1750,8 @@ else:
                 "bankroll": sizing_capital(),
             },
             ms=ms,
-            trade_key=(flow.view.pair, int(flow.view.horizon_days)),
+            trade_key=(flow.view.pair,
+                       _expiry_for(flow._snapshot.snapshot_date, int(flow.view.horizon_days))),
         )
         _kelly_mode = flow.sizing_spec is not None and flow.sizing_spec.method == "kelly"
         if _target is not None:
@@ -1834,16 +1848,13 @@ else:
                 log_error("compute_structure_evaluation", _e)
 
         if can_see("recommended_variants", ROLE):
-            if (flow.sizing_spec is not None and flow.sizing_spec.method == "kelly"
-                    and flow.sizing_spec.distribution_source == "market"):
-                st.warning(meaning_banner("kelly", "market"))
+            if flow.sizing_spec is not None and flow.sizing_spec.kelly_fallback:
+                st.warning(KELLY_FALLBACK_MSG)
             if ROLE == "tester":
                 from interface.tester_view import render_tester_recommendations
                 render_tester_recommendations(flow, _is_call, _target)
             else:
-                st.caption(meaning_banner(
-                    flow.sizing_spec.method if flow.sizing_spec else "fixed_loss",
-                    getattr(flow.sizing_spec, "distribution_source", None)))
+                st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
                 render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget,
                                           eval_result=_evals)
             _render_recommendation_reaction("trade_view", flow, _target)

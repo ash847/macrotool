@@ -42,7 +42,12 @@ def snapshot_fingerprint(snapshot) -> str:
 
 
 def session_prefs(session: AgentSession) -> dict:
-    """The PM settings a pack was built under — part of a version's identity."""
+    """The settings a pack was built under — part of a version's identity. Records
+    which stated distribution (if any) sized the active trade."""
+    from analytics.sizing import curve_key
+    curve = None
+    if session.view is not None and session.stated_curve_for(session.view) is not None:
+        curve = curve_key(session.view.pair, session.expiry_for(session.view))
     return {
         "structure_constraint": session.structure_constraint,
         "primary_objective": session.primary_objective,
@@ -51,8 +56,7 @@ def session_prefs(session: AgentSession) -> dict:
         "linear_notional": session.linear_notional,
         "sizing_method": session.sizing_method,
         "kelly_lambda": session.kelly_lambda,
-        "kelly_probs": list(session.kelly_probs) if session.kelly_probs else None,
-        "kelly_bins": list(session.kelly_bins) if session.kelly_bins else None,
+        "kelly_curve": curve,
     }
 
 
@@ -81,6 +85,13 @@ class ResumeResult:
     active: IdeaVersion | None = None
     stale: bool = False               # rebuilt pack differs from the last saved one
     note: str | None = None           # something the PM should be told (expired, …)
+
+
+@dataclass
+class SettingsOutcome:
+    conversation: Conversation
+    message: str | None = None        # the labelled note shown in the chat (None if no trade)
+    turn: Turn | None = None
 
 
 @dataclass
@@ -214,14 +225,15 @@ class ConversationService:
     # -- resume / refresh ---------------------------------------------------
 
     def resume(
-        self, conversation_id: str, make_session: Callable[[], AgentSession]
+        self, conversation_id: str, make_session: Callable[[Conversation], AgentSession]
     ) -> ResumeResult | None:
-        """Rehydrate a saved conversation into a fresh session (no LLM call)."""
+        """Rehydrate a saved conversation into a fresh session (no LLM call).
+        ``make_session(conv)`` builds the session from the chat's own settings."""
         conv = self.store.get_conversation(self.user_email, conversation_id)
         if conv is None:
             return None
         turns = self.store.list_turns(self.user_email, conv.id)
-        session = make_session()
+        session = make_session(conv)
         session.messages = [m for t in turns for m in messages_from_json(t.llm_messages)]
 
         result = ResumeResult(conversation=conv, turns=turns, session=session)
@@ -244,6 +256,58 @@ class ConversationService:
                 "this as the opposite direction. Restate the view to continue."
             )
         return result
+
+    def apply_settings(
+        self,
+        conv: Conversation,
+        session: AgentSession,
+        settings,
+        distributions: dict,
+        *,
+        seq: int,
+        persist: bool,
+    ) -> SettingsOutcome:
+        """Apply the chat's sizing settings / preferences / distributions.
+
+        With an active trade, it is re-run under the new settings and a labelled
+        SETTINGS UPDATED pack turn is injected (the model is told it supersedes the
+        earlier figures); the note is persisted as a ``settings`` turn. Without one,
+        the settings are just stored (``persist`` = the chat already has a row).
+        """
+        from workspace.settings import curves_from
+
+        settings.apply_to(session)
+        session.kelly_curves = curves_from(distributions)
+        conv = conv.touched(settings=settings.to_dict(), distributions=dict(distributions))
+        active = self.active_version(conv)
+        if active is None:
+            if persist:
+                self.store.save_conversation(conv)
+            return SettingsOutcome(conv)
+
+        session._cache.clear()
+        snap_date = session.snapshot.snapshot_date
+        content = self._rebuild(session, active.spec)
+        message = settings_note(session)
+        pre_len = len(session.messages)
+        inject_pack_turn(
+            session, active.spec.pack_args(snap_date), content,
+            header=f"SETTINGS UPDATED — {message} Every earlier figure in this "
+                   "conversation was sized under the previous settings; quote current "
+                   "figures only from this pack.",
+            user_note="[The PM changed the chat's sizing settings / preferences — re-run "
+                      "the active trade under them.]",
+        )
+        session.messages.append({"role": "assistant", "content": message})
+        conv, version, link = self._track_active_idea(conv, session)
+        turn = Turn(
+            conversation_id=conv.id, user_email=self.user_email, seq=seq, kind="settings",
+            user_text="", reply_text=message,
+            llm_messages=messages_to_json(session.messages[pre_len:]),
+            idea_version_id=version.id if version else None, snapshot_date=snap_date,
+        )
+        self._persist(conv, link, turn)
+        return SettingsOutcome(conv, message, turn)
 
     def refresh(
         self, conv: Conversation, session: AgentSession, *, seq: int, force_turn: bool = False
@@ -272,7 +336,14 @@ class ConversationService:
 
         label = active.spec.label()
         pre_len = len(session.messages)
-        inject_refresh_turn(session, active.spec.pack_args(snap_date), content, label, snap_date)
+        inject_pack_turn(
+            session, active.spec.pack_args(snap_date), content,
+            header=f"REFRESHED — active trade: {label}, market data as of "
+                   f"{snap_date.isoformat()}. Every earlier pack in this conversation (any "
+                   "pair) is historical; quote current figures only from this pack.",
+            user_note="[Conversation resumed — refresh the active trade to the latest "
+                      "market data.]",
+        )
         message = (f"Refreshed **{label}** to market data as of {snap_date.isoformat()}. "
                    "Figures above this point are from the earlier evaluation.")
         session.messages.append({"role": "assistant", "content": message})
@@ -298,20 +369,37 @@ class ConversationService:
         return content.removesuffix(_CACHED_SUFFIX)
 
 
-def inject_refresh_turn(session: AgentSession, args: dict, content: str, label: str,
-                        snap_date) -> None:
+def settings_note(session: AgentSession) -> str:
+    """Plain-English note of how the active trade is now sized (shown in the chat)."""
+    view, pack = session.view, session.pack
+    tag = ""
+    if view is not None:
+        exp = pack.expiry.strftime("%d-%b-%y") if pack is not None and pack.expiry else ""
+        tag = f"{view.pair} {exp}".strip()
+    if session.sizing_method == "kelly":
+        if pack is not None and getattr(pack, "kelly_fallback", False):
+            return (f"Sizing updated: **Kelly selected, but there is no distribution for "
+                    f"{tag}**, so this trade is sized **fixed-loss** (R:R {session.target_rr:g}). "
+                    f"Set up a distribution for {tag} to size under Kelly.")
+        return (f"Sizing updated: **Kelly λ {session.kelly_lambda:g}** on your stated "
+                f"distribution for {tag}. Figures below reflect this.")
+    return (f"Sizing updated: **fixed-loss, R:R {session.target_rr:g}**. "
+            "Figures below reflect this.")
+
+
+def inject_pack_turn(session: AgentSession, args: dict, content: str, *, header: str,
+                     user_note: str) -> None:
     """Append a synthetic, clearly-labelled run_standard_pack exchange (same message
-    shape as ``agentic.seed``) so the model sees the refreshed pack as a tool result
-    that supersedes every earlier pack. History stays user/assistant-alternating."""
+    shape as ``agentic.seed``) so the model sees the re-run pack as a tool result whose
+    ``header`` says it supersedes earlier figures. History stays user/assistant-
+    alternating: user note → assistant tool_use → user tool_result (caller appends the
+    closing assistant text)."""
     tool_id = f"{REFRESH_TOOL_ID_PREFIX}{len(session.messages)}"
-    session.messages.append({
-        "role": "user",
-        "content": "[Conversation resumed — refresh the active trade to the latest market data.]",
-    })
+    session.messages.append({"role": "user", "content": user_note})
     session.messages.append({
         "role": "assistant",
         "content": [
-            {"type": "text", "text": "Refreshing the active trade."},
+            {"type": "text", "text": "Re-running the active trade."},
             {"type": "tool_use", "id": tool_id, "name": "run_standard_pack", "input": args},
         ],
     })
@@ -320,12 +408,7 @@ def inject_refresh_turn(session: AgentSession, args: dict, content: str, label: 
         "content": [{
             "type": "tool_result",
             "tool_use_id": tool_id,
-            "content": (
-                f"REFRESHED — active trade: {label}, market data as of "
-                f"{snap_date.isoformat()}. Every earlier pack in this conversation (any "
-                "pair) is historical; quote current figures only from this pack.\n\n"
-                + content
-            ),
+            "content": header + "\n\n" + content,
             "is_error": False,
         }],
     })

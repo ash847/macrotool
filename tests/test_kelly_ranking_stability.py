@@ -103,8 +103,7 @@ class TestMarketDistribution:
         ms = compute_market_state(spot=5.0, fwd=5.05, vol=0.15, T=0.25, r_d=0.05, r_f=0.04,
                                   target=5.30, direction="base_higher")
         probs, bins = market_distribution(ms.spot, ms.fwd, ms.vol, ms.T)
-        spec = SizingSpec(method="kelly", kelly_probs=probs, kelly_bins=bins,
-                          distribution_source="market")
+        spec = SizingSpec(method="kelly", kelly_probs=probs, kelly_bins=bins)
         pv = price_variants(ms, "vanilla", target=5.30, is_call=True, sizing_spec=spec,
                             linear_notional=1e9)[0]
         assert (pv.structure_notional or 0.0) == pytest.approx(0.0, abs=1e-6)

@@ -183,8 +183,13 @@ class TestStorePrivacy:
 # Service: active idea + resume + refresh (engine runs for real, LLM is fake)
 # ---------------------------------------------------------------------------
 
-def _session(snapshot=SNAP) -> AgentSession:
-    return AgentSession(snapshot=snapshot, cfg=CFG)
+def _session(snapshot=SNAP, conv=None) -> AgentSession:
+    """Session factory as the UI builds it: from the chat's own settings + curves."""
+    from workspace.settings import ChatSettings, curves_from
+    s = AgentSession(snapshot=snapshot, cfg=CFG,
+                     kelly_curves=curves_from(conv.distributions if conv else None))
+    ChatSettings.from_dict(conv.settings if conv else None).apply_to(s)
+    return s
 
 
 def _pack_turn(tid: str, **args) -> list[LLMTurn]:
@@ -288,7 +293,7 @@ class TestResumeRefresh:
 
     def test_resume_replays_history_and_rebuilds_pack(self):
         svc, conv, live = self._saved()
-        res = svc.resume(conv.id, _session)
+        res = svc.resume(conv.id, lambda c: _session(SNAP, c))
         assert res.session.messages == messages_from_json(messages_to_json(live.messages))
         assert res.session.pack is not None and res.session.view.pair == "USDBRL"
         assert res.session.view.horizon_days == 90
@@ -300,11 +305,11 @@ class TestResumeRefresh:
 
     def test_resume_is_private(self):
         svc, conv, _ = self._saved()
-        assert ConversationService(svc.store, "other@x.com").resume(conv.id, _session) is None
+        assert ConversationService(svc.store, "other@x.com").resume(conv.id, lambda c: _session(SNAP, c)) is None
 
     def test_refresh_on_unchanged_data_adds_nothing(self):
         svc, conv, _ = self._saved()
-        res = svc.resume(conv.id, _session)
+        res = svc.resume(conv.id, lambda c: _session(SNAP, c))
         n = len(res.session.messages)
         out = svc.refresh(res.conversation, res.session, seq=4)
         assert out.changed is False
@@ -316,7 +321,7 @@ class TestResumeRefresh:
         svc, conv, _ = self._saved()
         moved = SNAP.model_copy(deep=True)
         moved.currencies["USDBRL"].spot *= 1.01
-        res = svc.resume(conv.id, lambda: _session(moved))
+        res = svc.resume(conv.id, lambda c: _session(moved, c))
         assert res.stale is True
         out = svc.refresh(res.conversation, res.session, seq=4)
         assert out.changed is True
@@ -332,7 +337,7 @@ class TestResumeRefresh:
 
     def test_resumed_conversation_continues_with_refreshed_pack_in_context(self):
         svc, conv, _ = self._saved()
-        res = svc.resume(conv.id, _session)
+        res = svc.resume(conv.id, lambda c: _session(SNAP, c))
         svc.refresh(res.conversation, res.session, seq=4, force_turn=True)
         llm = FakeToolLLM(script=[LLMTurn(text="ok", tool_calls=[], stop_reason="end_turn")])
         AgentFlow(llm, res.session).advance("and now?")
@@ -343,7 +348,7 @@ class TestResumeRefresh:
     def test_expired_idea_reports_note(self):
         svc, conv, _ = self._saved()
         later = SNAP.model_copy(update={"snapshot_date": D0 + timedelta(days=120)})
-        res = svc.resume(conv.id, lambda: _session(later))
+        res = svc.resume(conv.id, lambda c: _session(later, c))
         assert res.note and "expired" in res.note
         assert res.session.pack is None
 
@@ -425,7 +430,7 @@ class TestSupabaseStore:
         svc = ConversationService(SupabaseStore(client), ME)
         conv, live = _chat(svc, [("BRL", BRL), ("JPY", JPY)])
 
-        res = svc.resume(conv.id, _session)
+        res = svc.resume(conv.id, lambda c: _session(SNAP, c))
         assert res.conversation.title.startswith("USDJPY ↑")
         assert res.active.spec.pair == "USDJPY"
         assert res.stale is False
@@ -435,8 +440,122 @@ class TestSupabaseStore:
 
         selects = client.db["_selects"]
         assert selects and all(f.get("user_email") == ME for _, f in selects)
-        assert ConversationService(svc.store, "x@y.com").resume(conv.id, _session) is None
+        assert ConversationService(svc.store, "x@y.com").resume(conv.id, lambda c: _session(SNAP, c)) is None
 
 
 def test_system_prompt_states_refreshed_rule():
-    assert "REFRESHED" in build_system_prompt(("USDBRL",))
+    prompt = build_system_prompt(("USDBRL",))
+    assert "REFRESHED" in prompt and "SETTINGS UPDATED" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Per-chat settings + distributions
+# ---------------------------------------------------------------------------
+
+class TestChatSettings:
+    def _brl_chat(self):
+        svc = ConversationService(InMemoryStore(), ME)
+        conv, session = _chat(svc, [("BRL", BRL)])
+        return svc, conv, session
+
+    def _curve(self, session):
+        from tests._curves import stated_lognormal
+        ms = session.pack.market_state
+        return stated_lognormal(ms.fwd * 0.97, ms.vol, ms.T)   # PM-stated, BRL lower
+
+    def test_settings_round_trip(self):
+        from workspace.settings import ChatSettings
+        s = ChatSettings(sizing_method="kelly", kelly_lambda=0.25, target_rr=2.0,
+                         structure_constraint="Avoid complex structures")
+        assert ChatSettings.from_dict(s.to_dict()) == s
+        assert ChatSettings.from_dict({"junk": 1}) == ChatSettings()
+
+    def test_kelly_without_distribution_reruns_fixed_loss_and_says_so(self):
+        from workspace.settings import ChatSettings
+        svc, conv, session = self._brl_chat()
+        out = svc.apply_settings(conv, session, ChatSettings(sizing_method="kelly"), {},
+                                 seq=1, persist=True)
+        assert session.pack.sizing_method == "fixed_loss" and session.pack.kelly_fallback
+        assert "no distribution for USDBRL" in out.message and "fixed-loss" in out.message
+        assert out.conversation.settings["sizing_method"] == "kelly"
+        roles = [m["role"] for m in session.messages[-4:]]
+        assert roles == ["user", "assistant", "user", "assistant"]
+        tool_result = session.messages[-2]["content"][0]["content"]
+        assert tool_result.startswith("SETTINGS UPDATED")
+        assert "has NOT set up a distribution" in tool_result
+        turns = svc.store.list_turns(ME, conv.id)
+        assert turns[-1].kind == "settings" and display_turns(turns)[-1] == ("assistant", out.message)
+
+    def test_distribution_for_the_active_trade_sizes_kelly(self):
+        from analytics.sizing import curve_key
+        from workspace.settings import ChatSettings, with_distribution
+        svc, conv, session = self._brl_chat()
+        probs, bins = self._curve(session)
+        key = curve_key("USDBRL", session.expiry_for(session.view))
+        dists = with_distribution({}, key, probs, bins)
+        out = svc.apply_settings(conv, session, ChatSettings(sizing_method="kelly"), dists,
+                                 seq=1, persist=True)
+        assert session.pack.sizing_method == "kelly" and not session.pack.kelly_fallback
+        assert "Kelly λ 0.5" in out.message and "USDBRL" in out.message
+        assert key in out.conversation.distributions
+
+    def test_switching_trade_in_a_kelly_chat_falls_back_until_a_distribution_exists(self):
+        from analytics.sizing import curve_key
+        from workspace.settings import ChatSettings, with_distribution
+        svc, conv, session = self._brl_chat()
+        probs, bins = self._curve(session)
+        key = curve_key("USDBRL", session.expiry_for(session.view))
+        conv = svc.apply_settings(conv, session, ChatSettings(sizing_method="kelly"),
+                                  with_distribution({}, key, probs, bins),
+                                  seq=1, persist=True).conversation
+        flow = AgentFlow(FakeToolLLM(script=_pack_turn("j", **JPY) + _pack_turn("b", **BRL)),
+                         session)
+        flow.advance("now JPY")
+        assert session.pack.kelly_fallback                      # no JPY distribution
+        flow.advance("back to BRL")
+        assert session.pack.sizing_method == "kelly"            # BRL's applies again
+
+    def test_resume_restores_the_chats_settings_and_distributions(self):
+        from analytics.sizing import curve_key
+        from workspace.settings import ChatSettings, with_distribution
+        svc, conv, session = self._brl_chat()
+        probs, bins = self._curve(session)
+        key = curve_key("USDBRL", session.expiry_for(session.view))
+        svc.apply_settings(conv, session, ChatSettings(sizing_method="kelly", kelly_lambda=0.3),
+                           with_distribution({}, key, probs, bins), seq=1, persist=True)
+        res = svc.resume(conv.id, lambda c: _session(SNAP, c))
+        assert res.session.sizing_method == "kelly" and res.session.kelly_lambda == 0.3
+        assert res.session.pack.sizing_method == "kelly"
+        assert res.stale is False
+
+    def test_settings_before_any_trade_are_stored_without_a_turn(self):
+        from workspace.settings import ChatSettings
+        svc = ConversationService(InMemoryStore(), ME)
+        conv, session = _chat(svc, [("hello", None)])
+        out = svc.apply_settings(conv, session, ChatSettings(target_rr=2.0), {},
+                                 seq=1, persist=True)
+        assert out.message is None
+        assert svc.store.get_conversation(ME, conv.id).settings["target_rr"] == 2.0
+        assert len(svc.store.list_turns(ME, conv.id)) == 1
+
+    def test_supabase_store_degrades_when_settings_columns_missing(self):
+        from workspace.store import SupabaseStore
+        client = _FakeClient()
+        store = SupabaseStore(client)
+        orig = client.table
+
+        def no_late_columns(name):
+            q = orig(name)
+            real_upsert = q.upsert
+
+            def upsert(row, on_conflict=None):
+                if name == "conversations" and "settings" in row:
+                    raise RuntimeError("column settings does not exist")
+                return real_upsert(row, on_conflict)
+            q.upsert = upsert
+            return q
+        client.table = no_late_columns
+        conv = Conversation(user_email=ME, settings={"sizing_method": "kelly"})
+        store.save_conversation(conv)
+        assert store.settings_persist is False
+        assert store.get_conversation(ME, conv.id) is not None

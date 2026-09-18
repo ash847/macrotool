@@ -64,20 +64,27 @@ def _seed_bucket_pct(bp: np.ndarray, bb: np.ndarray, boundaries: np.ndarray) -> 
     return _largest_remainder_round(masses, 100)
 
 
-def _renormalise(n: int) -> None:
-    raw = np.array([float(st.session_state[_KP + f"bucket_{i}"]) for i in range(n)])
+def _renormalise(n: int, kp: str = _KP) -> None:
+    raw = np.array([float(st.session_state[kp + f"bucket_{i}"]) for i in range(n)])
     rounded = _largest_remainder_round(raw, 100)
     for i in range(n):
-        st.session_state[_KP + f"bucket_{i}"] = int(rounded[i])
+        st.session_state[kp + f"bucket_{i}"] = int(rounded[i])
 
 
 def render_kelly_elicitation(ms, target: float | None = None, direction: str | None = None,
-                             *, pair: str, horizon_days: int):
-    """Render the elicitation block (inputs + chart + means); return (probs, bins) or (None, None).
+                             *, pair: str, expiry, key_prefix: str = _KP,
+                             write_session: bool = True, seed_curve=None):
+    """Render the elicitation block (inputs + chart + means). Returns
+    ``(probs, bins, edited)`` — ``edited`` False means the inputs still equal the market
+    curve, i.e. the PM has stated no view — or ``(None, None, False)`` if invalid.
 
-    The curve written to session state is tagged with ``kelly_curve_key`` =
-    (pair, horizon_days): it is the PM's stated distribution for THAT trade only, and
-    every consumer ignores it for any other trade."""
+    ``write_session`` (Trade View): write the curve to ``st.session_state.kelly_probs /
+    kelly_bins`` tagged ``kelly_curve_key = curve_key(pair, expiry)`` — the PM's stated
+    distribution for THAT trade only. Other callers (the Agent's settings strip) pass
+    ``False`` and store the returned curve themselves. ``seed_curve`` = an already
+    stated ``(probs, bins)`` to start the inputs from instead of the market curve.
+    ``key_prefix`` isolates the widgets per surface."""
+    _KP = key_prefix
     # Market-implied baseline = lognormal centred at the forward (ATM vol). Both the
     # baseline series and the elicitation inputs seed from this, so at inception the
     # elicited distribution matches the market one.
@@ -90,7 +97,11 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
     mode = c_mode.radio("Input style", [_CDF, _PDF], horizontal=True, key=_KP + "mode")
     n = int(c_n.selectbox("Buckets", _N_OPTIONS, index=0, key=_KP + "n"))
 
-    sig = (pair, int(horizon_days), round(ms.fwd, 6), round(ms.vol, 6), round(ms.T, 6), mode, n)
+    sig = (pair, str(expiry), round(ms.fwd, 6), round(ms.vol, 6), round(ms.T, 6), mode, n,
+           seed_curve is not None)
+    sp = sb = None
+    if seed_curve is not None:
+        sp, sb = np.array(seed_curve[0], dtype=float), np.array(seed_curve[1], dtype=float)
     reseed = st.session_state.get(_KP + "sig") != sig
     if st.button("Reset to market baseline", key=_KP + "reset"):
         reseed = True
@@ -100,6 +111,7 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
         quantiles = _QUANTILE_PRESETS[n]
         cdf = np.cumsum(bp)
         seed = [float(np.interp(q, cdf, bb)) for q in quantiles]
+        init = seed if sp is None else [float(np.interp(q, np.cumsum(sp), sb)) for q in quantiles]
         # Market reference = the baseline through the SAME elicitation, so at inception
         # (inputs == seed) the reference mean equals the elicited mean.
         seed_dist = elicit_from_cdf_anchors(seed, list(quantiles), n_bins=_N_BINS)
@@ -108,20 +120,21 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
         for i, (q, c) in enumerate(zip(quantiles, cols)):
             k = _KP + f"anchor_{i}"
             if reseed or k not in st.session_state:
-                st.session_state[k] = round(seed[i], 4)
+                st.session_state[k] = round(init[i], 4)
             prices.append(c.number_input(f"{int(q*100)}%", format="%.4f", key=k))
         edited = any(abs(pr - round(sd, 4)) > 1e-9 for pr, sd in zip(prices, seed))
         try:
             dist = elicit_from_cdf_anchors(prices, list(quantiles), n_bins=_N_BINS)
         except ValueError as e:
             st.warning(f"Quantile prices must strictly increase — {e}")
-            return None, None
+            return None, None, False
         st.altair_chart(render_option1_chart(np.array(prices), np.array(quantiles), baseline),
                         use_container_width=True)
     else:
         boundaries = sigma_boundaries_to_prices(default_sigma_boundaries(n), forward=ms.fwd,
                                                 sigma=ms.vol, tenor_years=ms.T)
         seed_pct = _seed_bucket_pct(bp, bb, boundaries)
+        init_pct = seed_pct if sp is None else _seed_bucket_pct(sp, sb, boundaries)
         # Market reference through the SAME elicitation (see CDF branch).
         seed_dist = elicit_from_pdf_buckets(
             list(boundaries), list(seed_pct / max(seed_pct.sum(), 1)), n_bins=_N_BINS,
@@ -131,7 +144,7 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
         for i in range(n):
             k = _KP + f"bucket_{i}"
             if reseed or k not in st.session_state:
-                st.session_state[k] = int(seed_pct[i]) if i < len(seed_pct) else 0
+                st.session_state[k] = int(init_pct[i]) if i < len(init_pct) else 0
             probs_pct.append(int(cols[i].number_input(
                 f"{boundaries[i]:.2f}", min_value=0, max_value=100, step=1, format="%d", key=k,
             )))
@@ -142,33 +155,35 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
         else:
             m_col, b_col = st.columns([3, 1])
             m_col.warning(f"Bucket probabilities sum to {total}%, not 100% (off by {total - 100:+d}%).")
-            b_col.button("Renormalise to 100%", key=_KP + "renorm", on_click=_renormalise, args=(n,))
+            b_col.button("Renormalise to 100%", key=_KP + "renorm", on_click=_renormalise,
+                         args=(n, _KP))
         if total <= 0:
-            return None, None
+            return None, None, False
         probs_norm = np.array(probs_pct, dtype=float) / total
         try:
             dist = elicit_from_pdf_buckets(list(boundaries), list(probs_norm), n_bins=_N_BINS)
         except ValueError as e:
             st.warning(str(e))
-            return None, None
+            return None, None, False
         st.altair_chart(render_option2_chart(boundaries, probs_norm, baseline),
                         use_container_width=True)
 
     probs = tuple(float(p) for p in dist.probs)
     bins = tuple(float(b) for b in dist.bins)
-    if edited:
+    if write_session and edited:
         # The PM has stated a curve for this trade.
         st.session_state.kelly_probs = probs
         st.session_state.kelly_bins = bins
-        st.session_state.kelly_curve_key = _curve_key(pair, horizon_days)
-    else:
+        st.session_state.kelly_curve_key = _curve_key(pair, expiry)
+    elif write_session:
         # Untouched = the market curve: no edge stated. Clear any stored curve so
-        # every consumer sizes (and labels) against the market distribution.
+        # the trade is sized fixed-loss (flagged) until the PM states a view.
         st.session_state.kelly_probs = None
         st.session_state.kelly_bins = None
         st.session_state.kelly_curve_key = None
-        st.caption("Showing the market distribution — no edge stated. Move the curve "
-                   "to state your view; Kelly sizes against the market until you do.")
+    if not edited:
+        st.caption("Showing the market distribution — no view stated yet. Move the "
+                   "inputs to state your view; until you do, this trade is sized fixed-loss.")
 
     # Market reference uses the same elicitation lens as the elicited curve, so the
     # delta is purely the PM's move (zero at inception, not a truncation artefact).
@@ -195,4 +210,4 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
                 f"⚠ Your distribution's mean ({el_mean:.4f}) is {lean} the forward "
                 f"({ms.fwd:.4f}) — against this {side} view. Kelly will size this small or to zero."
             )
-    return probs, bins
+    return probs, bins, edited
