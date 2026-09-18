@@ -103,7 +103,7 @@ def _cached_conversations(svc) -> list:
 
 def render_conversation_sidebar(user_email: str | None, on_agent_page: bool = True) -> None:
     """Sidebar list of the user's saved conversations (shown on every page). New chats
-    start from the "Agent (new chat)" nav button."""
+    start from the "New Chat" nav button."""
     svc, _ = get_workspace(user_email)
     # The sidebar renders before the Agent page processes an open request, so a
     # pending request (just clicked) is the conversation about to be shown. Nothing
@@ -119,7 +119,7 @@ def render_conversation_sidebar(user_email: str | None, on_agent_page: bool = Tr
     else:
         current_id = None
 
-    st.markdown("**Conversations**")
+    st.markdown("**Previous conversations**")
     try:
         convs = _cached_conversations(svc)
     except StoreError:

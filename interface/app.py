@@ -252,11 +252,11 @@ with st.sidebar:
     )
     for label in nav_labels:
         if label == "Agent":
-            # "Agent (new chat)" always starts a fresh conversation; saved ones are
+            # "New Chat" always starts a fresh conversation; saved ones are
             # reopened from the Conversations list below. Lit only while the open
             # chat is that new, not-yet-saved one (a saved chat is lit in the list).
             active = st.session_state.page == "Agent" and _ws_new_chat_open()
-            text = "Agent (new chat)"
+            text = "New Chat"
         else:
             active = st.session_state.page == label
             text = label
