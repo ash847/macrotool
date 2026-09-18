@@ -72,8 +72,16 @@ def _short_date(iso: str) -> str:
 def render_conversation_sidebar(user_email: str | None) -> None:
     """Sidebar list: New conversation + the user's recent conversations."""
     svc, _ = get_workspace(user_email)
+    # The sidebar renders before the Agent page processes an open request, so a
+    # pending request (just clicked) is the conversation about to be shown.
+    pending = st.session_state.get("ws_open")
     current = st.session_state.get("ws_conv")
-    current_id = current.id if current is not None else None
+    if pending == NEW:
+        current_id = None
+    elif pending is not None:
+        current_id = pending
+    else:
+        current_id = current.id if current is not None else None
 
     st.markdown("**Conversations**")
     if st.button("＋ New conversation", key="ws_new", use_container_width=True):
