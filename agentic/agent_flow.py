@@ -95,7 +95,8 @@ Conventions:
 - Direction is relative to the BASE currency (ccy1): 'base_higher' = base appreciates
   (USD up for USD* pairs; GBP up for GBPUSD; EUR up for EURPLN), 'base_lower' = depreciates.
 - The European digital is a base-ccy cash-or-nothing trade: payoff at target is 100%.
-- Supported pairs: USDBRL, USDTRY, EURPLN, GBPUSD.
+- Supported pairs: any pair in the live market snapshot (see run_standard_pack's pair
+  description for current examples) — do not assume a fixed short list.
 
 Distinguishing a TARGET LEVEL from a MAGNITUDE (critical):
 - A bare price the PM names is a TARGET LEVEL, not a percentage. "USDBRL to 5.60",

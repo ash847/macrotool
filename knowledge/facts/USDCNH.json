@@ -8,6 +8,15 @@
     "settlement_days": 2,
     "holiday_calendars": ["USD", "CNH"]
   },
+  "deliverable": {
+    "settlement_currency": "CNH",
+    "settlement_type": "physical_delivery",
+    "delivery_notes": [
+      "Physical CNH (offshore renminbi) delivery via offshore custodian/correspondent accounts",
+      "No fixing lag — settles T+2 on standard basis",
+      "Offshore (CNH) settlement only — distinct from onshore CNY, which is subject to PBOC capital controls"
+    ]
+  },
   "options": {
     "premium_currency": "USD",
     "delta_convention": "forward_delta",

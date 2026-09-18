@@ -155,14 +155,20 @@ NDF outrights already embed the full interest rate differential — use them as-
 
 ## Supported pairs
 
+All 8 pairs in `data/market_snapshot.json` are fully wired — engine, Trade View, Batch, Kelly, and the Agent. There is no separate pair allowlist anywhere: every surface derives its pair list from the live snapshot (`snapshot.currencies.keys()` in the UI; `session.snapshot.currencies` in `agentic/tools.py`), and `knowledge_engine/loader.py` derives its supported set from whichever `knowledge/facts/{pair}.json` files exist. **Adding a pair means adding its snapshot entry + a `knowledge/facts/{pair}.json` — nothing else to wire.** (This replaced several hand-maintained pair lists that had drifted out of sync with each other and with the snapshot — the recurring bug class to avoid going forward.)
+
 | Pair | Type | Base DF curve | Character |
 |------|------|--------------|-----------|
 | USDBRL | NDF | usd_df_curve | High carry, topside skew |
 | USDTRY | NDF | usd_df_curve | Very high carry, strong topside skew |
 | EURPLN | Deliverable | eur_df_curve | Moderate carry, symmetric skew |
 | GBPUSD | Deliverable | gbp_df_curve | Low carry (G10), mild negative skew |
+| EURUSD | Deliverable | eur_df_curve | Deepest G10 liquidity, near-symmetric skew |
+| USDJPY | Deliverable | usd_df_curve | Classic carry trade, downside (JPY-call) skew |
+| USDMXN | Deliverable | usd_df_curve | High carry EM, strong topside skew |
+| USDCNH | Deliverable | usd_df_curve | PBOC-managed, low vol, mild topside skew |
 
-Other pairs in snapshot (EURUSD, USDCNH, USDMXN, USDJPY) are not yet wired into the conversation flow.
+`rate_context_for_snapshot` (`pricing/forwards.py`) picks the base-ccy df curve generically from `pair[:3]` (EUR → `eur_df_curve`, GBP → `gbp_df_curve`, else `usd_df_curve`), so a new pair needs no code change there as long as its base currency is USD, EUR, or GBP — see "To add a new base currency" above for anything beyond those three.
 
 ## Option pricing and smile vol
 

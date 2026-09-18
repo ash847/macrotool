@@ -27,20 +27,25 @@ def _load(path: Path) -> dict:
 # Facts (convention files — immutable)
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_PAIRS = ["USDBRL", "USDTRY", "EURPLN"]
+def _supported_pairs() -> list[str]:
+    """Every pair with a facts file — the source of truth for which pairs have
+    conventions loaded. Adding knowledge/facts/{PAIR}.json is what "expanding the
+    set" means here; no separate allowlist to keep in sync."""
+    return sorted(p.stem for p in _FACTS_DIR.glob("*.json"))
 
 
 @lru_cache(maxsize=None)
 def load_convention_facts(pair: str) -> dict:
     """Load raw convention facts for a currency pair."""
-    if pair not in _SUPPORTED_PAIRS:
-        raise ValueError(f"Unsupported pair '{pair}'. Supported: {_SUPPORTED_PAIRS}")
+    supported = _supported_pairs()
+    if pair not in supported:
+        raise ValueError(f"Unsupported pair '{pair}'. Supported: {supported}")
     return _load(_FACTS_DIR / f"{pair}.json")
 
 
 @lru_cache(maxsize=None)
 def load_all_convention_facts() -> dict[str, dict]:
-    return {pair: load_convention_facts(pair) for pair in _SUPPORTED_PAIRS}
+    return {pair: load_convention_facts(pair) for pair in _supported_pairs()}
 
 
 # ---------------------------------------------------------------------------

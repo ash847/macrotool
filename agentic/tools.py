@@ -31,6 +31,7 @@ from agentic.render import (
 from agentic.session import AgentSession
 from agentic.standard_pack import build_pack
 from agentic.structure_request import StructureRequestError, _normalize, _strip_direction_words
+from data.snapshot_loader import load_snapshot
 from knowledge_engine.models import TradeView
 
 # A leg token is present if the remainder has a digit, %, or a leg keyword.
@@ -39,8 +40,13 @@ _HAS_LEG = re.compile(r"[0-9%]|atmf|atm|sigma|target|tgt")
 _DIRECTIONS = ("base_higher", "base_lower")
 _CONVICTIONS = ("high", "medium", "low")
 _MODES = ("recommend", "critique")
-# Pairs wired into the engine (rate context, df curves). The snapshot carries more.
-SUPPORTED_PAIRS = ("USDBRL", "USDTRY", "EURPLN", "GBPUSD")
+
+# Illustrative only, for the tool-schema description sent to the LLM. The actual
+# gate is dynamic — _run_standard_pack validates against session.snapshot.currencies,
+# the same live data Trade View's pair dropdown is built from — so a pair added to
+# the snapshot is immediately available everywhere with no allowlist to update.
+# (This used to be a separate hardcoded tuple that silently lagged the snapshot.)
+_SCHEMA_EXAMPLE_PAIRS = tuple(load_snapshot().currencies.keys())
 
 
 TOOL_SCHEMAS = [
@@ -67,7 +73,10 @@ TOOL_SCHEMAS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "pair": {"type": "string", "description": "e.g. USDBRL, USDTRY, EURPLN, GBPUSD"},
+                "pair": {
+                    "type": "string",
+                    "description": f"any pair in the live snapshot, e.g. {', '.join(_SCHEMA_EXAMPLE_PAIRS)}",
+                },
                 "horizon_days": {"type": "integer", "description": "tenor in days"},
                 "target_level": {
                     "type": "number",
@@ -155,9 +164,10 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
     magnitude_pct = args.get("magnitude_pct")
     target_level = args.get("target_level")
 
-    if pair not in SUPPORTED_PAIRS:
+    available_pairs = tuple(session.snapshot.currencies.keys())
+    if pair not in available_pairs:
         raise _ToolError(
-            f"Unsupported pair '{pair}'. Supported: {', '.join(SUPPORTED_PAIRS)}."
+            f"Unsupported pair '{pair}'. Supported: {', '.join(available_pairs)}."
         )
     if not isinstance(horizon_days, (int, float)) or horizon_days <= 0:
         raise _ToolError("horizon_days must be a positive integer.")

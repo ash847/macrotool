@@ -218,7 +218,7 @@ def run_demo(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MacroTool pipeline demo")
-    parser.add_argument("--pair", default="USDBRL", choices=["USDBRL", "USDTRY", "EURPLN"])
+    parser.add_argument("--pair", default="USDBRL", choices=sorted(load_snapshot().currencies.keys()))
     parser.add_argument("--direction", default="base_higher", choices=["base_higher", "base_lower"])
     parser.add_argument("--conviction", default="high", choices=["high", "medium", "low"])
     parser.add_argument("--timing", default="medium", choices=["high", "medium", "low"])
