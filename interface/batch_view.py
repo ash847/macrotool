@@ -337,7 +337,7 @@ def _render_trade_analytics(flow, is_admin: bool, key_prefix: str, eval_result=N
 
     render_structure_variants(
         flow, is_call, target, stop_price, loss_budget,
-        key_prefix=key_prefix, scenario_pnl=_spnl_map,
+        key_prefix=key_prefix, scenario_pnl=_spnl_map, eval_result=eval_result,
     )
     render_structure_evaluation(flow, is_admin, target, key_prefix=key_prefix, eval_result=eval_result)
 

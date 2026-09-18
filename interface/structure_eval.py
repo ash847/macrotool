@@ -268,10 +268,15 @@ def render_structure_variants(
     loss_budget: float | None,
     key_prefix: str = "",
     scenario_pnl: dict | None = None,
+    eval_result: "EvalResult | None" = None,
 ) -> None:
     """``scenario_pnl`` (optional): {(structure_id, variant_label): score_ccy} — the
     context-weighted scenario P&L in base ccy per variant. When supplied (Batch), a
-    'Scenario P&L' column is added to each variant table; Trade View omits it."""
+    'Scenario P&L' column is added to each variant table; Trade View omits it.
+
+    ``eval_result`` (optional): a precomputed EvalResult. When supplied, each
+    structure's expander also shows the top-3 / bottom-3 scenario-cell P&L drivers
+    for its best-ranked variant."""
     from analytics.structure_pricer import price_variants as _price_variants
 
     ms = flow.market_state
@@ -363,6 +368,39 @@ def render_structure_variants(
                 key=_df_key(key_prefix, f"var_{_item.structure_id}_{_i}"),
                 height=_fit_height(key_prefix, len(_rows)),
             )
+            if eval_result is not None:
+                _render_cell_drivers(eval_result, _item.structure_id, _base_ccy)
+
+
+def _render_cell_drivers(eval_result, structure_id: str, base_ccy: str) -> None:
+    """Top-3 / bottom-3 scenario-cell P&L drivers for the structure's best-ranked
+    variant. Contributions are the weighted P&L contribution of each grid cell,
+    in % of notional (and base ccy $), summing to the variant's weighted P&L."""
+    ev = next((v for v in eval_result.variants if v.structure_id == structure_id), None)
+    if ev is None or not getattr(ev.score, "cells", None):
+        return
+    pos, neg = top_bottom_cells(ev.score)
+    if not pos and not neg:
+        return
+
+    def _line(c) -> str:
+        amt = f" ({fmt_ccy(c.contrib_ccy, base_ccy)})" if c.contrib_ccy is not None else ""
+        return f"`{c.contrib_pct:+.2%}`{amt} — {cell_label(c)}"
+
+    st.markdown(f"**Key P&L drivers** — {ev.variant_label} (weighted contribution)")
+    col_pos, col_neg = st.columns(2)
+    with col_pos:
+        st.caption("Top contributors")
+        for c in pos:
+            st.markdown(f"🟢 {_line(c)}")
+        if not pos:
+            st.caption("none positive")
+    with col_neg:
+        st.caption("Top detractors")
+        for c in neg:
+            st.markdown(f"🔴 {_line(c)}")
+        if not neg:
+            st.caption("none negative")
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +409,12 @@ def render_structure_variants(
 
 # Driver decomposition now lives in the engine so the agent pack can share it.
 # Re-exported here for the existing UI imports (structure_eval, batch_view).
-from knowledge_engine.scenario_scorer import DRIVER_BUCKETS, driver_contribs  # noqa: E402,F401
+from knowledge_engine.scenario_scorer import (  # noqa: E402,F401
+    DRIVER_BUCKETS,
+    driver_contribs,
+    cell_label,
+    top_bottom_cells,
+)
 
 
 @dataclass

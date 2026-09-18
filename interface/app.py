@@ -45,6 +45,7 @@ from interface.structure_eval import (
     target_price,
     render_structure_variants,
     render_structure_evaluation,
+    compute_structure_evaluation,
 )
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
@@ -926,6 +927,7 @@ else:
         st.caption("Select the pair, direction, horizon, and target level.")
 
     # Structure recommendation
+    _evals = None
     if flow.market_state and flow.selector_result and flow.selector_result.shortlist:
         st.divider()
 
@@ -1053,7 +1055,12 @@ else:
         styled = display_df.style.map(_color, subset=_score_cols)
         st.dataframe(styled, use_container_width=True)
 
-        render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget)
+        try:
+            _evals = compute_structure_evaluation(flow, _target)
+        except Exception as _e:
+            log_error("compute_structure_evaluation", _e)
+
+        render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget, eval_result=_evals)
 
     # Feedback form (only after a view is active)
     if flow.view:
@@ -1096,7 +1103,7 @@ else:
         and flow.selector_result.shortlist
         and target_price(flow) is not None
     ):
-        render_structure_evaluation(flow, IS_ADMIN, target_price(flow))
+        render_structure_evaluation(flow, IS_ADMIN, target_price(flow), eval_result=_evals)
 
     # Clarification / error message
     if "clarification" in st.session_state and st.session_state.clarification:
