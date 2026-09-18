@@ -1032,22 +1032,31 @@ def _view_json(view) -> dict | None:
     }
 
 
-def _log_chat_exchange(surface: str, chat_id: str, session, prompt: str, reply: str, pre_len: int) -> None:
+def _reserve_chat_seq(chat_id: str) -> int:
+    """Claim the next two telemetry seq numbers for a chat (user + assistant turn)."""
+    seq_key = f"chatseq_{chat_id}"
+    seq = st.session_state.get(seq_key, 0)
+    st.session_state[seq_key] = seq + 2
+    return seq
+
+
+def _log_chat_exchange(surface: str, chat_id: str, session, prompt: str, reply: str,
+                       pre_len: int, seq: int | None = None) -> None:
     """Persist one chat exchange (user turn + assistant turn with its tool trace)
-    to Supabase. Fail-open — never breaks the chat."""
+    to Supabase. Fail-open — never breaks the chat. Pass a pre-reserved ``seq`` to
+    call this off the script thread (no session-state access)."""
     try:
         view = getattr(session, "view", None)
         pair = view.pair if view is not None else None
         vjson = _view_json(view)
         tool_trace = _tool_trace_from_messages(session.messages[pre_len:]) or None
-        seq_key = f"chatseq_{chat_id}"
-        seq = st.session_state.get(seq_key, 0)
+        if seq is None:
+            seq = _reserve_chat_seq(chat_id)
         _log_chat_turn(session_id=SESSION_ID, chat_id=chat_id, seq=seq, surface=surface,
                        role="user", text=prompt, pair=pair, view_json=vjson, user_email=USER_EMAIL)
         _log_chat_turn(session_id=SESSION_ID, chat_id=chat_id, seq=seq + 1, surface=surface,
                        role="assistant", text=reply, tool_trace=tool_trace, pair=pair,
                        view_json=vjson, user_email=USER_EMAIL)
-        st.session_state[seq_key] = seq + 2
     except Exception:
         pass
 
@@ -1225,8 +1234,9 @@ def _agent_refresh(svc, *, force_turn: bool = False) -> None:
         st.session_state.ws_info = out.message
 
 
-def _render_agent_header(svc) -> None:
-    """Chat title (= active idea), as-of date, Refresh, and rename/archive."""
+def _render_agent_header(svc, busy: bool = False) -> None:
+    """Chat title (= active idea), as-of date, Refresh, and rename/archive. ``busy``
+    (a turn is running) disables the actions that would race with it."""
     from interface.conversations_ui import NEW, request_open
     from workspace.store import StoreError
 
@@ -1238,12 +1248,14 @@ def _render_agent_header(svc) -> None:
     elif conv.active_idea_id is None:
         cols[0].caption("No trade yet — describe your view to start.")
     if cols[1].button("↻ Refresh", use_container_width=True,
-                      disabled=conv.active_idea_id is None,
+                      disabled=busy or conv.active_idea_id is None,
                       help="Re-run the active trade on the latest market data"):
         _agent_refresh(svc)
         st.rerun()
     with cols[2].popover("⋯", use_container_width=True):
-        if st.session_state.get("ws_seq", 0) == 0:   # nothing persisted yet
+        if busy:
+            st.caption("Available once the current answer finishes.")
+        elif st.session_state.get("ws_seq", 0) == 0:   # nothing persisted yet
             st.caption("Saved after your first message.")
         else:
             name = st.text_input("Rename", value=conv.title if conv.title_custom else "",
@@ -1272,9 +1284,59 @@ def _render_agent_header(svc) -> None:
         st.caption(st.session_state.ws_info)
 
 
+def _start_agent_turn(svc, prompt: str, chat_id: str):
+    """Kick off one agent turn in the background (see interface/agent_job.py)."""
+    from interface.agent_job import start_agent_job
+
+    flow = st.session_state.agent_flow
+    seq = st.session_state.ws_seq
+    st.session_state.ws_seq += 1                  # reserved now; the thread saves it
+    tseq = _reserve_chat_seq(chat_id)             # telemetry seq, reserved likewise
+
+    def _telemetry(job) -> None:                  # runs in the thread — no st calls
+        _log_chat_exchange("agent_tab", chat_id, flow.session, prompt, job.reply,
+                           job.pre_len, seq=tseq)
+
+    return start_agent_job(flow, prompt, conversation=st.session_state.ws_conv,
+                           seq=seq, service=svc, after=_telemetry)
+
+
+def _finalize_agent_jobs(svc, jobs: dict) -> None:
+    """Apply finished background turns. A turn for the open conversation appends its
+    reply; one whose conversation was reloaded meanwhile triggers a reload (the turn
+    is already saved); one for a conversation no longer open is simply dropped."""
+    current = st.session_state.ws_conv
+    rerun = False
+    for conv_id, job in list(jobs.items()):
+        if not job.done.is_set():
+            continue
+        del jobs[conv_id]
+        if job.error is not None:
+            log_error("agent_advance", job.error)
+        if job.store_error is not None:
+            log_error("workspace_record", job.store_error)
+        if conv_id != current.id:
+            continue
+        if st.session_state.agent_flow is not job.flow:
+            if job.store_error is None:
+                _agent_open(svc, conv_id)
+            rerun = True
+            continue
+        st.session_state.agent_chat.append(("assistant", job.reply))
+        if job.store_error is not None:
+            st.session_state.ws_info = "⚠️ The last exchange couldn't be saved."
+        elif job.conversation is not None:
+            first = job.seq == 0
+            renamed = job.conversation.title != current.title
+            st.session_state.ws_conv = job.conversation
+            st.query_params["chat"] = job.conversation.id
+            rerun = rerun or first or renamed   # sidebar/header need the new title
+    if rerun:
+        st.rerun()
+
+
 def _render_agent() -> None:
     from interface.conversations_ui import NEW, get_workspace
-    from workspace.store import StoreError
 
     st.subheader("Conversational structuring")
     st.caption(
@@ -1319,7 +1381,12 @@ def _render_agent() -> None:
     _asess.kelly_probs = st.session_state.get("kelly_probs")
     _asess.kelly_bins = st.session_state.get("kelly_bins")
 
-    _render_agent_header(svc)
+    jobs = st.session_state.setdefault("agent_jobs", {})
+    _finalize_agent_jobs(svc, jobs)
+    conv_id = st.session_state.ws_conv.id
+    pending = jobs.get(conv_id)
+
+    _render_agent_header(svc, busy=pending is not None)
 
     _chat_id = st.session_state.get("agent_chat_id", "unknown")
     _view = getattr(st.session_state.agent_flow.session, "view", None)
@@ -1329,49 +1396,25 @@ def _render_agent() -> None:
             if role == "assistant" and idx > 0:   # skip the canned/first opener
                 _render_reply_reaction("agent_tab", _chat_id, idx, _view)
 
+    if pending is not None:
+        # Wait for the background turn. Each placeholder update is a Streamlit call,
+        # so navigating away interrupts only this wait — the turn itself carries on
+        # and is saved; its reply is picked up the next time this page renders.
+        with st.chat_message("assistant"):
+            ph = st.empty()
+            while not pending.done.wait(0.25):
+                ph.markdown(f"_Thinking… {pending.elapsed()}s_")
+        st.rerun()
+
     if prompt := st.chat_input("e.g. long USDBRL 3m, target +6% — what should I trade?"):
         st.session_state.ws_info = None
         if st.session_state.get("ws_stale"):
             # Resumed on changed data: put the refreshed pack in front of the model
             # before it answers anything.
             _agent_refresh(svc)
-            if st.session_state.agent_chat and st.session_state.agent_chat[-1][0] == "assistant":
-                with st.chat_message("assistant"):
-                    st.markdown(st.session_state.agent_chat[-1][1])
         st.session_state.agent_chat.append(("user", prompt))
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        failed = False
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking…"):
-                _pre = len(st.session_state.agent_flow.session.messages)
-                try:
-                    reply = st.session_state.agent_flow.advance(prompt)
-                except Exception as e:
-                    log_error("agent_advance", e)
-                    reply = f"⚠️ {type(e).__name__}: {e}"
-                    failed = True
-            st.markdown(reply)
-            _idx = len(st.session_state.agent_chat)
-            _render_reply_reaction("agent_tab", _chat_id, _idx,
-                                   getattr(st.session_state.agent_flow.session, "view", None))
-        st.session_state.agent_chat.append(("assistant", reply))
-        _log_chat_exchange("agent_tab", _chat_id,
-                           st.session_state.agent_flow.session, prompt, reply, _pre)
-        try:
-            before = st.session_state.ws_conv
-            st.session_state.ws_conv = svc.record_exchange(
-                before, st.session_state.agent_flow.session,
-                seq=st.session_state.ws_seq, prompt=prompt, reply=reply,
-                pre_len=_pre, failed=failed,
-            )
-            st.session_state.ws_seq += 1
-            st.query_params["chat"] = st.session_state.ws_conv.id
-            if st.session_state.ws_seq == 1 or before.title != st.session_state.ws_conv.title:
-                st.rerun()   # first save / new active idea: refresh header + sidebar list
-        except StoreError as e:
-            log_error("workspace_record", e)
-            st.caption("⚠️ This exchange couldn't be saved.")
+        jobs[conv_id] = _start_agent_turn(svc, prompt, _chat_id)
+        st.rerun()
 
     _render_agent_diagnostic(st.session_state.agent_flow.session)
 
