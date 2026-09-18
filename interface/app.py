@@ -111,7 +111,12 @@ def _inject_secrets() -> None:
 _inject_secrets()
 require_login()
 USER_EMAIL = current_user_email()
-IS_ADMIN = is_admin_user()
+# "View as tester": an admin can drop to the tester surface for this browser session to
+# see exactly what testers see. It only ever removes rights (IS_ADMIN False), so it can't
+# expose anything; admin-only pages are then blocked by the routing guard below.
+REAL_ADMIN = is_admin_user()
+VIEW_AS_TESTER = REAL_ADMIN and bool(st.session_state.get("view_as_tester", False))
+IS_ADMIN = REAL_ADMIN and not VIEW_AS_TESTER
 
 # Per-visit session id — stitches chat / errors / reactions to the engine runs.
 if "session_id" not in st.session_state:
@@ -225,6 +230,10 @@ with st.sidebar:
         st.caption("EM FX trade structuring")
     st.caption(f"Signed in as {USER_EMAIL}")
     st.button("Sign out", on_click=st.logout, use_container_width=True)
+    if REAL_ADMIN:
+        st.toggle("View as tester", key="view_as_tester",
+                  help="See the app exactly as a tester does. Admin pages are hidden "
+                       "until you switch this off.")
     st.divider()
 
     # Admins get "Admin test" (full surface) + "Trade view" (tester surface) side by side.
@@ -1494,6 +1503,10 @@ def _render_trade_chat(flow) -> None:
 if not IS_ADMIN and st.session_state.page not in ("Trade view", "Agent"):
     st.session_state.page = "Trade view"
     st.rerun()
+
+if VIEW_AS_TESTER:
+    st.info("👁 Viewing as tester — switch off **View as tester** in the sidebar to "
+            "return to admin.")
 
 if st.session_state.page == "Market Data":
     _render_market_data()
