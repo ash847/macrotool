@@ -1,0 +1,45 @@
+{
+  "source_workbook": "Fx vols.xlsx",
+  "source_date": "2026-09-16",
+  "pairs": [
+    "USDMXN",
+    "USDBRL",
+    "USDTRY",
+    "USDZAR",
+    "USDCNH",
+    "USDKRW",
+    "USDSGD",
+    "USDINR"
+  ],
+  "forward_rule": "spot + raw_points * multiplier",
+  "forward_multipliers": {
+    "USDMXN": 0.0001,
+    "USDBRL": 0.0001,
+    "USDTRY": 0.0001,
+    "USDZAR": 0.0001,
+    "USDCNH": 0.0001,
+    "USDKRW": 0.01,
+    "USDSGD": 0.0001,
+    "USDINR": 0.01
+  },
+  "vol_rule": "ATM/100; call=(ATM+BF+RR/2)/100; put=(ATM+BF-RR/2)/100",
+  "tenors": [
+    "1M",
+    "3M",
+    "6M",
+    "1Y"
+  ],
+  "usd_df_source": "backtest_lab/data/processed/usd_discount_factors.parquet",
+  "usd_df_quality": "All four pillars ok; no filling required on snapshot date. Copied values; no runtime dependency on backtest lab.",
+  "retained_pairs": [
+    "EURPLN",
+    "EURUSD",
+    "USDJPY",
+    "GBPUSD"
+  ],
+  "new_pair_conventions": "Forward-delta and USD premium are modelling defaults. Confirm contractual option cuts and fixing times before execution.",
+  "sources": [
+    "https://www.cmegroup.com/notices/ebs/2022/09/20220908.html",
+    "https://eur-lex.europa.eu/eli/reg_impl/2026/905/oj/eng"
+  ]
+}

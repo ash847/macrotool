@@ -1,0 +1,35 @@
+{
+  "pair": "USDSGD",
+  "base_currency": "USD",
+  "term_currency": "SGD",
+  "instrument_type": "Deliverable",
+  "quotation": "SGD per USD",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": [
+      "USD",
+      "SGD"
+    ]
+  },
+  "options": {
+    "premium_currency": "USD",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "Contract-specific; confirm before execution",
+    "smile_convention": "25D_RR_BF",
+    "liquid_tenors": [
+      "1M",
+      "3M",
+      "6M",
+      "1Y"
+    ],
+    "liquid_strikes": "Dataset provides ATM, 25D and 10D; not a liquidity guarantee"
+  },
+  "risk_notes": [
+    "Research pricing uses forward delta and USD premium as engine modelling defaults; confirm contractual conventions before execution."
+  ],
+  "deliverable": {
+    "settlement_currency": "SGD",
+    "settlement_type": "physical_delivery"
+  }
+}

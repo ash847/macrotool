@@ -46,8 +46,12 @@ class TestMarketSnapshot:
     def test_vol_surface_has_correct_nodes(self):
         snap = load_snapshot()
         brl = snap.get("USDBRL")
-        # 5 deltas × 6 tenors = 30 nodes per currency
-        assert len(brl.vol_surface) == 30
+        tenors = {node.tenor for node in brl.forwards}
+        assert len(brl.vol_surface) == 5 * len(tenors)
+        for tenor in tenors:
+            assert {node.delta for node in brl.vol_surface if node.tenor == tenor} == {
+                "10DP", "25DP", "ATM", "25DC", "10DC"
+            }
 
     def test_get_atm_vol(self):
         # Loader maps the 1M/ATM node correctly — compared to the file, not a fixed number.
@@ -76,8 +80,7 @@ class TestMarketSnapshot:
     def test_df_curves_present(self):
         snap = load_snapshot()
         brl = snap.get("USDBRL")
-        assert len(brl.usd_df_curve) == 6
-        assert len(brl.eur_df_curve) == 6
+        assert {node.tenor for node in brl.usd_df_curve} == {node.tenor for node in brl.forwards}
         assert 0.85 < brl.get_usd_df("3M") < 1.0   # a valid 3M discount factor
 
     def test_gbp_pair_has_required_gbp_curve(self):
