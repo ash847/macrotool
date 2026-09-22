@@ -3,8 +3,11 @@
 
   "vanilla": [
     {"label": "ATMF (50Δ)", "delta": 0.50},
+    {"label": "35Δ OTM",    "delta": 0.35},
     {"label": "25Δ OTM",    "delta": 0.25},
-    {"label": "15Δ OTM",    "delta": 0.15}
+    {"label": "20Δ OTM",    "delta": 0.20},
+    {"label": "15Δ OTM",    "delta": 0.15},
+    {"label": "10Δ OTM",    "delta": 0.10}
   ],
 
   "1x1_spread": [

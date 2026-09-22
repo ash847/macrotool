@@ -207,7 +207,10 @@ def test_direction_words_ignored():
 
 # A request string for each curated variant; must round-trip to the SAME dict.
 _PARITY = {
-    "vanilla": [("vanilla ATMF", 0), ("vanilla 25Δ", 1), ("vanilla 15Δ", 2)],
+    "vanilla": [
+        ("vanilla ATMF", 0), ("vanilla 35Δ", 1), ("vanilla 25Δ", 2),
+        ("vanilla 20Δ", 3), ("vanilla 15Δ", 4), ("vanilla 10Δ", 5),
+    ],
     "1x1_spread": [
         ("1x1 ATMF/25Δ", 0), ("1x1 25Δ/10Δ", 1), ("1x1 25Δ/15Δ", 2),
         ("1x1 40Δ/20Δ", 3), ("1x1 30Δ/10Δ", 4), ("1x1 20Δ/10Δ", 5),
