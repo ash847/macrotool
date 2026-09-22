@@ -1158,7 +1158,10 @@ def _render_agent() -> None:
         st.session_state.agent_chat = []
         st.session_state.agent_chat_id = str(uuid.uuid4())
 
-    # Keep the agent's R:R + sizing regime live with the session controls.
+    # Keep the agent's R:R, sizing regime, and PM preferences live with the session
+    # controls. PM preferences used to be captured only once at session creation
+    # (above) and never refreshed, so changing a sidebar dropdown mid-conversation
+    # silently left the agent scoring on stale preferences while Trade View moved on.
     _asess = st.session_state.agent_flow.session
     _asess.target_rr = st.session_state.target_rr
     _asess.linear_notional = sizing_capital()
@@ -1166,6 +1169,9 @@ def _render_agent() -> None:
     _asess.kelly_lambda = st.session_state.get("kelly_lambda", 0.5)
     _asess.kelly_probs = st.session_state.get("kelly_probs")
     _asess.kelly_bins = st.session_state.get("kelly_bins")
+    _asess.structure_constraint = st.session_state.pref_structure_constraint
+    _asess.primary_objective = st.session_state.pref_primary_objective
+    _asess.trade_management = st.session_state.pref_trade_management
 
     cols = st.columns([1, 4])
     if cols[0].button("New conversation", use_container_width=True):
