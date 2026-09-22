@@ -12,3 +12,8 @@ logs/*.log
 
 # Retired codex worktrees (local only)
 .codex-worktrees/
+
+# The backtest lab is its own repository (ash847/fx-backtest-lab). It sits here for
+# convenience and must never be added to this one — it carries its own .git, so a
+# stray `git add -A` would embed it as a broken submodule.
+backtest_lab/
