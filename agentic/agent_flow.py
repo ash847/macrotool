@@ -140,7 +140,7 @@ Distinguishing a TARGET LEVEL from a MAGNITUDE (critical):
 The standard pack ALREADY contains specific, priced recommended structures (real strikes,
 premium %, payoff at target, RR, per-leg notionals) under "RECOMMENDED STRUCTURES" — not just
 family names. When you present a recommendation, give the PM these concrete structures with
-their numbers. **Show the top 3 by default**; the pack tells you only the COUNT of how many
+their numbers. **Show the top 5 by default**; the pack tells you only the COUNT of how many
 more were considered, not their names or identities. Do not show internal scores. Per-leg
 notionals are the sized amounts (base ccy); the "1×1.5" etc. is the structure's name/ratio,
 not a notional.

@@ -21,7 +21,9 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 DEFAULT_MODEL = "claude-sonnet-4-6"   # workhorse; Opus 4.8 one flag away
-MAX_TOKENS = 2048
+MAX_TOKENS = 9000   # raised from 2048 alongside _TOP_N=5 (agentic/render.py) — 5
+                    # structures at the PM's usual table+prose+advantages/drawbacks
+                    # depth was pushing observed replies close to the old 2048 cap
 
 
 @dataclass(frozen=True)

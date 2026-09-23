@@ -16,7 +16,7 @@ from knowledge_engine.models import TradeView
 from knowledge_engine.payoff_profile import payoff_profile, render_payoff
 from knowledge_engine.scenario_scorer import cell_label
 
-_TOP_N = 3   # recommended structures shown by default; rest surfaced only on request
+_TOP_N = 5   # recommended structures shown by default; rest surfaced only on request
 
 # The engine rationale carries a trailing "[scores on: <affinity dimensions>]" /
 # "[penalised by: ...]" suffix — that is scoring METHODOLOGY (IP). Strip it before the
