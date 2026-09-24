@@ -1,0 +1,36 @@
+{
+  "pair": "EURHUF",
+  "base_currency": "EUR",
+  "term_currency": "HUF",
+  "instrument_type": "Deliverable",
+  "quotation": "HUF per EUR",
+  "spot": {
+    "settlement_days": 2,
+    "holiday_calendars": [
+      "EUR",
+      "HUF"
+    ]
+  },
+  "deliverable": {
+    "settlement_currency": "HUF",
+    "settlement_type": "physical_delivery"
+  },
+  "options": {
+    "premium_currency": "EUR",
+    "delta_convention": "forward_delta",
+    "premium_included_in_delta": false,
+    "cut": "Contract-specific; confirm before execution",
+    "smile_convention": "25D_RR_BF",
+    "liquid_tenors": [
+      "1M",
+      "3M",
+      "6M",
+      "1Y"
+    ],
+    "liquid_strikes": "Dataset supplies ATM, 25D and 10D; not a liquidity guarantee"
+  },
+  "risk_notes": [
+    "Forward-delta pricing is an engine modelling assumption; confirm contractual conventions before execution.",
+    "EUR discount curve retained from the existing EURUSD snapshot at user request, not refreshed with the FX quotes."
+  ]
+}

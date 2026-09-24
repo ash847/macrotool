@@ -1,29 +1,18 @@
-# FX pair support update
+# Full FX quote refresh
 
-Eight USD-base pairs use 2026-09-16 observations from Fx vols.xlsx: USDMXN,
-USDBRL, USDTRY, USDZAR, USDCNH, USDKRW, USDSGD and USDINR. New convention
-files enable ZAR, SGD, KRW and INR. The agent prompt, tool validation and UI
-pair lists use the loaded snapshot, so no agent orchestration changes are needed.
+All 13 workbook pairs use the latest observation, 2026-09-16, for spot,
+four forward tenors and five smile nodes per tenor. EURHUF is newly enabled.
+Existing EUR and GBP discount curves are unchanged; EURHUF uses a copy of
+the existing EURUSD EUR curve. Their vintage remains older than the FX quotes.
+USDJPY now uses the same-date USD SOFR curve already used by the other USD pairs.
 
-GBPUSD, EURUSD, EURPLN and USDJPY retain the branch's prior snapshot entries
-without changes. Per-pair as-of dates remain authoritative for this mixed-date
-research snapshot. EURHUF remains unavailable without a base discount curve.
+Confirmed point multipliers: 0.01 for JPY/KRW/INR/HUF; 0.0001 for all other
+workbook pairs, including EURPLN. Forward = spot + points times multiplier.
+Vol, RR and BF source values are percentages. Calls/puts use ATM + BF +/- RR/2.
+Only observed 1M/3M/6M/1Y pillars are stored; the engine handles interpolation.
 
-Forward multipliers are 0.0001 for MXN/BRL/TRY/ZAR/CNH/SGD and 0.01 for
-KRW/INR. KRW's negligible forward carry was explicitly confirmed by the user.
-Only observed 1M/3M/6M/1Y pillars are stored; existing engine interpolation
-handles other horizons. Source vols and RR/BF are percentage values.
-
-USD DFs are copied from the validated historical SOFR bootstrap on the same
-date. All four pillars were complete; no missing-data fills were needed.
-There is no runtime dependency on the workbook or the independent backtest lab.
-See latest_fx_snapshot_provenance.json for conversion rules and source details.
-
-New convention files use the engine's forward-delta/USD-premium modelling
-defaults. Contract-specific option cuts and NDF fixing times are explicitly
-unconfirmed. This is a research snapshot, not executable market quotations.
-
-The pair regression suite exercises both directions at 30/91/182/365 days,
-with smile construction, finite pricing/ranking, forward-rate consistency and
-fixed-loss sizing checks. No historical backtest or tilt pipeline changes are
-included in this update.
+This refresh changes market fixtures and adds EURHUF conventions only. No
+pricing logic or historical backtest inputs/results are changed. No workbook
+or backtest-lab runtime dependency is introduced. Quote provenance is recorded
+in latest_fx_snapshot_provenance.json. Contractual conventions require normal
+execution checks; these remain research fixtures rather than executable quotes.
