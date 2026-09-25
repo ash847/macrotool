@@ -14,6 +14,7 @@ code (context_builder, app) requires no changes.
 from __future__ import annotations
 
 from analytics.market_state import MarketState
+from knowledge_engine.construction_policy import family_has_no_tail_construction
 from knowledge_engine.loader import load_affinity_scores, load_structure_profiles
 from knowledge_engine.models import StructureSelectionResult, StructureShortlistItem
 
@@ -33,10 +34,6 @@ _CONSTRAINT_GATED_STRUCTURES = {
         "european_rko",
         "european_digital_rko",
         "1x2x1_spread",
-    },
-    "Avoid tail-risky structures": {
-        "seagull",
-        "1x2_spread",
     },
 }
 
@@ -192,6 +189,8 @@ def _passes_gates(
     buckets: dict,
 ) -> bool:
     structure_constraint = buckets.get("structure_constraint", "No restriction")
+    if structure_constraint == "Avoid tail-risky structures" and not family_has_no_tail_construction(struct_id):
+        return False
     if struct_id in _CONSTRAINT_GATED_STRUCTURES.get(structure_constraint, set()):
         return False
     # Structural gate from structure_profiles.json — structure needs a target level to be built

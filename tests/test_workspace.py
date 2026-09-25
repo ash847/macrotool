@@ -298,10 +298,12 @@ class TestResumeRefresh:
         assert res.session.pack is not None and res.session.view.pair == "USDBRL"
         assert res.session.view.horizon_days == 90
         assert res.stale is False and res.note is None
-        assert display_turns(res.turns) == [
-            ("user", "BRL"), ("assistant", "narration t0"),
-            ("user", "why?"), ("assistant", "answer 1"),
-        ]
+        displayed = display_turns(res.turns)
+        assert displayed[0] == ("user", "BRL")
+        assert displayed[1][0] == "assistant"
+        assert "| Rank | Structure / key terms |" in displayed[1][1]
+        assert displayed[1][1].endswith("narration t0")
+        assert displayed[2:] == [("user", "why?"), ("assistant", "answer 1")]
 
     def test_resume_is_private(self):
         svc, conv, _ = self._saved()

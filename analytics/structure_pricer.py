@@ -34,11 +34,14 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from analytics.market_state import MarketState
+from analytics.construction_risk import declared_additional_loss, passes_no_tails
+from analytics.trade_economics import TradeEconomics, compute_trade_economics
+from analytics.sizing_trace import SizingTrace, distribution_fingerprint
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
 from pricing.black_scholes import black76_call, black76_put, call_mtm, call_value, put_mtm, put_value
 from pricing.digital import SmileArbitrageError, digital_call, digital_put
@@ -103,6 +106,9 @@ class PricedVariant:
     max_loss_pct: float           # fraction of spot
     wing_ratio: float | None      # seagull only: units of wing sold per unit of spread
     is_zero_cost: bool
+    economics: TradeEconomics | None = field(default=None, kw_only=True)
+    can_lose_beyond_premium: bool | None = field(default=None, kw_only=True)
+    sizing_trace: SizingTrace | None = field(default=None, kw_only=True)
     # Sizing — populated when loss_budget passed to price_variants(), else None.
     # All amounts in BASE currency units (e.g. USD for USDBRL, EUR for EURPLN).
     structure_notional: float | None = None    # base ccy notional sized so max loss = loss_budget
@@ -128,12 +134,14 @@ def price_variants(
     smile: "SmileInterpolator | None" = None,
     warnings: list[str] | None = None,
     variants_override: list[dict] | None = None,
+    evaluation_days: int | None = None,
+    exclude_loss_beyond_premium: bool = False,
 ) -> list[PricedVariant]:
     """
     Price all defined variants for a structure. Returns [] if no variants defined.
 
-    If loss_budget is provided (in base ccy units), each variant is sized so its
-    max loss equals the loss budget. The dollar-equivalent fields on PricedVariant
+    If loss_budget is provided (in base ccy units), sizing uses the legacy loss
+    proxy subject to caps, not a contractual maximum loss. The fields on PricedVariant
     (structure_notional, net_premium_ccy, payoff_at_target_ccy, max_loss_ccy) are
     populated. If loss_budget is None, those fields remain None.
 
@@ -160,6 +168,17 @@ def price_variants(
         if structure_id not in cfg:
             return []
         variants = cfg[structure_id]
+    if exclude_loss_beyond_premium:
+        variants = [variant for variant in variants if passes_no_tails(variant)]
+    if not variants:
+        return []
+    declarations = {}
+    for construction in variants:
+        label = construction["label"]
+        risk = declared_additional_loss(construction)
+        if label in declarations and declarations[label] is not risk:
+            raise ValueError(f"Conflicting construction risk declarations for {label}")
+        declarations[label] = risk
     F, vol, T, r_d, r_f, spot = ms.fwd, ms.vol, ms.T, ms.r_d, ms.r_f, ms.spot
     DF = math.exp(-r_d * T)
     vol_sqrtT = vol * math.sqrt(T)
@@ -196,6 +215,26 @@ def price_variants(
         for pv in result:
             _size_variant(pv, loss_budget, linear_notional)
 
+    for variant in result:
+        if variant.sizing_trace is None:
+            variant.sizing_trace = SizingTrace(
+                status="unavailable", effective_method=None,
+                reason="No positive sizing budget or usable Kelly distribution supplied",
+                reference_capital=linear_notional, notional_cap=10.0 * linear_notional,
+                requested_method=sizing_spec.method if sizing_spec is not None else "fixed_loss",
+                loss_budget=loss_budget,
+            )
+        if sizing_spec is not None and sizing_spec.method == "kelly" and not sizing_spec.has_distribution():
+            variant.sizing_trace = replace(
+                variant.sizing_trace, requested_method="kelly",
+                fallback_reason="No stated Kelly distribution supplied",
+            )
+        variant.can_lose_beyond_premium = declarations.get(variant.variant_label)
+        variant.economics = compute_trade_economics(
+            variant, structure_id, ms, target=target, is_call=is_call,
+            loss_budget=loss_budget, stop_price=stop_price, surface=smile,
+            evaluation_days=evaluation_days,
+        )
     return result
 
 
@@ -243,7 +282,31 @@ def _size_variants_kelly(
             n = min(sizing_spec.kelly_lambda * x_star * sizing_spec.bankroll, cap)
             pv.capped = n >= cap * (1.0 - 1e-12)
             _apply_notional(pv, n)
-        except (ValueError, ZeroDivisionError):
+            valid_distribution = probs.size > 0 and probs.size == bins.size
+            reason = "Fractional Kelly applied to the full-Kelly notional fraction"
+            if n == 0:
+                reason = "Kelly returned zero allocation; no positive allocation under the supplied inputs"
+            if not valid_distribution:
+                reason = "Empty or mismatched Kelly distribution; legacy calculation returned zero"
+            pv.sizing_trace = SizingTrace(
+                status=("unavailable" if not valid_distribution else "zero" if n == 0 else "sized"),
+                effective_method="kelly", requested_method="kelly", reason=reason,
+                reference_capital=linear_notional, notional_cap=cap, final_notional=n,
+                bankroll=sizing_spec.bankroll, kelly_lambda=sizing_spec.kelly_lambda,
+                full_kelly_fraction=x_star,
+                full_kelly_proxy_exposure=x_star * (pv.max_loss_pct or 0.0),
+                uncapped_notional=sizing_spec.kelly_lambda * x_star * sizing_spec.bankroll,
+                binding_constraint="notional_cap" if pv.capped else "fractional_kelly",
+                distribution_id=distribution_fingerprint(probs, bins),
+                distribution_points=int(probs.size),
+            )
+        except (ValueError, ZeroDivisionError) as error:
+            pv.sizing_trace = SizingTrace(
+                status="error", effective_method="kelly", requested_method="kelly",
+                reason=f"Kelly sizing unavailable ({type(error).__name__}); no fixed-loss fallback applied for this pricing error",
+                reference_capital=linear_notional, notional_cap=cap,
+                bankroll=sizing_spec.bankroll, kelly_lambda=sizing_spec.kelly_lambda,
+            )
             continue  # unsupported family / degenerate — leave unsized
 
 
@@ -264,17 +327,31 @@ def _size_variant(pv: PricedVariant, loss_budget: float, linear_notional: float 
     All other dollar amounts are derived linearly from the resulting notional.
     """
     cap = 10.0 * linear_notional
+    wanted = None
     if pv.net_premium_pct < 0:
         notional = cap
         pv.capped = True
+        reason = "Net-credit policy fixes notional at 10 times reference capital; budget division is not used"
+        constraint = "net_credit_policy"
     elif pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
         notional = cap
         pv.capped = True
+        reason = "Missing or near-zero sizing denominator uses the legacy 10-times-capital cap; not a claim of no risk"
+        constraint = "missing_or_near_zero_proxy"
     else:
         wanted = loss_budget / pv.max_loss_pct
         notional = min(wanted, cap)
         pv.capped = wanted > cap
+        reason = "Loss budget divided by per-unit sizing loss proxy, subject to the notional cap"
+        constraint = "notional_cap" if pv.capped else "loss_budget"
     _apply_notional(pv, notional)
+    pv.sizing_trace = SizingTrace(
+        status="zero" if notional == 0 else "sized", effective_method="fixed_loss",
+        requested_method="fixed_loss", reason=reason, reference_capital=linear_notional,
+        notional_cap=cap, final_notional=notional, loss_budget=loss_budget,
+        per_unit_loss_proxy=pv.max_loss_pct, uncapped_notional=wanted,
+        binding_constraint=constraint,
+    )
 
 
 def _spot_for_forward_today(fwd_today: float, T: float, r_d: float, r_f: float) -> float:

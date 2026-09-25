@@ -1,0 +1,16 @@
+{
+  "shortlist_scope": "Best retained variant per family; engine ranking unchanged.",
+  "premium_risk_note": "“No” additional loss does not mean no risk: premium can still be lost.",
+  "no_premium_return": "N/A — no premium outlay",
+  "kelly_fallback": "Kelly selected, but no distribution is set for this trade: sizes use fixed-loss fallback.",
+  "narration_rules": [
+    "Use net P&L at the specified target, not maximum payout, for the target metric. It is a scenario result, not a promised return or a probability of success.",
+    "Keep premium paid or received, loss budget, sizing loss measure and contractual maximum loss distinct. A sizing budget or stop reference is not a guaranteed exit or loss limit.",
+    "No additional loss beyond premium does not mean risk-free. Unknown risk is not safe risk; bounded loss does not mean loss is limited to premium.",
+    "Use expiry payoff only at expiry. Before expiry, call the supplied valuation mark-to-market and keep its horizon and assumptions.",
+    "Relay numerical ranges from engine text in ascending order, preserving endpoint roles. Never reorder leg ratios or change which strike belongs to which leg.",
+    "Copy the supplied currency and full monetary units. Do not scale amounts again or convert currencies yourself.",
+    "Zero allocation is a computed outcome, not missing data. Unavailable quantities must stay unavailable, with the supplied reason.",
+    "Do not call stale snapshots live market data. Use only the as-of information actually supplied; a refresh alone does not establish freshness."
+  ]
+}

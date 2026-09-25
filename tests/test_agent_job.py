@@ -50,11 +50,12 @@ def test_turn_completes_and_saves_without_the_page():
     assert not job.done.is_set()          # still "calling the API"
     llm.gate.set()
     assert job.done.wait(30)
-    assert job.reply == "the read" and not job.failed and job.store_error is None
+    assert job.reply.endswith("the read") and not job.failed and job.store_error is None
+    assert "| Rank | Structure / key terms |" in job.reply
     assert job.conversation.title.startswith("USDBRL ↓")
-    assert seen == ["the read"]           # telemetry hook ran in the thread
+    assert seen == [job.reply]
     saved = svc.store.list_turns(ME, conv.id)
-    assert display_turns(saved) == [("user", "BRL lower"), ("assistant", "the read")]
+    assert display_turns(saved) == [("user", "BRL lower"), ("assistant", job.reply)]
     assert saved[0].llm_messages          # replayable history saved
 
 

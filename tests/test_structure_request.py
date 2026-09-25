@@ -229,8 +229,8 @@ _PARITY = {
 
 
 def _curated_keys(variant: dict) -> dict:
-    """Variant dict with the label and construction-only keys, comparable to ours."""
-    return {k: v for k, v in variant.items() if k != "label"}
+    """Compare construction terms, not display labels or catalog risk metadata."""
+    return {k: v for k, v in variant.items() if k not in {"label", "can_lose_beyond_premium"}}
 
 
 def test_parity_with_curated_menu():

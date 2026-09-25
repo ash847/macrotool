@@ -1,73 +1,74 @@
 {
+  "_risk_policy": "can_lose_beyond_premium is a construction-level declaration. No-tails allows only explicit false; missing or non-boolean values are unknown. This does not quantify maximum loss or imply unlimited loss.",
   "_note": "Parametric variant definitions. Priced at runtime using σ-approximation (ATM vol for all legs).",
 
   "vanilla": [
-    {"label": "ATMF (50Δ)", "delta": 0.50},
-    {"label": "35Δ OTM",    "delta": 0.35},
-    {"label": "25Δ OTM",    "delta": 0.25},
-    {"label": "20Δ OTM",    "delta": 0.20},
-    {"label": "15Δ OTM",    "delta": 0.15},
-    {"label": "10Δ OTM",    "delta": 0.10}
+    {"label": "ATMF (50Δ)", "delta": 0.50, "can_lose_beyond_premium": false},
+    {"label": "35Δ OTM",    "delta": 0.35, "can_lose_beyond_premium": false},
+    {"label": "25Δ OTM",    "delta": 0.25, "can_lose_beyond_premium": false},
+    {"label": "20Δ OTM",    "delta": 0.20, "can_lose_beyond_premium": false},
+    {"label": "15Δ OTM",    "delta": 0.15, "can_lose_beyond_premium": false},
+    {"label": "10Δ OTM",    "delta": 0.10, "can_lose_beyond_premium": false}
   ],
 
   "1x1_spread": [
-    {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25},
-    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10},
-    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15},
-    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "short_delta": 0.20},
-    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10},
-    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10}
+    {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25, "can_lose_beyond_premium": false},
+    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10, "can_lose_beyond_premium": false},
+    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15, "can_lose_beyond_premium": false},
+    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "short_delta": 0.20, "can_lose_beyond_premium": false},
+    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10, "can_lose_beyond_premium": false},
+    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10, "can_lose_beyond_premium": false}
   ],
 
   "seagull": [
-    {"label": "ATMF/25Δ + 25Δ wing", "spread_long": 0.50, "spread_short": 0.25, "wing_delta": 0.25},
-    {"label": "25Δ/10Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.10, "wing_delta": 0.25},
-    {"label": "25Δ/15Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.15, "wing_delta": 0.25}
+    {"label": "ATMF/25Δ + 25Δ wing", "spread_long": 0.50, "spread_short": 0.25, "wing_delta": 0.25, "can_lose_beyond_premium": true},
+    {"label": "25Δ/10Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.10, "wing_delta": 0.25, "can_lose_beyond_premium": true},
+    {"label": "25Δ/15Δ + 25Δ wing",  "spread_long": 0.25, "spread_short": 0.15, "wing_delta": 0.25, "can_lose_beyond_premium": true}
   ],
 
   "1x1.5_spread": [
-    {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25},
-    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10},
-    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15},
-    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "short_delta": 0.20},
-    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10},
-    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10}
+    {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25, "can_lose_beyond_premium": true},
+    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10, "can_lose_beyond_premium": true},
+    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15, "can_lose_beyond_premium": true},
+    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "short_delta": 0.20, "can_lose_beyond_premium": true},
+    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10, "can_lose_beyond_premium": true},
+    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10, "can_lose_beyond_premium": true}
   ],
 
   "1x2_spread": [
-    {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25},
-    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10},
-    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15},
-    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "short_delta": 0.20},
-    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10},
-    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10}
+    {"label": "ATMF / 25Δ", "long_delta": 0.50, "short_delta": 0.25, "can_lose_beyond_premium": true},
+    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "short_delta": 0.10, "can_lose_beyond_premium": true},
+    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "short_delta": 0.15, "can_lose_beyond_premium": true},
+    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "short_delta": 0.20, "can_lose_beyond_premium": true},
+    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "short_delta": 0.10, "can_lose_beyond_premium": true},
+    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "short_delta": 0.10, "can_lose_beyond_premium": true}
   ],
   "1x2x1_spread": [
-    {"label": "ATMF / 25Δ / wing", "long_delta": 0.50, "short_delta": 0.25},
-    {"label": "25Δ / 10Δ / wing",  "long_delta": 0.25, "short_delta": 0.10},
-    {"label": "25Δ / 15Δ / wing",  "long_delta": 0.25, "short_delta": 0.15},
-    {"label": "40Δ / 20Δ / wing",  "long_delta": 0.40, "short_delta": 0.20},
-    {"label": "30Δ / 10Δ / wing",  "long_delta": 0.30, "short_delta": 0.10},
-    {"label": "20Δ / 10Δ / wing",  "long_delta": 0.20, "short_delta": 0.10}
+    {"label": "ATMF / 25Δ / wing", "long_delta": 0.50, "short_delta": 0.25, "can_lose_beyond_premium": false},
+    {"label": "25Δ / 10Δ / wing",  "long_delta": 0.25, "short_delta": 0.10, "can_lose_beyond_premium": false},
+    {"label": "25Δ / 15Δ / wing",  "long_delta": 0.25, "short_delta": 0.15, "can_lose_beyond_premium": false},
+    {"label": "40Δ / 20Δ / wing",  "long_delta": 0.40, "short_delta": 0.20, "can_lose_beyond_premium": false},
+    {"label": "30Δ / 10Δ / wing",  "long_delta": 0.30, "short_delta": 0.10, "can_lose_beyond_premium": false},
+    {"label": "20Δ / 10Δ / wing",  "long_delta": 0.20, "short_delta": 0.10, "can_lose_beyond_premium": false}
   ],
 
   "european_rko": [
-    {"label": "ATMF / 25Δ", "long_delta": 0.50, "barrier": 0.25},
-    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "barrier": 0.10},
-    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "barrier": 0.15},
-    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "barrier": 0.20},
-    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "barrier": 0.10},
-    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "barrier": 0.10}
+    {"label": "ATMF / 25Δ", "long_delta": 0.50, "barrier": 0.25, "can_lose_beyond_premium": false},
+    {"label": "25Δ / 10Δ",  "long_delta": 0.25, "barrier": 0.10, "can_lose_beyond_premium": false},
+    {"label": "25Δ / 15Δ",  "long_delta": 0.25, "barrier": 0.15, "can_lose_beyond_premium": false},
+    {"label": "40Δ / 20Δ",  "long_delta": 0.40, "barrier": 0.20, "can_lose_beyond_premium": false},
+    {"label": "30Δ / 10Δ",  "long_delta": 0.30, "barrier": 0.10, "can_lose_beyond_premium": false},
+    {"label": "20Δ / 10Δ",  "long_delta": 0.20, "barrier": 0.10, "can_lose_beyond_premium": false}
   ],
 
   "european_digital": [
-    {"label": "~30% prem", "target_prem_pct": 0.30},
-    {"label": "~20% prem", "target_prem_pct": 0.20},
-    {"label": "~10% prem", "target_prem_pct": 0.10}
+    {"label": "~30% prem", "target_prem_pct": 0.30, "can_lose_beyond_premium": false},
+    {"label": "~20% prem", "target_prem_pct": 0.20, "can_lose_beyond_premium": false},
+    {"label": "~10% prem", "target_prem_pct": 0.10, "can_lose_beyond_premium": false}
   ],
 
   "european_digital_rko": [
-    {"label": "~25% prem + KO", "target_prem_pct": 0.25, "barrier_sigmas": 2.0},
-    {"label": "~10% prem + KO", "target_prem_pct": 0.10, "barrier_sigmas": 2.0}
+    {"label": "~25% prem + KO", "target_prem_pct": 0.25, "barrier_sigmas": 2.0, "can_lose_beyond_premium": false},
+    {"label": "~10% prem + KO", "target_prem_pct": 0.10, "barrier_sigmas": 2.0, "can_lose_beyond_premium": false}
   ]
 }

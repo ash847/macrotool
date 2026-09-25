@@ -69,6 +69,7 @@ def price_structure(
     linear_notional: float = 100.0,
     smile: object = _UNSET,
     sizing_spec: object = None,
+    structure_constraint: str = "No restriction",
 ) -> PriceStructureResult:
     """Price a single PM-requested structure against the current market state.
 
@@ -94,6 +95,19 @@ def price_structure(
         return parsed
 
     variant_dict = to_variant_dict(parsed)
+    from knowledge_engine.construction_policy import configured_additional_loss
+
+    classification = configured_additional_loss(parsed.family, variant_dict)
+    variant_dict["can_lose_beyond_premium"] = classification
+    if structure_constraint == "Avoid tail-risky structures" and classification is not False:
+        reason = (
+            "this construction can lose more than premium paid"
+            if classification is True else "this custom construction has no approved risk classification"
+        )
+        return PricingUnavailable(
+            request=parsed,
+            detail=f"Excluded by the active no-tails preference: {reason}. Unknown is not treated as safe.",
+        )
     surface = getattr(ms, "surface", None) if smile is _UNSET else smile
 
     warnings: list[str] = []
@@ -109,6 +123,7 @@ def price_structure(
         warnings=warnings,
         variants_override=[variant_dict],
         sizing_spec=sizing_spec,
+        exclude_loss_beyond_premium=structure_constraint == "Avoid tail-risky structures",
     )
 
     if not priced:

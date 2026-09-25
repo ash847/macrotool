@@ -58,6 +58,11 @@ def load_structure_defaults() -> dict:
 
 
 @lru_cache(maxsize=None)
+def load_agent_vocabulary() -> dict:
+    return _load(_DEFAULTS_DIR / "agent_vocabulary.json")
+
+
+@lru_cache(maxsize=None)
 def load_sizing_defaults() -> dict:
     return _load(_DEFAULTS_DIR / "sizing_defaults.json")
 

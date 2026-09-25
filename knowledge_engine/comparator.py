@@ -608,6 +608,7 @@ def build_comparator_inputs(
                 linear_notional=linear_notional,
                 sizing_spec=sizing_spec,
                 smile=smile,
+                exclude_loss_beyond_premium=prefs.structure_constraint == "Avoid tail-risky structures",
             )
         except Exception:
             variants = []

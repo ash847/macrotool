@@ -45,6 +45,7 @@ class ToolLLM(Protocol):
     def create(self, messages: list[dict], system: str, tools: list[dict]) -> LLMTurn: ...
     def format_user(self, text: str) -> dict: ...
     def format_assistant(self, turn: LLMTurn) -> dict: ...
+    def format_text_reply(self, text: str) -> dict: ...
     def format_tool_results(self, results: list[tuple[ToolCall, str, bool]]) -> dict: ...
 
 
@@ -79,6 +80,9 @@ class AnthropicToolLLM:
 
     def format_assistant(self, turn: LLMTurn) -> dict:
         return {"role": "assistant", "content": turn.raw}
+
+    def format_text_reply(self, text: str) -> dict:
+        return {"role": "assistant", "content": [{"type": "text", "text": text}]}
 
     def format_tool_results(self, results: list[tuple[ToolCall, str, bool]]) -> dict:
         blocks = [
@@ -118,6 +122,9 @@ class FakeToolLLM:
 
     def format_assistant(self, turn: LLMTurn) -> dict:
         return {"role": "assistant", "content": turn.text, "tool_calls": turn.tool_calls}
+
+    def format_text_reply(self, text: str) -> dict:
+        return {"role": "assistant", "content": text}
 
     def format_tool_results(self, results: list[tuple[ToolCall, str, bool]]) -> dict:
         return {

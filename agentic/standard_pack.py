@@ -10,7 +10,7 @@ this; ``flow._run_engines`` delegates its core chain to it too.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from analytics.market_state import MarketState
 from analytics.models import MaturityHistogram, PriceDistribution
@@ -166,6 +166,12 @@ def _recommend_ranked(
             else (evals[0] if evals else None)
         )
         if best is not None:
+            if best.variant.sizing_trace is not None and best.variant.sizing_trace.effective_method == "fixed_loss":
+                best.variant.sizing_trace = replace(
+                    best.variant.sizing_trace, budget_distance=stop_pct,
+                    budget_reference=fwd, budget_target=target,
+                    budget_input_rr=max(target_rr, 1e-6),
+                )
             _cd_pos, _cd_neg = top_bottom_cells(best.pm_score)
             out.append(RecommendedStructure(
                 structure_id=item.structure_id,
@@ -204,7 +210,8 @@ def _recommend_ranked(
 
 
 def _price_recommended_fallback(
-    ms: MarketState, selector_result, target, is_call, surface, cap: int = 6
+    ms: MarketState, selector_result, target, is_call, surface, cap: int = 6,
+    structure_constraint: str = "No restriction",
 ) -> list[RecommendedStructure]:
     """Fallback when no target: first curated variant that prices, per family."""
     out: list[RecommendedStructure] = []
@@ -213,6 +220,7 @@ def _price_recommended_fallback(
             variants = price_variants(
                 ms, item.structure_id, target=target, is_call=is_call,
                 smile=surface, warnings=[],
+                exclude_loss_beyond_premium=structure_constraint == "Avoid tail-risky structures",
             )
         except Exception:
             variants = []
@@ -347,8 +355,17 @@ def build_pack(
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = [], None, None, None, None
     if not recommended:
         recommended = _price_recommended_fallback(
-            market_state, selector_result, target, is_call, surface
+            market_state, selector_result, target, is_call, surface,
+            structure_constraint=structure_constraint,
         )
+
+    for recommendation in recommended:
+        trace = recommendation.variant.sizing_trace
+        if trace is not None:
+            recommendation.variant.sizing_trace = replace(
+                trace, requested_method=sizing_method,
+                fallback_reason="No stated Kelly distribution for this pair/expiry" if kelly_fallback else None,
+            )
 
     return StandardPack(
         market_state=market_state,

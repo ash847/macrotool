@@ -327,6 +327,7 @@ def render_structure_variants(
                 stop_price=stop_price, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=_smile, warnings=_warns,
+                exclude_loss_beyond_premium=getattr(flow, "structure_constraint", "No restriction") == "Avoid tail-risky structures",
             )
         except Exception as _e:
             st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
@@ -608,6 +609,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
                 stop_price=stop, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=smile,
+                exclude_loss_beyond_premium=getattr(flow, "structure_constraint", "No restriction") == "Avoid tail-risky structures",
             )
         except Exception:
             continue
