@@ -301,8 +301,8 @@ class TestResumeRefresh:
         displayed = display_turns(res.turns)
         assert displayed[0] == ("user", "BRL")
         assert displayed[1][0] == "assistant"
-        assert "| Rank | Structure / key terms |" in displayed[1][1]
-        assert displayed[1][1].endswith("narration t0")
+        assert "| Rank | Structure | Variant |" in displayed[1][1]
+        assert "narration t0" in displayed[1][1]
         assert displayed[2:] == [("user", "why?"), ("assistant", "answer 1")]
 
     def test_resume_is_private(self):

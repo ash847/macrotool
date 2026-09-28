@@ -163,10 +163,12 @@ def _inspect_recommendations(session: AgentSession, args: dict) -> str:
         family = canonical if canonical in known_families else _family_only(requested) if isinstance(requested, str) else None
         if family is None:
             raise _ToolError("Unknown family reference; ask the PM to name the structure.")
-        rec = next((rec for rec in pack.recommended if rec.structure_id == family), None)
-        if rec is not None:
-            position = "in the displayed top five" if rec in pack.recommended[:5] else "outside the displayed top five"
-            return f"SHORTLIST REFERENCE: {reference}\nEngine rank {rec.rank}: {position}.\n" + render_recommended(rec, view.pair[:3])
+        matches = [rec for rec in pack.recommended if rec.structure_id == family]
+        if matches:
+            return f"SHORTLIST REFERENCE: {reference}\nMultiple variants may share a family; refer to exact ranks.\n" + "\n\n".join(
+                f"Engine rank {rec.rank}: {'in' if rec in pack.recommended[:5] else 'outside'} the displayed top five.\n"
+                + render_recommended(rec, view.pair[:3]) for rec in matches
+            )
         if any(item.structure_id == family for item in pack.selector_result.shortlist):
             return "The family was shortlisted, but no priced recommendation was retained. The detailed pricing reason was not recorded in this pack; do not invent it."
         return "The family was not retained by the engine's eligibility/scoring stage. The detailed exclusion reason was not recorded in this pack; do not invent it."
@@ -188,6 +190,8 @@ def _family_only(request: str) -> str | None:
     return its family id; else None. Used to fall back to the pack's recommended
     construction instead of demanding explicit strikes."""
     norm = _normalize(request)
+    if norm == "linear":
+        return "linear"
     fam, token = resolve_family(norm)
     if not fam:
         return None

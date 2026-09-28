@@ -318,6 +318,13 @@ follow-up trade references. LLM phrasing may vary; supplied facts may not.
 
 ## Decision log
 
+- 2026-09-28: user replaced the initial-response layout with compact Trade View:
+  market state, 2–3 explanatory sentences, family shortlist with fit percentages,
+  and top five individual variants, without detailed variant tables. Retain all
+  priced variants and Trade View's labelled linear comparator for rank parity;
+  follow-ups refer to those exact variants. This supersedes Step 5's previous
+  one-per-family selection and initial columns. Implementation version 0.2.20.
+
 - 2026-09-24: user requested this plan be recorded and reviewed step by step.
 - No implementation decisions or application changes approved by that request.
 - User agreed to separate the four financial concepts while retaining existing

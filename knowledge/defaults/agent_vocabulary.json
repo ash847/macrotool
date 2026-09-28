@@ -1,5 +1,5 @@
 {
-  "shortlist_scope": "Best retained variant per family; engine ranking unchanged.",
+  "shortlist_scope": "Individual priced variants ordered by PnL score, including the Trade View linear benchmark. Multiple variants of one family may appear.",
   "premium_risk_note": "“No” additional loss does not mean no risk: premium can still be lost.",
   "no_premium_return": "N/A — no premium outlay",
   "kelly_fallback": "Kelly selected, but no distribution is set for this trade: sizes use fixed-loss fallback.",

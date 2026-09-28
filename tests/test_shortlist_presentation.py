@@ -29,15 +29,14 @@ def context():
 def test_top_five_has_agreed_columns_and_exact_sized_values(context):
     _, _, view, pack = context
     table = render_shortlist(pack, view)
-    rows = [line for line in table.splitlines() if line.startswith("| ")][2:]
+    rows = [line for line in table.split("### Top structures")[1].splitlines() if line.startswith("| ")][2:]
     assert len(rows) == min(5, len(pack.recommended))
     for line, rec in zip(rows, pack.recommended):
-        assert len(line.split("|")) == 9
+        assert len(line.split("|")) == 8
         assert line.startswith(f"| {rec.rank} |")
-        assert f"{rec.variant.structure_notional:,.2f} USD" in line
-        assert "90d · expiry" in line
-    assert "Target return on premium" in table
-    assert "Additional loss beyond premium?" in table
+        assert f"USD {rec.variant.structure_notional:,.0f}" in line
+    assert "Fit score" in table
+    assert "Target return on premium" not in table
     assert "score_ccy" not in table
 
 
@@ -89,13 +88,13 @@ def test_family_status_uses_retained_rank_without_inventing_reason(context):
 
 def test_missing_values_and_credit_are_not_fabricated(context):
     _, _, view, pack = context
-    original = pack.recommended[0]
+    original = next(rec for rec in pack.recommended if rec.variant.economics is not None)
     economics = replace(original.variant.economics, target_return_on_premium=None,
                         ratio_status="not_applicable", ratio_reason="Not applicable — no premium outlay")
     variant = replace(original.variant, net_premium_pct=-0.01, net_premium_ccy=-100,
                       structure_notional=None, economics=economics, can_lose_beyond_premium=None)
     altered = replace(pack, recommended=[replace(original, variant=variant)])
-    table = render_shortlist(altered, view)
+    table = render_shortlist(altered, view, [original.rank])
     assert "Receive 100.00 USD" in table
     assert "N/A — no premium outlay" in table
     assert "Unknown" in table
@@ -128,7 +127,7 @@ def test_model_authored_tables_are_not_displayed_as_engine_numbers(context):
     result = present_shortlist(text, pack, view, automatic=True)
     assert "invented" not in result
     assert result.count("| Rank |") == 1
-    assert result.endswith("Short explanation.")
+    assert result.index("Short explanation.") < result.index("### Shortlisted structures")
 
 
 def test_reference_and_detail_routing_are_in_model_context(context):

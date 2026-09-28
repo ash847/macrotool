@@ -47,7 +47,7 @@ def test_approved_vocabulary_is_used_by_prompt_and_renderer(context):
         assert rule in prompt
     table = render_shortlist(context.pack, context.view)
     assert vocabulary["shortlist_scope"] in table
-    assert vocabulary["premium_risk_note"] in table
+    assert vocabulary["premium_risk_note"] in render_shortlist(context.pack, context.view, [1])
 
 
 @pytest.mark.parametrize("is_call,strike,barrier,first,second", [
@@ -63,14 +63,14 @@ def test_barrier_range_is_ascending_without_swapping_roles(is_call, strike, barr
 
 @pytest.mark.parametrize("premium,flow", [(0.01, "Pay"), (-0.01, "Receive"), (0.0, "Zero")])
 def test_premium_flow_target_ratio_and_zero_allocation(context, premium, flow):
-    original = context.pack.recommended[0]
+    original = next(rec for rec in context.pack.recommended if rec.variant.economics is not None)
     economics = replace(original.variant.economics,
                         target_return_on_premium=2.0 if premium > 0 else None,
                         ratio_status="available" if premium > 0 else "not_applicable")
     variant = replace(original.variant, structure_notional=0.0, net_premium_ccy=0.0,
                       net_premium_pct=premium, economics=economics)
     pack = replace(context.pack, recommended=[replace(original, variant=variant)])
-    table = render_shortlist(pack, context.view)
+    table = render_shortlist(pack, context.view, [original.rank])
     assert f"| {flow}" in table
     assert "0.00 USD" in table
     assert ("2.00×" if premium > 0 else "N/A — no premium outlay") in table

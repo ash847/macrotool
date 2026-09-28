@@ -10,7 +10,7 @@ this; ``flow._run_engines`` delegates its core chain to it too.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from analytics.market_state import MarketState
 from analytics.models import MaturityHistogram, PriceDistribution
@@ -65,7 +65,7 @@ def _priced_structure_for(family, label, ms, is_call, target, surface, stop_pric
 
 @dataclass
 class RecommendedStructure:
-    """A specific, priced representative construction for a shortlisted family."""
+    """A specific priced variant with its retained scenario evidence."""
 
     structure_id: str
     display_name: str
@@ -95,7 +95,7 @@ class StandardPack:
     maturity_histogram: MaturityHistogram | None
     target: float | None        # target spot (from forward + magnitude), or None
     is_call: bool               # direction → call/put, for downstream Tier-2 pricing
-    recommended: list[RecommendedStructure]   # specific priced structures per family
+    recommended: list[RecommendedStructure]
     loss_budget: float | None = None          # base-ccy max-loss budget the trades are sized to
                                               # (= LINEAR_NOTIONAL × stop%, R:R-derived)
     active_context: str | None = None         # fired scenario-weighting context id
@@ -107,6 +107,9 @@ class StandardPack:
     kelly_fallback: bool = False              # Kelly selected, no stated distribution → fixed-loss
     expiry: object | None = None              # trade expiry date (pricing date + horizon)
     sizing_spec: object | None = None         # the SizingSpec used (Tier-2 reuses it)
+    affinity_shortlist: list[dict] = field(default_factory=list)
+    market_quotes: dict = field(default_factory=dict)
+    variants_ranked: bool = False
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -118,7 +121,7 @@ def _recommend_ranked(
     user_email=None, linear_notional: float = _COMPARATOR_LINEAR_NOTIONAL,
     sizing_spec: object | None = None,
 ) -> list[RecommendedStructure]:
-    """Per shortlisted family, pick the variant the scoring ranks best.
+    """Rank all priced variants, including Trade View's linear comparator.
 
     Uses the comparator's scenario evaluation (pm_score.score_ccy — PM-overlay
     weighted P&L in base ccy, the same metric the Trade View variants table and
@@ -157,15 +160,10 @@ def _recommend_ranked(
     from knowledge_engine.structure_attributes import attributes as _attributes, deciding_axis as _deciding_axis
 
     out: list[RecommendedStructure] = []
-    agg_by_sid: dict[str, object] = {}   # structure_id -> aggregates, for the deciding-axis pick
+    agg_by_sid: dict[tuple[str, str], object] = {}
     for item in selector_result.shortlist:
         evals = inputs.variant_evaluations_by_structure.get(item.structure_id) or []
-        scored = [e for e in evals if e.pm_score.score_ccy is not None]
-        best = (
-            max(scored, key=lambda e: e.pm_score.score_ccy) if scored
-            else (evals[0] if evals else None)
-        )
-        if best is not None:
+        for best in evals:
             if best.variant.sizing_trace is not None and best.variant.sizing_trace.effective_method == "fixed_loss":
                 best.variant.sizing_trace = replace(
                     best.variant.sizing_trace, budget_distance=stop_pct,
@@ -189,14 +187,38 @@ def _recommend_ranked(
                 attributes=_attributes(item.structure_id, best.pm_score, best.aggregates),
                 cell_drivers=(_cd_pos, _cd_neg) if (_cd_pos or _cd_neg) else None,
             ))
-            agg_by_sid[item.structure_id] = best.aggregates
+            agg_by_sid[(item.structure_id, best.variant.variant_label)] = best.aggregates
+
+    from analytics.scenario_pricer import price_linear_scenarios
+    from knowledge_engine.scenario_scorer import score_structure
+    from knowledge_engine.comparator import summarize_scenario_rows
+
+    trade_inputs = dict(spot=ms.spot, forward=ms.fwd, implied_vol=ms.vol,
+                        tenor_years=ms.T, target=target, r_d=ms.r_d, r_f=ms.r_f)
+    linear_rows = price_linear_scenarios(inputs.scenarios, trade_inputs, is_call, linear_notional, loss_budget)
+    linear_score = score_structure(linear_rows, inputs.weights)
+    linear_variant = PricedVariant(
+        variant_label="Delta 1 (max-loss capped)", strikes=[], barrier=None,
+        net_premium_pct=0.0, breakeven=None, payoff_at_target_pct=None,
+        rr_at_target=None, max_loss_pct=stop_pct, wing_ratio=None, is_zero_cost=True,
+        structure_notional=linear_notional, net_premium_ccy=0.0,
+        payoff_at_target_ccy=None, max_loss_ccy=loss_budget,
+    )
+    out.append(RecommendedStructure(
+        structure_id="linear", display_name="Linear", rank=0,
+        rationale="Modelled linear benchmark; scenario losses are capped, not a contractual loss guarantee.",
+        variant=linear_variant, score_ccy=linear_score.score_ccy,
+        major_risk="The modelled loss cap is not a guaranteed executable stop or contractual protection.",
+        cell_drivers=top_bottom_cells(linear_score),
+    ))
+    agg_by_sid[("linear", linear_variant.variant_label)] = summarize_scenario_rows(linear_rows)
 
     # Order by scenario-weighted P&L (score_ccy), NOT affinity rank, so the agent
     # surfaces the same top structures as the Trade View Structure Evaluation (which
     # ranks by score_ccy) and matches this pack's own "best ... by PnL score" label
     # (render.py — "PnL score" is the external name for score_ccy; kept vague on
     # purpose). Display rank then follows that order. None scores sort last.
-    out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else float("-inf"), reverse=True)
+    out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else 0.0, reverse=True)
     for i, r in enumerate(out, 1):
         r.rank = i
 
@@ -204,7 +226,10 @@ def _recommend_ranked(
     # from the runner-up (IP-clean gloss; numbers stay server-side).
     deciding = None
     if len(out) >= 2:
-        deciding = _deciding_axis(agg_by_sid[out[0].structure_id], agg_by_sid[out[1].structure_id])
+        deciding = _deciding_axis(
+            agg_by_sid[(out[0].structure_id, out[0].variant.variant_label)],
+            agg_by_sid[(out[1].structure_id, out[1].variant.variant_label)],
+        )
 
     return out, loss_budget, inputs.active_context, deciding, inputs.weights
 
@@ -353,6 +378,7 @@ def build_pack(
             )
         except Exception:
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = [], None, None, None, None
+    variants_ranked = bool(recommended)
     if not recommended:
         recommended = _price_recommended_fallback(
             market_state, selector_result, target, is_call, surface,
@@ -366,6 +392,23 @@ def build_pack(
                 trace, requested_method=sizing_method,
                 fallback_reason="No stated Kelly distribution for this pair/expiry" if kelly_fallback else None,
             )
+
+    from knowledge_engine.structure_scorer import get_scoring_detail, max_possible_score
+    ceiling = max_possible_score() or 1.0
+    affinity_shortlist = [
+        {"structure_id": row["structure_id"], "display_name": row["display_name"],
+         "fit_pct": max(0.0, min(100.0, 100.0 * (row["total_score"] or 0.0) / ceiling))}
+        for row in get_scoring_detail(market_state, structure_constraint=structure_constraint)
+        if not row["overlay_only"] and row["eligible"]
+    ][:3]
+    market_quotes = {}
+    try:
+        from analytics.distributions import interpolate_vol
+        call_vol = interpolate_vol(ccy, view.horizon_days, "25DC")
+        put_vol = interpolate_vol(ccy, view.horizon_days, "25DP")
+        market_quotes = {"rr25": call_vol - put_vol, "fly25": 0.5 * (call_vol + put_vol) - market_state.vol}
+    except (ValueError, KeyError, TypeError):
+        pass
 
     return StandardPack(
         market_state=market_state,
@@ -387,4 +430,7 @@ def build_pack(
         kelly_fallback=kelly_fallback,
         expiry=expiry,
         sizing_spec=sizing_spec,
+        affinity_shortlist=affinity_shortlist,
+        market_quotes=market_quotes,
+        variants_ranked=variants_ranked,
     )

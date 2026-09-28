@@ -40,6 +40,8 @@ def _terms(recommendation) -> str:
 
 
 def render_shortlist(pack, view, ranks=None) -> str:
+    if ranks is None:
+        return render_market_state(pack, view) + "\n\n" + render_trade_tables(pack, view)
     vocabulary = load_agent_vocabulary()
     selected = pack.recommended[:5] if ranks is None else [
         recommendation for recommendation in pack.recommended if recommendation.rank in ranks
@@ -96,6 +98,67 @@ def render_shortlist(pack, view, ranks=None) -> str:
     return "\n".join(rows)
 
 
+def render_market_state(pack, view) -> str:
+    state = pack.market_state
+    regime = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
+    target_spot = f"{pack.target:.4f}" if pack.target is not None else "—"
+    target_z = f"{state.target_z:+.2f}σ" if state.target_z is not None else "—"
+    target_z_spot = f"{state.target_z_spot:+.2f}σ" if state.target_z_spot is not None else "—"
+    ratio = f"{state.atmfsratio:.2f}x" if state.atmfsratio is not None else "—"
+    quotes = pack.market_quotes
+    rr = f"{quotes['rr25']:+.2%}" if quotes.get("rr25") is not None else "—"
+    fly = f"{quotes['fly25']:+.2%}" if quotes.get("fly25") is not None else "—"
+    return "\n".join([
+        f"### Market state — {view.pair}",
+        "| Spot | Forward | ATM Vol | Horizon | Target |",
+        "| ---: | ---: | ---: | ---: | ---: |",
+        f"| {state.spot:.4f} | {state.fwd:.4f} | {state.vol:.1%} | {view.horizon_days}d | {target_spot} |",
+        "",
+        "| Carry c | Carry regime | Target z (vs spot) | Target z (vs fwd) | ATM fwd ratio |",
+        "| ---: | --- | ---: | ---: | ---: |",
+        f"| {state.c:+.3f} | {regime[state.carry_regime]} | {target_z_spot} | {target_z} | {ratio} |",
+        "",
+        f"| r {view.pair[:3]} | r {view.pair[3:]} (implied) | 25d RR | 25d Fly |",
+        "| ---: | ---: | ---: | ---: |",
+        f"| {state.r_f:.2%} | {state.r_d:.2%} | {rr} | {fly} |",
+    ])
+
+
+def render_trade_tables(pack, view) -> str:
+    rows = ["### Shortlisted structures", "Ranked by structure-fit score, as a percentage of the maximum possible; not a probability of success.",
+            "", "| # | Structure | Fit score |", "| --- | --- | ---: |"]
+    for rank, family in enumerate(pack.affinity_shortlist, 1):
+        rows.append(f"| {rank} | {_cell(family['display_name'])} | {family['fit_pct']:.0f}% |")
+    if not pack.affinity_shortlist:
+        rows.append("\nNo eligible primary structures.")
+    rows.extend(["", "### Top structures"])
+    if not pack.variants_ranked:
+        rows.append("Scenario ranking unavailable; specify a usable target to rank individual variants.")
+        return "\n".join(rows)
+    rows.extend([load_agent_vocabulary()["shortlist_scope"], ""])
+    selected = pack.recommended[:5]
+    kelly = any(rec.variant.kelly_fraction is not None for rec in selected)
+    rows.append("| Rank | Structure | Variant | Strikes | Notional | Premium |" + (" Kelly risk |" if kelly else ""))
+    rows.append("| --- | --- | --- | --- | ---: | ---: |" + (" ---: |" if kelly else ""))
+    for rec in selected:
+        variant = rec.variant
+        strikes = " / ".join(f"{strike:.4f}" for strike in variant.strikes) or "—"
+        notional = "—" if variant.structure_notional is None else f"{'-' if variant.structure_notional < 0 else ''}{view.pair[:3]} {abs(variant.structure_notional):,.0f}"
+        row = f"| {rec.rank} | {_cell(rec.display_name)} | {_cell(variant.variant_label)} | {strikes} | {notional} | {variant.net_premium_pct:+.2%} |"
+        if kelly:
+            risk = "—" if variant.kelly_fraction is None else f"{variant.kelly_fraction * (variant.max_loss_pct or 0.0):.0%}"
+            row += f" {risk} |"
+        rows.append(row)
+    rows.append("\nPositive premium is paid; negative premium is received. PnL score reflects performance across modelled market outcomes, not a guaranteed return.")
+    if kelly:
+        rows.append("Kelly risk is the full-Kelly sizing-loss proxy as a share of W, before λ; not contractual maximum loss.")
+    if any(rec.structure_id == "linear" for rec in selected):
+        rows.append("Linear is the Trade View benchmark with modelled capped scenario losses, not contractual protection.")
+    if pack.kelly_fallback:
+        rows.insert(0, "**" + load_agent_vocabulary()["kelly_fallback"] + "**\n")
+    return "\n".join(rows)
+
+
 def shortlist_reference(pack, view) -> str:
     payload = {
         "table": render_shortlist(pack, view, [rec.rank for rec in pack.recommended]),
@@ -127,4 +190,6 @@ def present_shortlist(text, pack, view, *, automatic=False, ranks=None) -> str:
             narration_lines.append(lines[index])
             index += 1
     narration = "\n".join(narration_lines).strip()
+    if ranks is None:
+        return render_market_state(pack, view) + ("\n\n" + narration if narration else "") + "\n\n" + render_trade_tables(pack, view)
     return table + ("\n\n" + narration if narration else "")

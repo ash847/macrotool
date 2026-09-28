@@ -133,4 +133,8 @@ def test_recommendation_pack_has_only_classified_no_tail_trades(direction):
     )
     pack = build_pack(view, snapshot.get("USDBRL"), load_config(), structure_constraint=NO_TAILS)
     assert pack.recommended
-    assert all(item.variant.can_lose_beyond_premium is False for item in pack.recommended)
+    options = [item for item in pack.recommended if item.structure_id != "linear"]
+    assert options
+    assert all(item.variant.can_lose_beyond_premium is False for item in options)
+    benchmark = next(item for item in pack.recommended if item.structure_id == "linear")
+    assert "not a contractual loss guarantee" in benchmark.rationale

@@ -50,8 +50,8 @@ def test_turn_completes_and_saves_without_the_page():
     assert not job.done.is_set()          # still "calling the API"
     llm.gate.set()
     assert job.done.wait(30)
-    assert job.reply.endswith("the read") and not job.failed and job.store_error is None
-    assert "| Rank | Structure / key terms |" in job.reply
+    assert "the read" in job.reply and not job.failed and job.store_error is None
+    assert "| Rank | Structure | Variant |" in job.reply
     assert job.conversation.title.startswith("USDBRL ↓")
     assert seen == [job.reply]
     saved = svc.store.list_turns(ME, conv.id)

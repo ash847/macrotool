@@ -148,9 +148,9 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             if _comm.get("trade_guidance"):
                 lines.append(f"  Privileges: {_comm['trade_guidance']}")
 
-    if pack.recommended:
+    if pack.recommended and pack.variants_ranked:
         lines.append(
-            "\nRECOMMENDED STRUCTURES (specific, priced — best variant per family by "
+            "\nRECOMMENDED STRUCTURES (specific, priced — individual variants by "
             "PnL score; use these):"
         )
         cap_note = f"notional capped at 10×W = {10 * pack.linear_notional:,.0f} {base_ccy}"
@@ -236,7 +236,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
 
     lines.append(f"\nSHORTLIST REFERENCE: {shortlist_reference(pack, view)}")
     lines.append("PUBLIC TABLE (Python renders this automatically; do not retype it):\n" + render_shortlist(pack, view))
-    lines.append("First answer: table plus one brief top-pick explanation. Use inspect_recommendations for detail or comparisons; do not write five essays.")
+    lines.append("First answer: market state, 2–3 sentence regime/selection explanation, family fit shortlist, and top five individual variants. Python renders the tables. Use inspect_recommendations for detail or comparisons; do not write five essays.")
     return "\n".join(lines)
 
 

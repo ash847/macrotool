@@ -148,7 +148,10 @@ def test_pack_numbers_and_rankings_unchanged(monkeypatch, direction, sizing_meth
     updated = build_pack(view, snapshot.get("USDBRL"), config, **options)
     assert updated.recommended
     for rec in updated.recommended:
-        assert rec.variant.economics is not None
+        if rec.structure_id == "linear":
+            assert rec.variant.economics is None
+        else:
+            assert rec.variant.economics is not None
     text = render_pack(updated, view)
     assert "target return on premium" in text
     assert "max loss =" not in text

@@ -135,6 +135,10 @@ def test_pack_and_custom_trade_retain_disclosed_kelly_fallback():
     assert "SIZING AUDIT" in text
     for rec in session.pack.recommended:
         trace = rec.variant.sizing_trace
+        if rec.structure_id == "linear":
+            assert trace is None
+            assert rec.variant.structure_notional == session.linear_notional
+            continue
         assert trace.requested_method == "kelly"
         assert trace.effective_method == "fixed_loss"
         assert trace.fallback_reason
