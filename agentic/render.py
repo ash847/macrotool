@@ -51,11 +51,14 @@ def _legs_breakdown(ps, base_notional: float | None = None, ccy: str = "") -> li
     if ps is None:
         return []
     lines = []
-    for pl in ps.priced_legs:
+    for index, pl in enumerate(ps.priced_legs):
         side = "long" if pl.notional > 0 else "short"
         right = pl.leg.right.value.capitalize()
         instr = "Digital " if pl.leg.instrument.value == "digital" else ""
-        head = f"      {side} {_anchor_label(pl.leg.anchor)} {instr}{right} @ {pl.strike:.4f}"
+        label = "wing" if ps.structure.family == "1x2x1_spread" and index == 2 else _anchor_label(pl.leg.anchor)
+        head = f"      {side} {label} {instr}{right} @ {pl.strike:.4f}"
+        if label == "wing":
+            head += " (geometrically constructed strike; delta not supplied)"
         if base_notional is not None:
             head += f"  · notional ≈{abs(pl.notional) * base_notional:,.0f} {ccy}".rstrip()
         lines.append(head)
@@ -97,6 +100,29 @@ def _trade_tag(pack, view) -> str:
     return f"{view.pair} {exp}"
 
 
+def _carry_explanation(ms, view) -> str:
+    from knowledge_engine.loader import load_agent_vocabulary
+
+    wording = load_agent_vocabulary()["carry_explanations"]
+    base, quote = view.pair[:3], view.pair[3:]
+    if ms.fwd == ms.spot:
+        explanation = wording["equal"]
+    else:
+        relation = "below" if ms.fwd < ms.spot else "above"
+        action = "buy" if view.direction == "base_higher" else "sell"
+        alignment = "WITH the carry" if ms.with_carry else "COUNTER to the carry"
+        higher_yield = base if relation == "below" else quote
+        explanation = (
+            f"This view is {alignment}. {higher_yield} has the higher implied interest rate. "
+            + wording[f"{action}_{relation}"].format(base=base, quote=quote)
+        )
+    return (
+        f"{explanation} {view.pair} spot={ms.spot:.4f}, forward={ms.fwd:.4f}; "
+        f"horizon={view.horizon_days}d (c={ms.c:+.3f}, regime={ms.carry_regime}). "
+        + wording["qualification"]
+    )
+
+
 def render_pack(pack: StandardPack, view: TradeView) -> str:
     """Render the deterministic standard pack as labelled text for the agent."""
     ms = pack.market_state
@@ -111,18 +137,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
 
     lines.append("\nMARKET CONTEXT (computed):")
     lines.append(f"  spot={ms.spot:.4f}  fwd={ms.fwd:.4f}  atm_vol={ms.vol:.4%}")
-    if ms.with_carry:
-        carry = (
-            "WITH the carry — long the higher-yielding currency, so the forward drift is in "
-            "your favour (you effectively sell forward at a premium to spot). Carry SUPPORTS "
-            "this view."
-        )
-    else:
-        carry = (
-            "COUNTER to the carry — long the lower-yielding currency; the forward drift works "
-            "against this view."
-        )
-    lines.append(f"  CARRY: this view is {carry} (c={ms.c:+.3f}, regime={ms.carry_regime})")
+    lines.append(f"  CARRY: {_carry_explanation(ms, view)}")
     if ms.atmfsratio is not None:
         lines.append(
             f"  carry-capture payout ratio={ms.atmfsratio:.2f} (payout of the carry-capturing "
