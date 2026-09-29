@@ -251,7 +251,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
 
     lines.append(f"\nSHORTLIST REFERENCE: {shortlist_reference(pack, view)}")
     lines.append("PUBLIC TABLE (Python renders this automatically; do not retype it):\n" + render_shortlist(pack, view))
-    lines.append("First answer: market state, 2–3 sentence regime/selection explanation, family fit shortlist, and top five individual variants. Python renders the tables. Use inspect_recommendations for detail or comparisons; do not write five essays.")
+    lines.append("First answer: emit [[MARKET_COMMENTARY]] with 2–3 sentences about the market regime and selection implications, then [[TRADE_NOTES]] with one brief risk/trade-off paragraph. Python inserts the shortlist and ranking tables between these sections, then adds the chat invitation. Do not write tables, headings, invitations or five essays. Use inspect_recommendations for follow-up detail or comparisons.")
     return "\n".join(lines)
 
 

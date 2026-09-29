@@ -1,4 +1,5 @@
 {
+  "chat_invitation": "Want to explore a specific rank, compare two structures, or price a custom variant?",
   "carry_explanations": {
     "buy_below": "You buy {base} forward below today's spot, so unchanged spot at expiry would favour this forward position.",
     "sell_below": "You sell {base} forward below today's spot, so unchanged spot at expiry would work against this forward position.",

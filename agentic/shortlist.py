@@ -8,6 +8,8 @@ import math
 from knowledge_engine.loader import load_agent_vocabulary
 
 SHORTLIST_TOKEN = "[[SHORTLIST]]"
+MARKET_TOKEN = "[[MARKET_COMMENTARY]]"
+NOTES_TOKEN = "[[TRADE_NOTES]]"
 
 
 def _cell(value) -> str:
@@ -191,5 +193,15 @@ def present_shortlist(text, pack, view, *, automatic=False, ranks=None) -> str:
             index += 1
     narration = "\n".join(narration_lines).strip()
     if ranks is None:
-        return render_market_state(pack, view) + ("\n\n" + narration if narration else "") + "\n\n" + render_trade_tables(pack, view)
+        narration = narration.replace(MARKET_TOKEN, "").strip()
+        if NOTES_TOKEN in narration:
+            market, _, notes = narration.partition(NOTES_TOKEN)
+        else:
+            market, _, notes = narration.partition("\n\n")
+        sections = [render_market_state(pack, view), market.strip(), render_trade_tables(pack, view),
+                    notes.replace(NOTES_TOKEN, "").strip()]
+        if pack.variants_ranked:
+            sections.append(load_agent_vocabulary()["chat_invitation"])
+        return "\n\n".join(section for section in sections if section)
+    narration = narration.replace(MARKET_TOKEN, "").replace(NOTES_TOKEN, "").strip()
     return table + ("\n\n" + narration if narration else "")
