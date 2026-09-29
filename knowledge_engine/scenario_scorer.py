@@ -8,6 +8,18 @@ single weighted-average score for one structure variant.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+
+
+def contribution_share(contribution_pct: float, total_pct: float | None, minimum_positive_total_pct: float) -> float | None:
+    """Signed fraction of the full variant score, not the displayed subset."""
+    if not math.isfinite(minimum_positive_total_pct) or minimum_positive_total_pct < 0:
+        raise ValueError("Minimum positive total must be finite and non-negative")
+    if total_pct is None or not math.isfinite(total_pct) or total_pct <= minimum_positive_total_pct:
+        return None
+    if not math.isfinite(contribution_pct):
+        return None
+    return contribution_pct / total_pct
 
 
 @dataclass(frozen=True)

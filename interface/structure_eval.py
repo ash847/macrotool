@@ -458,8 +458,14 @@ def _render_cell_drivers(eval_result, structure_id: str, base_ccy: str) -> None:
         return
 
     def _line(c) -> str:
+        from knowledge_engine.loader import load_contribution_display
+        from knowledge_engine.scenario_scorer import contribution_share
+
+        share = contribution_share(c.contrib_pct, ev.score.score_pct,
+                                   load_contribution_display()["minimum_positive_total_pct"])
+        normalized = f"{share:+.1%}" if share is not None else "N/A (total score non-positive, near zero or unavailable)"
         amt = f" ({fmt_ccy(c.contrib_ccy, base_ccy)})" if c.contrib_ccy is not None else ""
-        return f"`{c.contrib_pct:+.2%}`{amt} — {_cell_label(c)}"
+        return f"`{normalized}` of net P&L score — {_cell_label(c)}; original contribution `{c.contrib_pct:+.2%}` of notional{amt}"
 
     st.markdown(f"**Key P&L drivers** — {ev.variant_label} (weighted contribution)")
     col_pos, col_neg = st.columns(2)

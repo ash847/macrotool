@@ -81,6 +81,7 @@ class RecommendedStructure:
     cell_drivers: tuple[list, list] | None = None   # (top contributors, top detractors) —
                                      # CellBreakdown lists from top_bottom_cells(pm_score);
                                      # same numbers as Trade View's "Key P&L drivers" panel
+    score_pct: float | None = None
 
 
 @dataclass
@@ -178,6 +179,7 @@ def _recommend_ranked(
                 rationale=item.rationale,
                 variant=best.variant,
                 score_ccy=best.pm_score.score_ccy,
+                score_pct=best.pm_score.score_pct,
                 major_risk=_major_risk(item.structure_id),
                 priced_structure=_priced_structure_for(
                     item.structure_id, best.variant.variant_label, ms, is_call,
@@ -208,6 +210,7 @@ def _recommend_ranked(
         structure_id="linear", display_name="Linear", rank=0,
         rationale="Modelled linear benchmark; scenario losses are capped, not a contractual loss guarantee.",
         variant=linear_variant, score_ccy=linear_score.score_ccy,
+        score_pct=linear_score.score_pct,
         major_risk="The modelled loss cap is not a guaranteed executable stop or contractual protection.",
         cell_drivers=top_bottom_cells(linear_score),
     ))

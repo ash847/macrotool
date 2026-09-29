@@ -63,6 +63,11 @@ def load_agent_vocabulary() -> dict:
 
 
 @lru_cache(maxsize=None)
+def load_contribution_display() -> dict:
+    return _load(_DEFAULTS_DIR / "contribution_display.json")
+
+
+@lru_cache(maxsize=None)
 def load_sizing_defaults() -> dict:
     return _load(_DEFAULTS_DIR / "sizing_defaults.json")
 
