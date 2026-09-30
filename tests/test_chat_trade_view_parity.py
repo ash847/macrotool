@@ -43,6 +43,9 @@ def test_all_ranked_variants_match_trade_view(direction, method, monkeypatch):
         assert rec.variant.net_premium_pct == pytest.approx(expected.pv.net_premium_pct)
         assert rec.score_ccy == pytest.approx(expected.score.score_ccy)
         assert rec.score_pct == pytest.approx(expected.score.score_pct)
+        assert rec.absolute_contribution_total_pct == pytest.approx(
+            sum(abs(cell.contrib_pct) for cell in expected.score.cells)
+        )
     assert any(rec.structure_id == "linear" for rec in pack.recommended)
     table = render_shortlist(pack, view)
     assert "### Market state" in table and "### Shortlisted structures" in table

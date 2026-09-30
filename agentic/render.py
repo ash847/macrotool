@@ -216,7 +216,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             # structure, with no scores / weights / methodology. The raw driver split
             # (r.drivers) stays server-side; it only DERIVES these tags.
             lines.extend(_findings_lines(r.attributes))
-            lines.extend(_cell_driver_lines(r.cell_drivers, total_pct=r.score_pct))
+            lines.extend(_cell_driver_lines(r.cell_drivers, total_pct=r.absolute_contribution_total_pct))
             # major_risk is intentionally NOT surfaced by default — it's a generic
             # family-level caveat the PM rarely wants unprompted. It stays in the
             # data and is rendered on request via render_recommended (price_structure).
@@ -256,21 +256,19 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
 
 
 def _cell_driver_lines(cell_drivers, indent: str = "     ", total_pct: float | None = None) -> list[str]:
-    """Top / bottom scenario-grid cells by weighted P&L contribution — the specific
-    market outcomes that most help or hurt this structure's ranked score. Percent
-    of the scoring notional (NOT the structure's sized notional shown elsewhere)."""
+    """Signed shares of all absolute contributions, showing the top/bottom cells."""
     if not cell_drivers:
         return []
     pos, neg = cell_drivers
     from knowledge_engine.loader import load_contribution_display
     from knowledge_engine.scenario_scorer import contribution_share
 
-    minimum = load_contribution_display()["minimum_positive_total_pct"]
+    minimum = load_contribution_display()["minimum_absolute_total_pct"]
 
     def contribution_label(cell):
         share = contribution_share(cell.contrib_pct, total_pct, minimum)
-        normalized = f"{share:+.1%}" if share is not None else "N/A (total score unavailable, non-positive or near zero)"
-        return f"{normalized} of net P&L score; original contribution {cell.contrib_pct:+.2%} of scoring notional — {cell_label(cell)}"
+        normalized = f"{share:+.1%}" if share is not None else "N/A (absolute contribution total unavailable or near zero)"
+        return f"{normalized} share of total absolute contribution; original contribution {cell.contrib_pct:+.2%} of trade notional — {cell_label(cell)}"
 
     out = []
     if pos:
@@ -454,7 +452,7 @@ def render_recommended(rec, base_ccy: str = "base ccy") -> str:
     if ccy:
         lines.append("  " + ccy)
     lines.extend(_findings_lines(getattr(rec, "attributes", frozenset()), indent="  "))
-    lines.extend(_cell_driver_lines(getattr(rec, "cell_drivers", None), indent="  ", total_pct=rec.score_pct))
+    lines.extend(_cell_driver_lines(getattr(rec, "cell_drivers", None), indent="  ", total_pct=rec.absolute_contribution_total_pct))
     if rec.major_risk:
         lines.append(f"  risk (engine): {rec.major_risk}")
     lines.append(f"  — {_clean_rationale(rec.rationale)}")

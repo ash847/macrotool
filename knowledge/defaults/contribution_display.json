@@ -1,4 +1,4 @@
 {
-  "_comment": "Percentage values are fractions of notional. 0.0001 = 0.01% = 1 basis point. Totals at or below this positive threshold display N/A, including all negative totals.",
-  "minimum_positive_total_pct": 0.0001
+  "_comment": "Denominator is the sum of absolute weighted contributions across all scenario cells for the variant, in fractions of trade notional. 0.0001 = 0.01% = 1 basis point. Absolute totals at or below this threshold display N/A; negative net scores remain valid.",
+  "minimum_absolute_total_pct": 0.0001
 }
