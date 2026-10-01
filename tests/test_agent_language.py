@@ -84,7 +84,7 @@ def test_comparison_followed_by_sizing_uses_same_pack(context, monkeypatch):
     reference = shortlist_reference(context.pack, context.view)
     llm = FakeToolLLM(script=[
         LLMTurn(text="", tool_calls=[ToolCall("compare", "inspect_recommendations",
-            {"shortlist_ref": reference, "ranks": [1, 3]})], stop_reason="tool_use"),
+            {"shortlist_ref": reference, "ranks": [1, 3], "display": "trade_details"})], stop_reason="tool_use"),
         LLMTurn(text="Comparison from the retained trades.", tool_calls=[], stop_reason="end_turn"),
         LLMTurn(text="", tool_calls=[ToolCall("size", "inspect_recommendations",
             {"shortlist_ref": reference, "ranks": [2]})], stop_reason="tool_use"),

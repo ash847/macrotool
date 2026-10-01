@@ -4,12 +4,24 @@ import hashlib
 import html
 import json
 import math
+import re
 
 from knowledge_engine.loader import load_agent_vocabulary
 
 SHORTLIST_TOKEN = "[[SHORTLIST]]"
 MARKET_TOKEN = "[[MARKET_COMMENTARY]]"
 NOTES_TOKEN = "[[TRADE_NOTES]]"
+INSPECTION_DISPLAYS = ("none", "trade_details", "contributors", "detractors", "drivers", "both")
+
+
+def inspection_tables(display, ranks):
+    kinds = {
+        "none": (), "trade_details": ("trade_details",),
+        "contributors": ("contributors",), "detractors": ("detractors",),
+        "drivers": ("contributors", "detractors"),
+        "both": ("trade_details", "contributors", "detractors"),
+    }
+    return {kind: list(ranks) for kind in kinds[display]}
 
 
 def _cell(value) -> str:
@@ -174,12 +186,56 @@ def shortlist_reference(pack, view) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def present_shortlist(text, pack, view, *, automatic=False, ranks=None) -> str:
-    if not automatic and SHORTLIST_TOKEN not in text:
+def render_driver_table(pack, view, ranks, kind):
+    from knowledge_engine.loader import load_contribution_display
+    from knowledge_engine.scenario_scorer import cell_label, contribution_share
+
+    minimum = load_contribution_display()["minimum_absolute_total_pct"]
+    selected = [rec for rec in pack.recommended if rec.rank in ranks]
+    if not selected:
+        return "No retained recommendations match the requested driver table."
+    heading = "Top contributors" if kind == "contributors" else "Top detractors"
+    sections = [f"### {heading} — {view.pair}"]
+    for rec in selected:
+        sections.append(f"**Rank {rec.rank} · {_cell(rec.display_name)} · {_cell(rec.variant.variant_label)}**")
+        if rec.cell_drivers is None:
+            sections.append("Scenario contribution data unavailable for this variant.")
+            continue
+        cells = rec.cell_drivers[0 if kind == "contributors" else 1]
+        if not cells:
+            sections.append(f"No {'positive' if kind == 'contributors' else 'negative'} weighted contributions reported.")
+            continue
+        rows = ["| Scenario | Share of total absolute contribution |",
+                "| --- | ---: |"]
+        for cell in cells:
+            share = contribution_share(cell.contrib_pct, rec.absolute_contribution_total_pct, minimum)
+            value = f"{share:+.1%}" if share is not None else "N/A"
+            rows.append(f"| {_cell(cell_label(cell))} | {value} |")
+        sections.append("\n".join(rows))
+    sections.append("Signed shares use all scenario cells for each variant, not just the rows shown. "
+                    "They measure relative influence, not probabilities or shares of net profit. "
+                    "N/A means the absolute contribution total is unavailable or near zero.")
+    return "\n\n".join(sections)
+
+
+def render_inspection_tables(pack, view, tables):
+    sections = []
+    for kind in ("trade_details", "contributors", "detractors"):
+        ranks = tables.get(kind, [])
+        if ranks:
+            sections.append(render_shortlist(pack, view, ranks) if kind == "trade_details"
+                            else render_driver_table(pack, view, ranks, kind))
+    return "\n\n".join(sections)
+
+
+def present_shortlist(text, pack, view, *, automatic=False, ranks=None, tables=None) -> str:
+    if tables is None and not automatic and SHORTLIST_TOKEN not in text:
         return text
     if pack is None or view is None:
+        if tables is not None:
+            return "No priced shortlist is available yet."
         return text.replace(SHORTLIST_TOKEN, "No priced shortlist is available yet.")
-    table = render_shortlist(pack, view, ranks)
+    text = re.sub(r"<table\b[^>]*>.*?(?:</table\s*>|$)", "", text, flags=re.IGNORECASE | re.DOTALL)
     lines = text.replace(SHORTLIST_TOKEN, "").splitlines()
     narration_lines = []
     index = 0
@@ -191,7 +247,10 @@ def present_shortlist(text, pack, view, *, automatic=False, ranks=None) -> str:
         else:
             narration_lines.append(lines[index])
             index += 1
-    narration = "\n".join(narration_lines).strip()
+    narration = re.sub(r"```[^\n]*\n\s*```", "", "\n".join(narration_lines)).strip()
+    if tables is not None:
+        narration = narration.replace(MARKET_TOKEN, "").replace(NOTES_TOKEN, "").strip()
+        return "\n\n".join(section for section in (render_inspection_tables(pack, view, tables), narration) if section)
     if ranks is None:
         narration = narration.replace(MARKET_TOKEN, "").strip()
         if NOTES_TOKEN in narration:
@@ -204,4 +263,4 @@ def present_shortlist(text, pack, view, *, automatic=False, ranks=None) -> str:
             sections.append(load_agent_vocabulary()["chat_invitation"])
         return "\n\n".join(section for section in sections if section)
     narration = narration.replace(MARKET_TOKEN, "").replace(NOTES_TOKEN, "").strip()
-    return table + ("\n\n" + narration if narration else "")
+    return render_shortlist(pack, view, ranks) + ("\n\n" + narration if narration else "")

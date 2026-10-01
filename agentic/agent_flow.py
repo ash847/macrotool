@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from agentic.agent_llm import ToolLLM
 from agentic.session import AgentSession
-from agentic.tools import TOOL_SCHEMAS, dispatch
-from agentic.shortlist import present_shortlist
+from agentic.tools import TOOL_SCHEMAS, dispatch, inspection_ranks
+from agentic.shortlist import inspection_tables, present_shortlist
 from knowledge_engine.loader import load_agent_vocabulary
 
 _SYSTEM_PROMPT_TEMPLATE = """You are a structuring assistant for a macro-fund PM trading EM FX options.
@@ -199,6 +199,20 @@ weights remain private. Follow-up detail is on demand. Do not produce detailed v
 For custom-pricing questions answer the custom trade, without [[SHORTLIST]] unless asked
 to redisplay the shortlist. Leg ratios are ratios, not the actual sized notionals.
 
+FOLLOW-UP TABLES: use inspect_recommendations with an explicit display choice and the
+current shortlist reference, even when the facts are already in the conversation.
+Use trade_details for a trade comparison/summary, contributors for positive drivers,
+detractors for negative drivers, drivers for both sides, and both for trade details
+plus contributors/detractors. Use none (the default) for prose-only explanations.
+Select exact ranks, or a family when all its retained variants are requested. Omitted
+ranks mean the current top five, never ranks from an older view. Multiple inspection
+calls can select different tables for different ranks; Python deduplicates the rows.
+Python renders the requested tables from stored engine values, without repricing.
+Do not write Markdown or HTML tables, copy numerical cells, or use [[SHORTLIST]] in
+these follow-ups. Write only concise commentary; Python places the tables above it.
+If a new view also requests drivers, first run the pack, then inspect that new pack
+with display=both. Never reuse an earlier shortlist reference after a view change.
+
 UNVERIFIED REFERENCES: the PM may reference structures, counts, or a list from something you
 cannot see (e.g. a table rendered elsewhere on their screen, "these 5 trades", "the one I
 mentioned earlier"). If it does not match what is in front of you in this conversation, say
@@ -277,13 +291,13 @@ class AgentFlow:
 
         turn = None
         show_shortlist = False
-        selected_ranks = None
+        tables = None
         for _ in range(self.max_rounds):
             turn = self._llm.create(s.messages, system, TOOL_SCHEMAS)
 
             if not turn.tool_calls:
                 reply = present_shortlist(
-                    turn.text, s.pack, s.view, automatic=show_shortlist, ranks=selected_ranks,
+                    turn.text, s.pack, s.view, automatic=show_shortlist, tables=tables,
                 )
                 s.messages.append(self._llm.format_text_reply(reply))
                 return reply
@@ -296,16 +310,22 @@ class AgentFlow:
                 results.append((call, content, is_error))
                 if call.name == "run_standard_pack":
                     show_shortlist = not is_error
-                    selected_ranks = None
+                    tables = None if not is_error else {}
                 elif call.name == "price_structure":
                     show_shortlist = False
-                    selected_ranks = None
-                elif call.name == "inspect_recommendations" and not is_error:
-                    selected_ranks = call.args.get("ranks")
-                    show_shortlist = "family" not in call.args and (selected_ranks is None or len(selected_ranks) > 1)
+                    tables = None
+                elif call.name == "inspect_recommendations":
+                    show_shortlist = False
+                    tables = {} if tables is None else tables
+                    if not is_error:
+                        requested = inspection_tables(call.args.get("display", "none"), inspection_ranks(s.pack, call.args))
+                        for kind, ranks in requested.items():
+                            tables[kind] = sorted(set(tables.get(kind, [])) | set(ranks))
             s.messages.append(self._llm.format_tool_results(results))
 
-        # Bound hit — return whatever text we have, gracefully.
-        return (turn.text if turn else "") or (
-            "I wasn't able to finish that in the available steps — could you narrow the request?"
+        reply = present_shortlist(
+            "I wasn't able to finish the explanation in the available steps — could you narrow the request?",
+            s.pack, s.view, automatic=show_shortlist, tables=tables,
         )
+        s.messages.append(self._llm.format_text_reply(reply))
+        return reply

@@ -30,7 +30,7 @@ from agentic.render import (
 )
 from agentic.session import AgentSession
 from agentic.standard_pack import build_pack
-from agentic.shortlist import render_shortlist, shortlist_reference
+from agentic.shortlist import INSPECTION_DISPLAYS, inspection_tables, render_inspection_tables, render_shortlist, shortlist_reference
 from agentic.structure_request import StructureRequestError, _normalize, _strip_direction_words
 from knowledge_engine.models import TradeView
 
@@ -56,8 +56,12 @@ TOOL_SCHEMAS = [
                 "shortlist_ref": {"type": "string"},
                 "ranks": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1, "maxItems": 5, "uniqueItems": True},
                 "family": {"type": "string"},
+                "display": {
+                    "type": "string", "enum": list(INSPECTION_DISPLAYS),
+                    "description": "Python-rendered output: trade_details for comparisons; contributors or detractors for one side; drivers for both sides; both for trade details plus drivers; none for prose-only inspection (default). Select explicitly even if the facts are already in chat. No numerical tables should be authored by the model.",
+                },
             },
-            "required": ["shortlist_ref"],
+            "required": ["shortlist_ref", "display"],
             "additionalProperties": False,
         },
     },
@@ -146,6 +150,23 @@ class _ToolError(Exception):
     pass
 
 
+def _inspection_family(pack, requested):
+    known_families = {rec.structure_id for rec in pack.recommended}
+    known_families.update(item.structure_id for item in pack.selector_result.shortlist)
+    canonical = requested.strip().lower().replace(" ", "_") if isinstance(requested, str) else None
+    family = canonical if canonical in known_families else _family_only(requested) if isinstance(requested, str) else None
+    if family is None:
+        raise _ToolError("Unknown family reference; ask the PM to name the structure.")
+    return family
+
+
+def inspection_ranks(pack, args):
+    if "family" in args:
+        family = _inspection_family(pack, args["family"])
+        return [rec.rank for rec in pack.recommended if rec.structure_id == family]
+    return args.get("ranks", [rec.rank for rec in pack.recommended[:5]])
+
+
 def _inspect_recommendations(session: AgentSession, args: dict) -> str:
     pack, view = session.pack, session.view
     if pack is None or view is None:
@@ -153,19 +174,17 @@ def _inspect_recommendations(session: AgentSession, args: dict) -> str:
     reference = shortlist_reference(pack, view)
     if args.get("shortlist_ref") != reference:
         raise _ToolError("That shortlist reference is no longer current. Ask which displayed shortlist the PM means; do not reinterpret old ranks against the current list.")
+    display = args.get("display", "none")
+    if display not in INSPECTION_DISPLAYS:
+        raise _ToolError("Choose a supported display: " + ", ".join(INSPECTION_DISPLAYS))
     if "family" in args and "ranks" in args:
         raise _ToolError("Provide ranks or a family, not both.")
     if "family" in args:
-        requested = args["family"]
-        known_families = {rec.structure_id for rec in pack.recommended}
-        known_families.update(item.structure_id for item in pack.selector_result.shortlist)
-        canonical = requested.strip().lower().replace(" ", "_") if isinstance(requested, str) else None
-        family = canonical if canonical in known_families else _family_only(requested) if isinstance(requested, str) else None
-        if family is None:
-            raise _ToolError("Unknown family reference; ask the PM to name the structure.")
+        family = _inspection_family(pack, args["family"])
         matches = [rec for rec in pack.recommended if rec.structure_id == family]
         if matches:
-            return f"SHORTLIST REFERENCE: {reference}\nMultiple variants may share a family; refer to exact ranks.\n" + "\n\n".join(
+            table = render_inspection_tables(pack, view, inspection_tables(display, [rec.rank for rec in matches]))
+            return f"SHORTLIST REFERENCE: {reference}\nMultiple variants may share a family; refer to exact ranks.\n{table}\n" + "\n\n".join(
                 f"Engine rank {rec.rank}: {'in' if rec in pack.recommended[:5] else 'outside'} the displayed top five.\n"
                 + render_recommended(rec, view.pair[:3]) for rec in matches
             )
@@ -180,7 +199,8 @@ def _inspect_recommendations(session: AgentSession, args: dict) -> str:
         raise _ToolError("One or more ranks do not exist in this shortlist. Do not guess a replacement trade.")
     return (
         f"SHORTLIST REFERENCE: {reference}\nAlready-priced trades; no recomputation.\n"
-        + render_shortlist(pack, view, ranks)
+        + (render_inspection_tables(pack, view, inspection_tables(display, ranks))
+           if display != "none" else render_shortlist(pack, view, ranks))
         + "\n\n" + "\n\n".join(render_recommended(rec, view.pair[:3]) for rec in selected)
     )
 
