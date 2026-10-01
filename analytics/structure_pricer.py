@@ -162,6 +162,14 @@ def price_variants(
     PM request. Each override dict must carry the same keys the curated menu uses
     for that ``structure_id``. When None (default), the curated menu is loaded, so
     every existing caller is unchanged.
+
+    A catalog entry marked ``"ranked": false`` is kept out of that curated menu but
+    stays in the catalog, because the catalog is also what *classifies* a PM-named
+    construction. Deleting an entry to shorten the menu therefore makes that
+    construction unknown rather than unavailable, and unknown is refused under a
+    no-tails constraint — which is how a 25Δ vanilla came to be unpriceable. The
+    flag is read here and nowhere else: every lookup that matches a construction
+    against the catalog must still see the full list.
     """
     if variants_override is not None:
         variants = variants_override
@@ -169,7 +177,7 @@ def price_variants(
         cfg = _load_variants()
         if structure_id not in cfg:
             return []
-        variants = cfg[structure_id]
+        variants = [v for v in cfg[structure_id] if v.get("ranked", True)]
     if exclude_loss_beyond_premium:
         variants = [variant for variant in variants if passes_no_tails(variant)]
     if not variants:

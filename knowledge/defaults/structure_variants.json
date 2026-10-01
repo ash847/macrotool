@@ -1,12 +1,15 @@
 {
   "_risk_policy": "can_lose_beyond_premium is a construction-level declaration. No-tails allows only explicit false; missing or non-boolean values are unknown. This does not quantify maximum loss or imply unlimited loss.",
+  "_ranked": "ranked:false keeps a construction in the catalog but off the ranked menu. It is still priceable on request and still carries a risk classification — this catalog is what classifies a PM-named construction, so removing an entry outright makes that construction unknown rather than unavailable, and unknown is refused under a no-tails constraint. Omitted means ranked.",
   "_note": "Parametric variant definitions. Priced at runtime using σ-approximation (ATM vol for all legs).",
 
   "vanilla": [
     {"label": "ATMF (50Δ)", "delta": 0.50, "can_lose_beyond_premium": false},
     {"label": "40Δ OTM",    "delta": 0.40, "can_lose_beyond_premium": false},
     {"label": "30Δ OTM",    "delta": 0.30, "can_lose_beyond_premium": false},
+    {"label": "25Δ OTM",    "delta": 0.25, "can_lose_beyond_premium": false, "ranked": false},
     {"label": "20Δ OTM",    "delta": 0.20, "can_lose_beyond_premium": false},
+    {"label": "15Δ OTM",    "delta": 0.15, "can_lose_beyond_premium": false, "ranked": false},
     {"label": "10Δ OTM",    "delta": 0.10, "can_lose_beyond_premium": false}
   ],
 

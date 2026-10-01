@@ -205,41 +205,53 @@ def test_direction_words_ignored():
 # 9. Parity with the curated menu — grammar is a superset
 # ---------------------------------------------------------------------------
 
-# A request string for each curated variant; must round-trip to the SAME dict.
+# A request string for each curated construction; each must parse to a construction the
+# catalog actually contains. Membership rather than position: these were pinned to list
+# indices, so editing the vanilla ladder silently repointed "vanilla 35Δ" at the 40Δ
+# entry and the failure read as a parser bug rather than a stale fixture.
 _PARITY = {
-    "vanilla": [
-        ("vanilla ATMF", 0), ("vanilla 35Δ", 1), ("vanilla 25Δ", 2),
-        ("vanilla 20Δ", 3), ("vanilla 15Δ", 4), ("vanilla 10Δ", 5),
-    ],
-    "1x1_spread": [
-        ("1x1 ATMF/25Δ", 0), ("1x1 25Δ/10Δ", 1), ("1x1 25Δ/15Δ", 2),
-        ("1x1 40Δ/20Δ", 3), ("1x1 30Δ/10Δ", 4), ("1x1 20Δ/10Δ", 5),
-    ],
-    "1x1.5_spread": [
-        ("1x1.5 ATMF/25Δ", 0), ("1x1.5 25Δ/10Δ", 1),
-    ],
-    "european_digital": [
-        ("digital 30%", 0), ("digital 20%", 1), ("digital 10%", 2),
-    ],
-    "european_rko": [
-        ("erko ATMF/25Δ", 0), ("erko 25Δ/10Δ", 1), ("erko 40Δ/20Δ", 3),
-    ],
-    "seagull": [("seagull ATMF/25Δ/25Δ", 0), ("seagull 25Δ/10Δ/25Δ", 1)],
+    "vanilla": ["vanilla ATMF", "vanilla 40Δ", "vanilla 30Δ", "vanilla 25Δ",
+                "vanilla 20Δ", "vanilla 15Δ", "vanilla 10Δ"],
+    "1x1_spread": ["1x1 ATMF/25Δ", "1x1 25Δ/10Δ", "1x1 25Δ/15Δ",
+                   "1x1 40Δ/20Δ", "1x1 30Δ/10Δ", "1x1 20Δ/10Δ"],
+    "1x1.5_spread": ["1x1.5 ATMF/25Δ", "1x1.5 25Δ/10Δ", "1x1.5 25Δ/15Δ",
+                     "1x1.5 40Δ/20Δ", "1x1.5 30Δ/10Δ", "1x1.5 20Δ/10Δ"],
+    "european_digital": ["digital 30%", "digital 20%", "digital 10%"],
+    "european_rko": ["erko ATMF/25Δ", "erko 25Δ/10Δ", "erko 25Δ/15Δ",
+                     "erko 40Δ/20Δ", "erko 30Δ/10Δ", "erko 20Δ/10Δ"],
+    "seagull": ["seagull ATMF/25Δ/25Δ", "seagull 25Δ/10Δ/25Δ", "seagull 25Δ/15Δ/25Δ"],
 }
 
 
 def _curated_keys(variant: dict) -> dict:
-    """Compare construction terms, not display labels or catalog risk metadata."""
-    return {k: v for k, v in variant.items() if k not in {"label", "can_lose_beyond_premium"}}
+    """Compare construction terms, not display labels or catalog metadata.
+
+    `ranked` says whether the catalog offers a construction on the menu, which is not
+    part of the construction — an unranked entry must still match the request for it.
+    """
+    return {k: v for k, v in variant.items()
+            if k not in {"label", "can_lose_beyond_premium", "ranked"}}
 
 
 def test_parity_with_curated_menu():
+    """Every curated construction is reachable by a request string, and parses to itself."""
     with open(_VARIANTS_PATH) as f:
         menu = json.load(f)
 
-    for family, cases in _PARITY.items():
-        curated_variants = menu[family]
-        for req_str, idx in cases:
+    for family, requests in _PARITY.items():
+        curated = [_curated_keys(v) for v in menu[family]]
+        for req_str in requests:
             ours = _dict_no_label(req_str)
-            theirs = _curated_keys(curated_variants[idx])
-            assert ours == theirs, f"{family} '{req_str}': {ours} != {theirs}"
+            assert ours in curated, f"{family} '{req_str}': {ours} not in {curated}"
+
+
+def test_every_curated_construction_is_covered():
+    """Otherwise a new catalog entry could sit unreachable by any request string."""
+    with open(_VARIANTS_PATH) as f:
+        menu = json.load(f)
+
+    for family, requests in _PARITY.items():
+        parsed = [_dict_no_label(r) for r in requests]
+        for variant in menu[family]:
+            terms = _curated_keys(variant)
+            assert terms in parsed, f"{family} {variant['label']}: no request string covers it"

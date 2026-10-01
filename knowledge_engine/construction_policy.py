@@ -9,8 +9,13 @@ def family_has_no_tail_construction(structure_id: str) -> bool:
 
 
 def configured_additional_loss(structure_id: str, construction: dict) -> bool | None:
-    """Match custom terms, not display labels; unclassified terms remain unknown."""
-    ignored = {"label", "can_lose_beyond_premium"}
+    """Match custom terms, not display labels; unclassified terms remain unknown.
+
+    `ranked` is catalog metadata — whether a construction is offered on the menu —
+    not a term of the construction, so it is ignored like the display label. An entry
+    kept in the catalog purely to stay classifiable has to match the request naming it.
+    """
+    ignored = {"label", "can_lose_beyond_premium", "ranked"}
     terms = {key: value for key, value in construction.items() if key not in ignored}
     matches = [
         declared_additional_loss(item)

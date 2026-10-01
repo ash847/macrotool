@@ -32,7 +32,8 @@ def _declared_tails(family, is_call):
 def construction_tails(family, construction, is_call):
     from analytics.structure_pricer import _load_variants
 
-    ignored = {"label", "can_lose_beyond_premium"}
+    # `ranked` is catalog metadata, not a construction term — see construction_policy.
+    ignored = {"label", "can_lose_beyond_premium", "ranked"}
     terms = {key: value for key, value in construction.items() if key not in ignored}
     matched = any({key: value for key, value in item.items() if key not in ignored} == terms
                   for item in _load_variants().get(family, []))
