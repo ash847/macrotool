@@ -144,7 +144,7 @@ def test_schema_exposes_only_supported_display_choices():
     schema = next(tool for tool in TOOL_SCHEMAS if tool["name"] == "inspect_recommendations")
     assert "display" in schema["input_schema"]["required"]
     assert set(schema["input_schema"]["properties"]["display"]["enum"]) == {
-        "none", "trade_details", "contributors", "detractors", "drivers", "both",
+        "none", "trade_details", "contributors", "detractors", "drivers", "both", "dashboard",
     }
 
 

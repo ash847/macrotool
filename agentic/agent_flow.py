@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from agentic.agent_llm import ToolLLM
 from agentic.session import AgentSession
-from agentic.tools import TOOL_SCHEMAS, dispatch, inspection_ranks
-from agentic.shortlist import inspection_tables, present_shortlist
+from agentic.tools import TOOL_SCHEMAS, dispatch, requested_inspection_tables
+from agentic.shortlist import present_shortlist
 from knowledge_engine.loader import load_agent_vocabulary
 
 _SYSTEM_PROMPT_TEMPLATE = """You are a structuring assistant for a macro-fund PM trading EM FX options.
@@ -217,7 +217,7 @@ to redisplay the shortlist. Leg ratios are ratios, not the actual sized notional
 
 FOLLOW-UP TABLES: use inspect_recommendations with an explicit display choice and the
 current shortlist reference, even when the facts are already in the conversation.
-Use trade_details for a trade comparison/summary, contributors for positive drivers,
+Use trade_details for the legacy trade-detail comparison, contributors for positive drivers,
 detractors for negative drivers, drivers for both sides, and both for trade details
 plus contributors/detractors. Use none (the default) for prose-only explanations.
 Select exact ranks, or a family when all its retained variants are requested. Omitted
@@ -227,7 +227,26 @@ Python renders the requested tables from stored engine values, without repricing
 Do not write Markdown or HTML tables, copy numerical cells, or use [[SHORTLIST]] in
 these follow-ups. Write only concise commentary; Python places the tables above it.
 If a new view also requests drivers, first run the pack, then inspect that new pack
-with display=both. Never reuse an earlier shortlist reference after a view change.
+with display=dashboard for a single combined table or display=both for separate tables.
+Never reuse an earlier shortlist reference after a view change.
+
+FLEXIBLE DASHBOARDS: for a single combined table, a summary dashboard, selected fields,
+or trades as columns, use inspect_recommendations with display=dashboard. Set layout to
+trades_as_columns (default) or trades_as_rows, fields to the requested allowed field names
+in the requested order, and driver_count=1 for top-one drivers (up to 3 available).
+You control presentation, not numbers: Python supplies and formats every numerical cell.
+The default dashboard includes legs, notional, premium, target P&L, target return on
+premium, loss budget, sizing loss proxy, additional-loss flag, directional tails and
+the top contributor. Add top_detractor when requested. Missing engine facts stay unavailable.
+Use this default for an unspecified summary dashboard; do not demand a full list of rows.
+If fields/ranks/layout were already specified in this chat, carry them into the next
+request (including "yes" confirmations or "transpose that") without asking again.
+Call the tool now rather than promising to call it later. Do not claim an action was
+performed without a successful tool result in this turn. Never refuse a supported
+layout or ask the PM to build another frontend. If a field/layout is unsupported, state
+the limitation briefly and offer the supported equivalent. Do not claim the output
+contains a field unless it is actually rendered. Do not repeat the entire dashboard
+as prose; add at most a short, relevant interpretation. A sizing proxy is never a loss bound.
 
 UNVERIFIED REFERENCES: the PM may reference structures, counts, or a list from something you
 cannot see (e.g. a table rendered elsewhere on their screen, "these 5 trades", "the one I
@@ -334,9 +353,14 @@ class AgentFlow:
                     show_shortlist = False
                     tables = {} if tables is None else tables
                     if not is_error:
-                        requested = inspection_tables(call.args.get("display", "none"), inspection_ranks(s.pack, call.args))
-                        for kind, ranks in requested.items():
-                            tables[kind] = sorted(set(tables.get(kind, [])) | set(ranks))
+                        requested = requested_inspection_tables(s.pack, call.args)
+                        if "dashboard" in requested:
+                            tables = requested
+                        else:
+                            if requested and "dashboard" in tables:
+                                tables = {}
+                            for kind, ranks in requested.items():
+                                tables[kind] = sorted(set(tables.get(kind, [])) | set(ranks))
             s.messages.append(self._llm.format_tool_results(results))
 
         reply = present_shortlist(

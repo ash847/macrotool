@@ -33,6 +33,7 @@ from agentic.standard_pack import build_pack
 from agentic.shortlist import INSPECTION_DISPLAYS, inspection_tables, render_inspection_tables, render_shortlist, shortlist_reference
 from agentic.structure_request import StructureRequestError, _normalize, _strip_direction_words
 from knowledge_engine.models import TradeView
+from agentic.dashboard import FIELD_LABELS, LAYOUTS
 from knowledge_engine.tail_policy import TAIL_CONSTRAINTS, assign_variant_tails, tail_exclusion_reason, tail_risk_text
 
 # A leg token is present if the remainder has a digit, %, or a leg keyword.
@@ -65,9 +66,12 @@ TOOL_SCHEMAS = [
                 "shortlist_ref": {"type": "string"},
                 "ranks": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1, "maxItems": 5, "uniqueItems": True},
                 "family": {"type": "string"},
+                "layout": {"type": "string", "enum": list(LAYOUTS), "description": "With display=dashboard: trades_as_columns for one transposed table (default), or trades_as_rows."},
+                "fields": {"type": "array", "items": {"type": "string", "enum": list(FIELD_LABELS)}, "minItems": 1, "maxItems": len(FIELD_LABELS), "uniqueItems": True, "description": "With display=dashboard: requested fields in presentation order. Omit for the standard summary, including loss budget, sizing loss proxy, directional tails and top contributor. No cell values are accepted."},
+                "driver_count": {"type": "integer", "minimum": 1, "maximum": 3, "description": "With display=dashboard: how many retained contributors/detractors per trade; default 1."},
                 "display": {
                     "type": "string", "enum": list(INSPECTION_DISPLAYS),
-                    "description": "Python-rendered output: trade_details for comparisons; contributors or detractors for one side; drivers for both sides; both for trade details plus drivers; none for prose-only inspection (default). Select explicitly even if the facts are already in chat. No numerical tables should be authored by the model.",
+                    "description": "Python-rendered output: dashboard for one combined table with configurable fields, layout and driver_count; trade_details for the legacy comparison; contributors or detractors for one side; drivers for both sides; both for separate details and driver tables; none for prose-only inspection. Select explicitly even if the facts are already in chat. Do not supply numerical cells.",
                 },
             },
             "required": ["shortlist_ref", "display"],
@@ -179,6 +183,14 @@ def inspection_ranks(pack, args):
     return args.get("ranks", [rec.rank for rec in pack.recommended[:5]])
 
 
+def requested_inspection_tables(pack, args):
+    try:
+        return inspection_tables(args.get("display", "none"), inspection_ranks(pack, args),
+                                 layout=args.get("layout"), fields=args.get("fields"), driver_count=args.get("driver_count"))
+    except ValueError as error:
+        raise _ToolError(str(error)) from error
+
+
 def _inspect_recommendations(session: AgentSession, args: dict) -> str:
     pack, view = session.pack, session.view
     if pack is None or view is None:
@@ -191,11 +203,17 @@ def _inspect_recommendations(session: AgentSession, args: dict) -> str:
         raise _ToolError("Choose a supported display: " + ", ".join(INSPECTION_DISPLAYS))
     if "family" in args and "ranks" in args:
         raise _ToolError("Provide ranks or a family, not both.")
+    if set(args) - {"shortlist_ref", "display", "ranks", "family", "layout", "fields", "driver_count"}:
+        raise _ToolError("Unsupported parameters: choose presentation fields, never supply numerical cell values.")
+    try:
+        inspection_tables(display, [], layout=args.get("layout"), fields=args.get("fields"), driver_count=args.get("driver_count"))
+    except ValueError as error:
+        raise _ToolError(str(error)) from error
     if "family" in args:
         family = _inspection_family(pack, args["family"])
         matches = [rec for rec in pack.recommended if rec.structure_id == family]
         if matches:
-            table = render_inspection_tables(pack, view, inspection_tables(display, [rec.rank for rec in matches]))
+            table = render_inspection_tables(pack, view, requested_inspection_tables(pack, args))
             return f"SHORTLIST REFERENCE: {reference}\nMultiple variants may share a family; refer to exact ranks.\n{table}\n" + "\n\n".join(
                 f"Engine rank {rec.rank}: {'in' if rec in pack.recommended[:5] else 'outside'} the displayed top five.\n"
                 + render_recommended(rec, view.pair[:3]) for rec in matches
@@ -214,9 +232,10 @@ def _inspect_recommendations(session: AgentSession, args: dict) -> str:
     selected = [rec for rec in pack.recommended if rec.rank in ranks]
     if len(selected) != len(ranks):
         raise _ToolError("One or more ranks do not exist in this shortlist. Do not guess a replacement trade.")
+    requested = requested_inspection_tables(pack, args)
     return (
         f"SHORTLIST REFERENCE: {reference}\nAlready-priced trades; no recomputation.\n"
-        + (render_inspection_tables(pack, view, inspection_tables(display, ranks))
+        + (render_inspection_tables(pack, view, requested)
            if display != "none" else render_shortlist(pack, view, ranks))
         + "\n\n" + "\n\n".join(render_recommended(rec, view.pair[:3]) for rec in selected)
     )

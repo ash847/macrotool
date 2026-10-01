@@ -12,10 +12,26 @@ from knowledge_engine.tail_policy import tail_constraint_label, tail_risk_text
 SHORTLIST_TOKEN = "[[SHORTLIST]]"
 MARKET_TOKEN = "[[MARKET_COMMENTARY]]"
 NOTES_TOKEN = "[[TRADE_NOTES]]"
-INSPECTION_DISPLAYS = ("none", "trade_details", "contributors", "detractors", "drivers", "both")
+INSPECTION_DISPLAYS = ("none", "trade_details", "contributors", "detractors", "drivers", "both", "dashboard")
 
 
-def inspection_tables(display, ranks):
+def inspection_tables(display, ranks, *, layout=None, fields=None, driver_count=None):
+    from agentic.dashboard import DEFAULT_FIELDS, FIELD_LABELS, LAYOUTS
+
+    if display == "dashboard":
+        layout = "trades_as_columns" if layout is None else layout
+        fields = list(DEFAULT_FIELDS) if fields is None else fields
+        driver_count = 1 if driver_count is None else driver_count
+        if layout not in LAYOUTS:
+            raise ValueError("Choose trades_as_columns or trades_as_rows for layout.")
+        if (not isinstance(fields, list) or not fields or any(not isinstance(field, str) or field not in FIELD_LABELS for field in fields)
+                or len(set(fields)) != len(fields)):
+            raise ValueError("Choose distinct supported dashboard fields: " + ", ".join(FIELD_LABELS))
+        if type(driver_count) is not int or not 1 <= driver_count <= 3:
+            raise ValueError("driver_count must be an integer from 1 to 3 (retained top drivers only).")
+        return {"dashboard": {"ranks": list(ranks), "layout": layout, "fields": list(fields), "driver_count": driver_count}}
+    if any(value is not None for value in (layout, fields, driver_count)):
+        raise ValueError("Use display=dashboard to select fields, layout or driver_count.")
     kinds = {
         "none": (), "trade_details": ("trade_details",),
         "contributors": ("contributors",), "detractors": ("detractors",),
@@ -227,6 +243,9 @@ def render_driver_table(pack, view, ranks, kind):
 
 
 def render_inspection_tables(pack, view, tables):
+    if "dashboard" in tables:
+        from agentic.dashboard import render_dashboard
+        return render_dashboard(pack, view, **tables["dashboard"])
     sections = []
     for kind in ("trade_details", "contributors", "detractors"):
         ranks = tables.get(kind, [])
