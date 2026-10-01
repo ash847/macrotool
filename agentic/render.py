@@ -14,7 +14,7 @@ from agentic.standard_pack import StandardPack
 from agentic.shortlist import render_shortlist, shortlist_reference
 from analytics.product_model import AnchorKind
 from knowledge_engine.models import TradeView
-from knowledge_engine.payoff_profile import payoff_profile, render_payoff
+from knowledge_engine.payoff_risk import payoff_risk_note
 from knowledge_engine.scenario_scorer import cell_label
 
 _TOP_N = 5   # recommended structures shown by default; rest surfaced only on request
@@ -68,31 +68,11 @@ def _legs_breakdown(ps, base_notional: float | None = None, ccy: str = "") -> li
 
 
 def _payoff_line(priced_structure, variant, structure_id: str, indent: str = "     ") -> str | None:
-    """The engine-authored PAYOFF line (terminal geometry) for one priced structure.
-
-    Best-effort — mirrors the per-leg breakdown, which also needs the product-model
-    ``priced_structure``. Every number it prints (strikes / barrier) is already shown
-    elsewhere in the pack; the line only connects them, so no number is minted and the
-    'numbers come from a tool' invariant holds. The agent relays this INSTEAD of
-    authoring payoff geometry itself.
-    """
+    """Render deterministic expiry risk and net-loss thresholds from priced legs."""
     if priced_structure is None or not getattr(priced_structure, "priced_legs", None):
         return None
-    legs = [
-        (pl.notional, pl.strike, pl.leg.right.value == "call")
-        for pl in priced_structure.priced_legs
-    ]
     is_call = priced_structure.priced_legs[0].leg.right.value == "call"
-    prof = payoff_profile(
-        structure_id,
-        legs,
-        net_premium_pct=variant.net_premium_pct,
-        is_zero_cost=variant.is_zero_cost,
-        is_call=is_call,
-        strikes=list(variant.strikes),
-        barrier=variant.barrier,
-    )
-    return render_payoff(prof, indent) if prof else None
+    return f"{indent}PAYOFF: " + payoff_risk_note(structure_id, variant, priced_structure, is_call)
 
 
 def _trade_tag(pack, view) -> str:
@@ -189,7 +169,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
                 f"fixed-loss instead. LEAD your reply with this: say the sizes are fixed-loss "
                 f"because there is no distribution for this pair/expiry, and ask them to set "
                 f"one up (sizing settings above the chat) to size under Kelly. Each variant is "
-                f"sized using a loss budget of {pack.loss_budget:,.0f} {base_ccy} "
+                f"sized using an internal reference input of {pack.loss_budget:,.0f} {base_ccy} "
                 f"(= W × the R:R-derived sizing-reference distance); this is not a contractual "
                 f"loss limit or an assumed stop execution. {cap_note}, net-credit fixed at 10×W. Never "
                 f"state a Kelly number for this trade."
@@ -197,7 +177,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         elif pack.loss_budget is not None:
             lines.append(
                 f"  SIZING REGIME: FIXED-LOSS (the PM is operating under fixed-loss sizing — use "
-                f"ONLY this regime's framing). Loss budget = "
+                f"ONLY this regime's framing). Internal reference input = "
                 f"{pack.loss_budget:,.0f} {base_ccy} (= W × the R:R-derived sizing-reference distance). "
                 f"The reference is used to calculate spend, not an assumed trade exit. "
                 f"Sizing uses the stated proxy, subject to caps; the budget is not a contractual loss limit. "
@@ -222,9 +202,6 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
             # (r.drivers) stays server-side; it only DERIVES these tags.
             lines.extend(_findings_lines(r.attributes))
             lines.extend(_cell_driver_lines(r.cell_drivers, total_pct=r.absolute_contribution_total_pct))
-            # major_risk is intentionally NOT surfaced by default — it's a generic
-            # family-level caveat the PM rarely wants unprompted. It stays in the
-            # data and is rendered on request via render_recommended (price_structure).
             lines.append(f"     — {_clean_rationale(r.rationale)}")
         extra = len(pack.recommended) - len(top)
         if extra > 0:
@@ -322,7 +299,7 @@ def _sizing_explanation(v, ccy: str) -> str | None:
     if trace.fallback_reason:
         parts.append(f"Fallback reason: {trace.fallback_reason}")
     if trace.loss_budget is not None:
-        parts.append(f"Input loss budget={trace.loss_budget:,.2f} {ccy} (not a contractual loss limit)")
+        parts.append(f"Internal reference input={trace.loss_budget:,.2f} {ccy} (explain only on sizing-method requests)")
     if trace.budget_distance is not None:
         parts.append(
             f"Budget origin: reference capital × {trace.budget_distance:.6%}; "
@@ -360,14 +337,14 @@ def _ccy_summary(v, ccy: str = "base ccy") -> str | None:
     economics = getattr(v, "economics", None)
     if economics is not None:
         for label, fraction in (
-            ("sizing loss proxy", economics.sizing_loss_pct),
+            ("Loss budget", economics.sizing_loss_pct),
             ("contractual maximum loss", economics.contractual_max_loss_pct),
             ("net P&L at target", economics.target_net_pnl_pct),
         ):
             if fraction is not None:
                 parts.append(f"{label}≈{fraction * notional:,.0f} {ccy}")
-        if economics.loss_budget is not None:
-            parts.append(f"loss budget={economics.loss_budget:,.0f} {ccy} (not a guaranteed loss limit)")
+    elif v.max_loss_ccy is not None:
+        parts.append(f"Loss budget≈{v.max_loss_ccy:,.0f} {ccy} (sizing amount, not a guaranteed maximum loss)")
     explanation = _sizing_explanation(v, ccy)
     if explanation:
         parts.append(explanation)
@@ -401,7 +378,7 @@ def _variant_summary(v) -> str:
         parts.append("financial definitions unavailable; do not infer maximum loss or target return")
     else:
         if economics.sizing_loss_pct is not None:
-            parts.append(f"sizing loss proxy={economics.sizing_loss_pct:.2%} ({economics.sizing_loss_method})")
+            parts.append(f"internal per-unit sizing input={economics.sizing_loss_pct:.2%} ({economics.sizing_loss_method}; explain only on sizing-method requests)")
         if economics.contractual_max_loss_pct is None:
             parts.append(f"contractual maximum loss: {economics.contractual_loss_status} — {economics.contractual_loss_reason}")
         else:

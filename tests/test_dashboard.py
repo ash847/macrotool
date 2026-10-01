@@ -39,7 +39,7 @@ def test_original_gbpusd_request_renders_one_transposed_table_without_repricing(
     monkeypatch.setattr("agentic.tools.build_pack", fail)
     monkeypatch.setattr("agentic.tools.price_structure", fail)
     fields = ["legs", "notional", "premium", "target_pnl", "target_return_on_premium", "loss_budget",
-              "sizing_loss_proxy", "additional_loss_beyond_premium", "directional_tails", "top_contributor", "top_detractor"]
+              "additional_loss_beyond_premium", "directional_tails", "top_contributor", "top_detractor"]
     args = _args(context, layout="trades_as_columns", fields=fields, driver_count=1)
     llm = FakeToolLLM(script=[
         LLMTurn("", [ToolCall("summary", "inspect_recommendations", args)], "tool_use"),
@@ -54,7 +54,8 @@ def test_original_gbpusd_request_renders_one_transposed_table_without_repricing(
         assert line.startswith("| " + FIELD_LABELS[field] + " |")
     assert "### Top contributors" not in reply and "Trade comparison" not in reply
     assert session.pack is context[3] and session.messages[-1]["content"] == reply
-    assert "| Loss budget (reference) |" in reply and "| Sizing loss proxy |" in reply
+    assert reply.count("| Loss budget |") == 1
+    assert "| Sizing loss proxy |" not in reply and "| Loss budget (reference) |" not in reply
     assert reply.count("| Metric |") == 1
 
 
@@ -78,6 +79,21 @@ def test_table_cells_do_not_require_html_line_breaks(context, display):
     assert "<br>" not in text
     assert "&lt;br&gt;" not in text
     assert "; " in text
+
+
+def test_risk_notes_use_variant_facts_in_pack_dashboard_and_agent_context(context):
+    from html import unescape
+    from agentic.render import render_recommended
+    from knowledge_engine.payoff_risk import payoff_risk_note
+    _, _, view, pack = context
+    for rec in pack.recommended:
+        expected = payoff_risk_note(rec.structure_id, rec.variant, rec.priced_structure, pack.is_call)
+        assert rec.major_risk == expected
+        assert expected in render_recommended(rec)
+        assert unescape(dashboard_cells(rec, pack, view, 1)["risk_note"]) == expected
+    table = render_dashboard(pack, view, [1], "trades_as_columns", ["risk_note"], 1)
+    assert "| Payoff / risk |" in table
+    assert "Engine risk note" not in table
 
 
 def test_default_summary_needs_no_layout_or_field_confirmation(context):
@@ -128,15 +144,33 @@ def test_financial_cells_match_canonical_engine_facts(context):
         cells = dashboard_cells(rec, pack, view, 1)
         variant = rec.variant
         assert cells["notional"] == f"{variant.structure_notional:,.2f} GBP"
-        assert cells["loss_budget"] == f"{pack.loss_budget:,.2f} GBP"
         if variant.economics is not None:
             economics = variant.economics
             assert cells["target_pnl"].startswith(f"{economics.target_net_pnl_pct * variant.structure_notional:,.2f} GBP")
-            assert cells["sizing_loss_proxy"] == f"{economics.sizing_loss_pct * variant.structure_notional:,.2f} GBP"
+            assert cells["loss_budget"] == f"{economics.sizing_loss_pct * variant.structure_notional:,.2f} GBP"
             if economics.ratio_status == "not_applicable":
                 assert cells["target_return_on_premium"] == "N/A — no premium outlay"
         else:
             assert cells["target_pnl"] == "Unavailable" and cells["target_return_on_premium"] == "Unavailable"
+
+
+@pytest.mark.parametrize("method", ["fixed_loss", "kelly"])
+@pytest.mark.parametrize("notional", [3000000, 0, None])
+def test_one_budget_uses_actual_size_not_reference_input(context, method, notional):
+    _, _, view, original_pack = context
+    pack = replace(original_pack, loss_budget=999999, sizing_method=method)
+    original = next(rec for rec in pack.recommended if rec.variant.economics is not None)
+    economics = replace(original.variant.economics, sizing_loss_pct=0.02, loss_budget=999999)
+    variant = replace(original.variant, economics=economics, structure_notional=notional)
+    rec = replace(original, variant=variant)
+    cells = dashboard_cells(rec, pack, view, 1)
+    assert cells["loss_budget"] == ("Unavailable" if notional is None else f"{notional * 0.02:,.2f} GBP")
+    assert "sizing_loss_proxy" not in cells and "sizing_loss_proxy" not in FIELD_LABELS
+    table = render_dashboard(replace(pack, recommended=[rec]), view, [rec.rank], "trades_as_columns", DEFAULT_FIELDS, 1)
+    assert table.count("| Loss budget |") == 1
+    assert "999,999" not in table
+    assert "Loss budget is a sizing amount, not a guaranteed maximum loss. Some structures can lose more." in table
+    assert "No tail does not mean no risk" not in table
 
 
 def test_missing_size_and_zero_allocations_are_not_fabricated(context):

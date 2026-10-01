@@ -14,11 +14,10 @@ FIELD_LABELS = {
     "premium": "Premium (paid / received)",
     "target_pnl": "Net P&L at target",
     "target_return_on_premium": "Target return on premium",
-    "loss_budget": "Loss budget (reference)",
-    "sizing_loss_proxy": "Sizing loss proxy",
+    "loss_budget": "Loss budget",
     "additional_loss_beyond_premium": "Additional loss beyond premium?",
     "directional_tails": "Directional tails",
-    "risk_note": "Engine risk note",
+    "risk_note": "Payoff / risk",
     "top_contributor": "Top contributor",
     "top_detractor": "Top detractor",
 }
@@ -68,8 +67,7 @@ def dashboard_cells(rec, pack, view, driver_count):
             amount = _money(abs(variant.net_premium_ccy), currency) if variant.net_premium_ccy is not None else "Amount unavailable"
             premium = f"{'Pay' if fraction > 0 else 'Receive'} {amount}; {abs(fraction):.2%} of notional"
     pnl = ratio = "Unavailable"
-    proxy = "N/A — linear benchmark" if rec.structure_id == "linear" else "Unavailable"
-    budget = pack.loss_budget
+    budget = _money(variant.max_loss_ccy, currency) if rec.structure_id == "linear" else "Unavailable"
     if economics is not None:
         pnl = _scaled(economics.target_net_pnl_pct, variant.structure_notional, currency)
         pnl += f"; {economics.evaluation_days}d · {'expiry' if economics.valuation_kind == 'expiry_payoff' else 'MtM'}"
@@ -79,15 +77,13 @@ def dashboard_cells(rec, pack, view, driver_count):
             ratio = "N/A — no premium outlay"
         else:
             ratio = "Unavailable — " + _cell(economics.ratio_reason or "not calculated")
-        proxy = _scaled(economics.sizing_loss_pct, variant.structure_notional, currency)
-        if economics.loss_budget is not None:
-            budget = economics.loss_budget
+        budget = _scaled(economics.sizing_loss_pct, variant.structure_notional, currency)
     flag = variant.can_lose_beyond_premium
     return {
         "legs": "; ".join(legs) or "Unavailable — leg details not retained",
         "notional": _money(variant.structure_notional, currency),
         "premium": premium, "target_pnl": pnl, "target_return_on_premium": ratio,
-        "loss_budget": _money(budget, currency), "sizing_loss_proxy": proxy,
+        "loss_budget": budget,
         "additional_loss_beyond_premium": "Yes" if flag is True else "No" if flag is False else "Unknown",
         "directional_tails": _cell(tail_risk_text(variant)),
         "risk_note": _cell(rec.major_risk) if rec.major_risk else "Unavailable — no retained risk note",
@@ -113,7 +109,7 @@ def render_dashboard(pack, view, ranks, layout, fields, driver_count):
     notes = [f"**Trade dashboard — {view.pair}**", "\n".join(rows)]
     if pack.target is not None:
         notes.append(f"Target spot: {pack.target:.4f}. Target P&L is net of entry premium at the horizon shown.")
-    notes.append("Loss budget and sizing loss proxy are sizing references, not contractual loss bounds or guaranteed stops. No tail does not mean no risk.")
+    notes.append("Loss budget is a sizing amount, not a guaranteed maximum loss. Some structures can lose more.")
     if any(field in fields for field in ("top_contributor", "top_detractor")):
         notes.append("Driver shares use the total absolute contribution across all scenario cells for that variant, not just displayed drivers. They are not probabilities or shares of net profit. N/A means the denominator is unavailable or near zero.")
     if pack.resolved_tail_constraint != "none":

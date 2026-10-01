@@ -14,7 +14,18 @@ Dashboard presentation controls (no cell values are accepted):
 - `layout`: `trades_as_columns` or `trades_as_rows`.
 - `fields`: ordered, unique field IDs from the tool schema. Omit for the standard
   summary: legs, notional, premium, target P&L, target return on premium, loss
-  budget, sizing loss proxy, additional-loss flag, directional tails, top contributor.
+  budget, additional-loss flag, directional tails, top contributor.
+
+The single user-facing **Loss budget** is the per-unit sizing proxy multiplied by
+the final sized notional, not the pre-cap reference input. This applies in both
+fixed-loss and Kelly modes. The linear benchmark uses its retained modelled loss
+amount. Missing amounts remain unavailable; zero allocations display zero.
+Internal reference budgets and sizing methods remain in audit context and are
+explained only on request. The separate `sizing_loss_proxy` dashboard field has
+been removed. Pricing and sizing calculations are unchanged.
+
+Disclaimer: "Loss budget is a sizing amount, not a guaranteed maximum loss. Some
+structures can lose more."
   Optional fields include the retained risk note and top detractor.
 - `driver_count`: 1–3 retained drivers per side per trade; defaults to 1.
 

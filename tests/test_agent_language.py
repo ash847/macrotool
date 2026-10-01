@@ -40,6 +40,25 @@ def test_missing_money_is_not_zero(value):
     assert _money(value, "USD") == "Unavailable"
 
 
+def test_single_loss_budget_instructions():
+    prompt = build_system_prompt(["USDCNH"])
+    assert 'use one label, "Loss budget"' in prompt
+    assert 'Do not show a second "sizing loss proxy" amount' in prompt
+    assert "fixed-loss and Kelly regimes" in prompt
+    assert "say unavailable rather than use the reference input" in prompt
+
+
+def test_tail_ambiguity_rules_are_in_assembled_prompt():
+    prompt = build_system_prompt(["USDCNH"])
+    assert 'Bare "avoid tails", "no tails", or "avoid wings"' in prompt
+    assert 'Both sides, or only higher/lower spot?' in prompt
+    assert '"Wings" is not an unconditional synonym for tails' in prompt
+    assert "tail-loss exposure or option legs" in prompt
+    assert "Until clarified, keep existing preferences unchanged" in prompt
+    assert "do not call set_tail_constraint" in prompt
+    assert "not a default interpretation of ambiguous user wording" in prompt
+
+
 def test_approved_vocabulary_is_used_by_prompt_and_renderer(context):
     vocabulary = load_agent_vocabulary()
     prompt = build_system_prompt([context.view.pair])

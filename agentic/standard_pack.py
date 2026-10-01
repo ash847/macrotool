@@ -32,18 +32,6 @@ def target_from_reference(
     return reference * (1 + sign * magnitude_pct / 100)
 
 
-def _major_risk(structure_id: str) -> str:
-    """The engine's canonical primary-risk text for a structure (from profiles).
-
-    Used so the LLM relays the correct risk instead of inventing payoff geometry.
-    """
-    try:
-        from knowledge_engine.loader import load_structure_profiles
-        return load_structure_profiles().get(structure_id, {}).get("major_risk", "") or ""
-    except Exception:
-        return ""
-
-
 def _priced_structure_for(family, label, ms, is_call, target, surface, stop_price):
     """The product-model PricedStructure (legs first-class) for a recommended variant,
     looked up by family+label. Used so the renderer can show explicit legs (deltas /
@@ -73,7 +61,7 @@ class RecommendedStructure:
     rationale: str
     variant: PricedVariant
     score_ccy: float | None = None   # scenario-weighted P&L the variant was ranked on
-    major_risk: str = ""             # engine's canonical primary risk (from profiles)
+    major_risk: str = ""
     priced_structure: object | None = None   # product-model PricedStructure (legs first-class)
     drivers: dict | None = None      # P&L driver split (Carry/Directional/Adverse/Vega), pct
                                      # — kept server-side for derivation; NOT rendered to the LLM
@@ -186,7 +174,6 @@ def _recommend_ranked(
                 score_ccy=best.pm_score.score_ccy,
                 score_pct=best.pm_score.score_pct,
                 absolute_contribution_total_pct=best.pm_score.absolute_contribution_total_pct,
-                major_risk=_major_risk(item.structure_id),
                 priced_structure=_priced_structure_for(
                     item.structure_id, best.variant.variant_label, ms, is_call,
                     target, surface, stop_price,
@@ -292,7 +279,6 @@ def _price_recommended_fallback(
                 rank=item.rank,
                 rationale=item.rationale,
                 variant=rep,
-                major_risk=_major_risk(item.structure_id),
                 priced_structure=_priced_structure_for(
                     item.structure_id, rep.variant_label, ms, is_call, target, surface, None,
                 ),
@@ -456,6 +442,13 @@ def build_pack(
         market_quotes = {"rr25": call_vol - put_vol, "fly25": 0.5 * (call_vol + put_vol) - market_state.vol}
     except (ValueError, KeyError, TypeError):
         pass
+
+    from knowledge_engine.payoff_risk import payoff_risk_note
+    for recommendation in recommended:
+        recommendation.major_risk = payoff_risk_note(
+            recommendation.structure_id, recommendation.variant,
+            recommendation.priced_structure, is_call,
+        )
 
     return StandardPack(
         market_state=market_state,

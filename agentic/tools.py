@@ -67,7 +67,7 @@ TOOL_SCHEMAS = [
                 "ranks": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1, "maxItems": 5, "uniqueItems": True},
                 "family": {"type": "string"},
                 "layout": {"type": "string", "enum": list(LAYOUTS), "description": "With display=dashboard: trades_as_columns for one transposed table (default), or trades_as_rows."},
-                "fields": {"type": "array", "items": {"type": "string", "enum": list(FIELD_LABELS)}, "minItems": 1, "maxItems": len(FIELD_LABELS), "uniqueItems": True, "description": "With display=dashboard: requested fields in presentation order. Omit for the standard summary, including loss budget, sizing loss proxy, directional tails and top contributor. No cell values are accepted."},
+                "fields": {"type": "array", "items": {"type": "string", "enum": list(FIELD_LABELS)}, "minItems": 1, "maxItems": len(FIELD_LABELS), "uniqueItems": True, "description": "With display=dashboard: requested fields in presentation order. Omit for the standard summary, including one loss budget for the actual sized trade, directional tails and top contributor. No cell values are accepted."},
                 "driver_count": {"type": "integer", "minimum": 1, "maximum": 3, "description": "With display=dashboard: how many retained contributors/detractors per trade; default 1."},
                 "display": {
                     "type": "string", "enum": list(INSPECTION_DISPLAYS),
