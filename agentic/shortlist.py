@@ -176,7 +176,7 @@ def render_trade_tables(pack, view) -> str:
         variant = rec.variant
         strikes = " / ".join(f"{strike:.4f}" for strike in variant.strikes) or "—"
         notional = "—" if variant.structure_notional is None else f"{'-' if variant.structure_notional < 0 else ''}{view.pair[:3]} {abs(variant.structure_notional):,.0f}"
-        row = f"| {rec.rank} | {_cell(rec.display_name)}<br>{_cell(tail_risk_text(variant))} | {_cell(variant.variant_label)} | {strikes} | {notional} | {variant.net_premium_pct:+.2%} |"
+        row = f"| {rec.rank} | {_cell(rec.display_name)} | {_cell(variant.variant_label)} | {strikes} | {notional} | {variant.net_premium_pct:+.2%} |"
         if kelly:
             risk = "—" if variant.kelly_fraction is None else f"{variant.kelly_fraction * (variant.max_loss_pct or 0.0):.0%}"
             row += f" {risk} |"
@@ -186,7 +186,6 @@ def render_trade_tables(pack, view) -> str:
         rows.append(f"Active tail constraint: {tail_constraint_label(pack.tail_constraint)}; effective: {tail_constraint_label(pack.resolved_tail_constraint)}.")
         if not selected:
             rows.append("No priced variants satisfy the active tail constraint; none have been substituted.")
-    rows.append("Tail labels describe unprotected losses beyond premium in that spot direction, not necessarily unlimited losses. No tail does not mean no risk.")
     if kelly:
         rows.append("Kelly risk is the full-Kelly sizing-loss proxy as a share of W, before λ; not contractual maximum loss.")
     if any(rec.structure_id == "linear" for rec in selected):

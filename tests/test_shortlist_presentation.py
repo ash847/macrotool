@@ -38,6 +38,9 @@ def test_top_five_has_agreed_columns_and_exact_sized_values(context):
     assert "Fit score" in table
     assert "Target return on premium" not in table
     assert "score_ccy" not in table
+    assert "Lower-spot tail:" not in table
+    assert "Higher-spot tail:" not in table
+    assert "Tail labels describe" not in table
 
 
 def test_comparison_keeps_engine_ranks_and_prices(context):

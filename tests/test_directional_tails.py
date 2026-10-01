@@ -106,7 +106,9 @@ def test_cnh_lower_spot_excludes_seagulls_keeps_ratio_calls(cnh_context):
     })
     assert not error and "lower-spot tail present" in text
     table = render_shortlist(session.pack, session.view)
-    assert "Lower-spot tail: No" in table and "Higher-spot tail:" in table
+    assert "Lower-spot tail:" not in table and "Higher-spot tail:" not in table
+    details = render_shortlist(session.pack, session.view, ranks=[1])
+    assert "Lower-spot tail: No" in details and "Higher-spot tail:" in details
 
 
 def test_higher_spot_and_both_constraints(cnh_context):
@@ -178,7 +180,9 @@ def test_chat_tool_flow_and_saved_preferences(cnh_context):
         LLMTurn("[[MARKET_COMMENTARY]]Same market.\n[[TRADE_NOTES]]Lower-spot tails excluded.", [], "end_turn"),
     ])
     reply = AgentFlow(llm, session).advance("Exclude trades with tails on lower spot")
-    assert "### Top structures" in reply and "Lower-spot tail: No" in reply
+    assert "### Top structures" in reply
+    assert "Lower-spot tail:" not in reply and "Higher-spot tail:" not in reply
+    assert "Active tail constraint:" in reply
     svc = ConversationService(InMemoryStore(), "test@example.com")
     conv = svc.record_exchange(svc.new_conversation(), session, seq=0, prompt="exclude lower tails", reply=reply, pre_len=0)
     assert conv.settings["tail_constraint"] == "lower_spot"
