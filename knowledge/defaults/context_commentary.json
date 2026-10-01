@@ -13,7 +13,7 @@
       "market_behavior": "Carry dominates and reinforces the move; spot moves steadily towards the target and likely overshoots, with undershoot less a feature. Vol is not a very important driver and adverse moves are less likely.",
       "trade_guidance": "Favour digitals, 1x1 and 1x1.5; avoid 1x2 due to overshooting risk. Look to have delta at the onset; low-TV digitals are better than high-TV digitals."
     },
-    "counter_carry": {
+    "counter_carry_strong": {
       "market_behavior": "The regime is dominated by carry and the trade fights the market's natural tendency. Decay is an important feature and so is vol; adverse moves, no-move and undershoot are probable while overshoot is rare.",
       "trade_guidance": "Favour low-delta trades at the onset and trades that help fight the carry — 1x1, digitals, 1x1.5, ERKO."
     },
