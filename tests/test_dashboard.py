@@ -70,6 +70,16 @@ def test_orientation_transposes_identical_engine_cells_and_respects_field_order(
     assert rows == [list(cells) for cells in zip(*columns)]
 
 
+@pytest.mark.parametrize("display", ["dashboard", "trade_details", "both"])
+def test_table_cells_do_not_require_html_line_breaks(context, display):
+    _, _, view, pack = context
+    tables = inspection_tables(display, [rec.rank for rec in pack.recommended])
+    text = present_shortlist("", pack, view, tables=tables)
+    assert "<br>" not in text
+    assert "&lt;br&gt;" not in text
+    assert "; " in text
+
+
 def test_default_summary_needs_no_layout_or_field_confirmation(context):
     _, _, view, pack = context
     tables = inspection_tables("dashboard", [1, 2])
@@ -104,7 +114,7 @@ def test_signed_driver_count_and_na_keep_full_denominator(context):
     one = dashboard_cells(rec, pack, view, 1)
     two = dashboard_cells(rec, pack, view, 2)
     assert one["top_contributor"] == "Target hit · Expiry: +50.0%"
-    assert two["top_contributor"] == "Target hit · Expiry: +50.0%<br>Overshoot · Expiry: +16.7%"
+    assert two["top_contributor"] == "Target hit · Expiry: +50.0%; Overshoot · Expiry: +16.7%"
     assert one["top_detractor"] == "Full reversal · Expiry: -25.0%"
     unavailable = dashboard_cells(replace(rec, absolute_contribution_total_pct=0), pack, view, 1)
     assert unavailable["top_contributor"].endswith("N/A")

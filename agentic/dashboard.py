@@ -41,7 +41,7 @@ def _driver(rec, positive, count):
         share = contribution_share(cell.contrib_pct, rec.absolute_contribution_total_pct, minimum)
         value = f"{share:+.1%}" if share is not None else "N/A"
         rows.append(f"{_cell(cell_label(cell))}: {value}")
-    return "<br>".join(rows)
+    return "; ".join(rows)
 
 
 def dashboard_cells(rec, pack, view, driver_count):
@@ -66,13 +66,13 @@ def dashboard_cells(rec, pack, view, driver_count):
             premium = "Zero (0.00% of notional)"
         else:
             amount = _money(abs(variant.net_premium_ccy), currency) if variant.net_premium_ccy is not None else "Amount unavailable"
-            premium = f"{'Pay' if fraction > 0 else 'Receive'} {amount}<br>{abs(fraction):.2%} of notional"
+            premium = f"{'Pay' if fraction > 0 else 'Receive'} {amount}; {abs(fraction):.2%} of notional"
     pnl = ratio = "Unavailable"
     proxy = "N/A — linear benchmark" if rec.structure_id == "linear" else "Unavailable"
     budget = pack.loss_budget
     if economics is not None:
         pnl = _scaled(economics.target_net_pnl_pct, variant.structure_notional, currency)
-        pnl += f"<br>{economics.evaluation_days}d · {'expiry' if economics.valuation_kind == 'expiry_payoff' else 'MtM'}"
+        pnl += f"; {economics.evaluation_days}d · {'expiry' if economics.valuation_kind == 'expiry_payoff' else 'MtM'}"
         if economics.target_return_on_premium is not None:
             ratio = f"{economics.target_return_on_premium:.2f}×"
         elif economics.ratio_status == "not_applicable":
@@ -84,7 +84,7 @@ def dashboard_cells(rec, pack, view, driver_count):
             budget = economics.loss_budget
     flag = variant.can_lose_beyond_premium
     return {
-        "legs": "<br>".join(legs) or "Unavailable — leg details not retained",
+        "legs": "; ".join(legs) or "Unavailable — leg details not retained",
         "notional": _money(variant.structure_notional, currency),
         "premium": premium, "target_pnl": pnl, "target_return_on_premium": ratio,
         "loss_budget": _money(budget, currency), "sizing_loss_proxy": proxy,

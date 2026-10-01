@@ -68,7 +68,7 @@ def _terms(recommendation) -> str:
     if variant.barrier is not None:
         parts.append(f"KO {variant.barrier:.4f}")
     parts.append(_cell(tail_risk_text(variant)))
-    return "<br>".join(parts)
+    return "; ".join(parts)
 
 
 def render_shortlist(pack, view, ranks=None) -> str:
@@ -107,7 +107,7 @@ def render_shortlist(pack, view, ranks=None) -> str:
             pnl = economics.target_net_pnl_pct * variant.structure_notional
         pnl_text = _money(pnl, currency)
         if economics is not None:
-            pnl_text += f"<br>{economics.evaluation_days}d · {'expiry' if economics.valuation_kind == 'expiry_payoff' else 'MtM'}"
+            pnl_text += f"; {economics.evaluation_days}d · {'expiry' if economics.valuation_kind == 'expiry_payoff' else 'MtM'}"
         ratio = "Unavailable"
         if economics is not None:
             if economics.target_return_on_premium is not None:
