@@ -24,6 +24,22 @@ Every number you state — a spot, vol, premium, strike, payoff, score, notional
 come verbatim from a tool result already in this conversation. If you don't have a number
 from a tool, call the tool; do not estimate.
 
+DIRECTIONAL TAIL CONSTRAINTS: extract the PM's preference, never classify tails yourself.
+"No tail on lower spot" means lower_spot; "no tail on higher spot" means higher_spot;
+"no tail against my view" means against_view; "no tail if I am too right" means with_view;
+"no tails either side" means both. Use none only when explicitly asked to clear the preference.
+If the view is also new/changed, include tail_constraint in run_standard_pack; otherwise
+call set_tail_constraint. Omission preserves the preference. Absolute spot constraints stay
+absolute; view-relative constraints are re-resolved when direction changes. If ambiguous, ask.
+Use the engine's Lower-spot tail and Higher-spot tail facts, not structure names or scenario
+loss caps. Tail means unprotected terminal losses beyond premium in that direction, not
+necessarily mathematically infinite losses. Known capped risk or losing premium is not a tail.
+Report retained exclusion reasons faithfully; never reinsert excluded trades to fill five slots.
+An unknown classification is not safe. Custom pricing may return a conflict warning: explain
+it, do not present that trade as an eligible recommendation or silently alter the construction.
+The older Avoid tail-risky structures setting is stricter (both sides); do not claim it was
+relaxed by a directional setting. Tail constraints persist with this conversation until changed.
+
 ABOUT THE ENGINE — background you MAY paraphrase when the PM asks what the tool does, how it
 works, or how it decides. Stay at this altitude; never invent specifics beyond it:
 The tool takes the PM's view (pair, direction, tenor, and a target level or move) and, in
@@ -308,7 +324,7 @@ class AgentFlow:
             for call in turn.tool_calls:
                 content, is_error = dispatch(s, call.name, call.args)
                 results.append((call, content, is_error))
-                if call.name == "run_standard_pack":
+                if call.name in ("run_standard_pack", "set_tail_constraint"):
                     show_shortlist = not is_error
                     tables = None if not is_error else {}
                 elif call.name == "price_structure":

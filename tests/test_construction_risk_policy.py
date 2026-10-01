@@ -136,5 +136,5 @@ def test_recommendation_pack_has_only_classified_no_tail_trades(direction):
     options = [item for item in pack.recommended if item.structure_id != "linear"]
     assert options
     assert all(item.variant.can_lose_beyond_premium is False for item in options)
-    benchmark = next(item for item in pack.recommended if item.structure_id == "linear")
-    assert "not a contractual loss guarantee" in benchmark.rationale
+    assert not any(item.structure_id == "linear" for item in pack.recommended)
+    assert any(item["structure_id"] == "linear" for item in pack.tail_exclusions)

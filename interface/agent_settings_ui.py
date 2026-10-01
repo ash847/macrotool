@@ -53,11 +53,14 @@ def render_agent_settings(
     conv = st.session_state.ws_conv
     session = st.session_state.agent_flow.session
     settings = ChatSettings.from_dict(conv.settings)
+    from knowledge_engine.tail_policy import tail_constraint_label
     pref_label = merged_pref_label(settings.structure_constraint, settings.trade_management)
 
     # Plain markdown (not an HTML wrapper — markdown isn't rendered inside raw HTML).
     st.markdown(f"Sizing: {sizing_summary(settings, session)} · "
                 f"W {capital:,.0f} {capital_ccy} · {pref_label}")
+    if settings.tail_constraint != "none":
+        st.caption(tail_constraint_label(settings.tail_constraint))
 
     k = f"ags_{conv.id[:8]}_"          # widget keys are per chat
     with st.expander("✎ Sizing & preferences for this chat", expanded=False):
@@ -117,6 +120,7 @@ def render_agent_settings(
             sc, tm = merged_pref_fields(pref)
             new = ChatSettings(sizing_method=method, kelly_lambda=float(lam),
                                target_rr=float(rr), structure_constraint=sc,
+                               tail_constraint=settings.tail_constraint,
                                trade_management=tm)
             if dist_change is not None:
                 distributions = with_distribution(distributions, *dist_change)

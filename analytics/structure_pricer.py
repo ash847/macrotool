@@ -108,6 +108,8 @@ class PricedVariant:
     is_zero_cost: bool
     economics: TradeEconomics | None = field(default=None, kw_only=True)
     can_lose_beyond_premium: bool | None = field(default=None, kw_only=True)
+    lower_spot_tail: bool | None = field(default=None, kw_only=True)
+    higher_spot_tail: bool | None = field(default=None, kw_only=True)
     sizing_trace: SizingTrace | None = field(default=None, kw_only=True)
     # Sizing — populated when loss_budget passed to price_variants(), else None.
     # All amounts in BASE currency units (e.g. USD for USDBRL, EUR for EURPLN).

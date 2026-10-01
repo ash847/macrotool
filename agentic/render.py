@@ -129,6 +129,10 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     direction = "Long" if view.direction == "base_higher" else "Short"
     base_ccy = view.pair[:3]   # ccy1 — all base-ccy amounts below are in this currency
     lines: list[str] = []
+    from knowledge_engine.tail_policy import tail_constraint_label, tail_risk_text
+    lines.append(f"TAIL CONSTRAINT: {tail_constraint_label(pack.tail_constraint)}; effective: {tail_constraint_label(pack.resolved_tail_constraint)}.")
+    for excluded in pack.tail_exclusions:
+        lines.append(f"TAIL EXCLUSION: {excluded['structure_id']} — {excluded['variant']}: {excluded['reason']}")
 
     lines.append(
         f"VIEW: {direction} {view.pair} · {view.horizon_days}d"
@@ -205,6 +209,7 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
                 f"  {r.rank}. {r.display_name} — {r.variant.variant_label} [{r.structure_id}]"
             )
             lines.append("     " + _variant_summary(r.variant))
+            lines.append("     " + tail_risk_text(r.variant))
             lines.extend(_legs_breakdown(r.priced_structure, r.variant.structure_notional, base_ccy))
             payoff = _payoff_line(r.priced_structure, r.variant, r.structure_id)
             if payoff:
@@ -444,6 +449,8 @@ def render_recommended(rec, base_ccy: str = "base ccy") -> str:
         f"RECOMMENDED {rec.display_name} — {rec.variant.variant_label} [{rec.structure_id}]",
         "  " + _variant_summary(rec.variant),
     ]
+    from knowledge_engine.tail_policy import tail_risk_text
+    lines.append("  " + tail_risk_text(rec.variant))
     lines.extend(_legs_breakdown(getattr(rec, "priced_structure", None), rec.variant.structure_notional, base_ccy))
     payoff = _payoff_line(getattr(rec, "priced_structure", None), rec.variant, rec.structure_id, indent="  ")
     if payoff:

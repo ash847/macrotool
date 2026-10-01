@@ -112,6 +112,9 @@ class StandardPack:
     affinity_shortlist: list[dict] = field(default_factory=list)
     market_quotes: dict = field(default_factory=dict)
     variants_ranked: bool = False
+    tail_constraint: str = "none"
+    resolved_tail_constraint: str = "none"
+    tail_exclusions: list[dict] = field(default_factory=list)
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -122,6 +125,7 @@ def _recommend_ranked(
     primary_objective, trade_management, structure_constraint, target_rr,
     user_email=None, linear_notional: float = _COMPARATOR_LINEAR_NOTIONAL,
     sizing_spec: object | None = None,
+    tail_constraint: str = "none", tail_exclusions: list | None = None,
 ) -> list[RecommendedStructure]:
     """Rank all priced variants, including Trade View's linear comparator.
 
@@ -224,6 +228,7 @@ def _recommend_ranked(
     # ranks by score_ccy) and matches this pack's own "best ... by PnL score" label
     # (render.py — "PnL score" is the external name for score_ccy; kept vague on
     # purpose). Display rank then follows that order. None scores sort last.
+    out = _filter_directional_tails(out, is_call, tail_constraint, tail_exclusions)
     out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else 0.0, reverse=True)
     for i, r in enumerate(out, 1):
         r.rank = i
@@ -240,9 +245,24 @@ def _recommend_ranked(
     return out, loss_budget, inputs.active_context, deciding, inputs.weights
 
 
+def _filter_directional_tails(recommendations, is_call, constraint, exclusions):
+    from knowledge_engine.tail_policy import assign_variant_tails, tail_exclusion_reason
+
+    kept = []
+    for rec in recommendations:
+        assign_variant_tails(rec.structure_id, rec.variant, is_call)
+        reason = tail_exclusion_reason(rec.variant, constraint, "base_higher" if is_call else "base_lower")
+        if reason is None:
+            kept.append(rec)
+        elif exclusions is not None:
+            exclusions.append({"structure_id": rec.structure_id, "variant": rec.variant.variant_label, "reason": reason})
+    return kept
+
+
 def _price_recommended_fallback(
     ms: MarketState, selector_result, target, is_call, surface, cap: int = 6,
     structure_constraint: str = "No restriction",
+    tail_constraint: str = "none", tail_exclusions: list | None = None,
 ) -> list[RecommendedStructure]:
     """Fallback when no target: first curated variant that prices, per family."""
     out: list[RecommendedStructure] = []
@@ -255,7 +275,16 @@ def _price_recommended_fallback(
             )
         except Exception:
             variants = []
-        rep = next((v for v in variants if v.net_premium_pct is not None), None)
+        from knowledge_engine.tail_policy import assign_variant_tails, tail_exclusion_reason
+        eligible = []
+        for variant in variants:
+            assign_variant_tails(item.structure_id, variant, is_call)
+            reason = tail_exclusion_reason(variant, tail_constraint, "base_higher" if is_call else "base_lower")
+            if reason is None:
+                eligible.append(variant)
+            elif tail_exclusions is not None:
+                tail_exclusions.append({"structure_id": item.structure_id, "variant": variant.variant_label, "reason": reason})
+        rep = next((v for v in eligible if v.net_premium_pct is not None), None)
         if rep is not None:
             out.append(RecommendedStructure(
                 structure_id=item.structure_id,
@@ -285,6 +314,7 @@ def build_pack(
     kelly_lambda: float = 0.5,
     kelly_probs: tuple | None = None,
     kelly_bins: tuple | None = None,
+    tail_constraint: str = "none",
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -302,6 +332,12 @@ def build_pack(
     from analytics.market_state import compute_market_state
     from knowledge_engine.structure_scorer import score_structures
     from knowledge_engine.sizing_engine import compute_sizing
+    from knowledge_engine.tail_policy import resolved_tail_constraint
+
+    resolved_tails = resolved_tail_constraint(tail_constraint, view.direction)
+    if structure_constraint == "Avoid tail-risky structures":
+        resolved_tails = "both"
+    tail_exclusions = []
 
     T = view.horizon_years
     rate_ctx = rate_context_for_snapshot(ccy, T)
@@ -374,6 +410,7 @@ def build_pack(
     active_context: str | None = None
     deciding_axis: str | None = None
     scenario_weights: dict | None = None
+    ranked_completed = False
     if target is not None:
         try:
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = _recommend_ranked(
@@ -381,14 +418,17 @@ def build_pack(
                 primary_objective, trade_management, structure_constraint, target_rr,
                 user_email=user_email, linear_notional=linear_notional,
                 sizing_spec=sizing_spec,
+                tail_constraint=resolved_tails, tail_exclusions=tail_exclusions,
             )
+            ranked_completed = True
         except Exception:
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = [], None, None, None, None
-    variants_ranked = bool(recommended)
-    if not recommended:
+    variants_ranked = ranked_completed
+    if not ranked_completed:
         recommended = _price_recommended_fallback(
             market_state, selector_result, target, is_call, surface,
             structure_constraint=structure_constraint,
+            tail_constraint=resolved_tails, tail_exclusions=tail_exclusions,
         )
 
     for recommendation in recommended:
@@ -406,6 +446,7 @@ def build_pack(
          "fit_pct": max(0.0, min(100.0, 100.0 * (row["total_score"] or 0.0) / ceiling))}
         for row in get_scoring_detail(market_state, structure_constraint=structure_constraint)
         if not row["overlay_only"] and row["eligible"]
+        and (resolved_tails == "none" or any(rec.structure_id == row["structure_id"] for rec in recommended))
     ][:3]
     market_quotes = {}
     try:
@@ -439,4 +480,7 @@ def build_pack(
         affinity_shortlist=affinity_shortlist,
         market_quotes=market_quotes,
         variants_ranked=variants_ranked,
+        tail_constraint=tail_constraint,
+        resolved_tail_constraint=resolved_tails,
+        tail_exclusions=tail_exclusions,
     )

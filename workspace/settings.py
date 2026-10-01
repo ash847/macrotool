@@ -18,6 +18,7 @@ DEFAULTS = {
     "target_rr": 3.0,
     "primary_objective": "Balanced",
     "structure_constraint": "No restriction",
+    "tail_constraint": "none",
     "trade_management": "Standard hold",
 }
 
@@ -29,6 +30,7 @@ class ChatSettings:
     target_rr: float = DEFAULTS["target_rr"]
     primary_objective: str = DEFAULTS["primary_objective"]
     structure_constraint: str = DEFAULTS["structure_constraint"]
+    tail_constraint: str = DEFAULTS["tail_constraint"]
     trade_management: str = DEFAULTS["trade_management"]
 
     @classmethod
@@ -46,6 +48,7 @@ class ChatSettings:
         session.target_rr = float(self.target_rr)
         session.primary_objective = self.primary_objective
         session.structure_constraint = self.structure_constraint
+        session.tail_constraint = self.tail_constraint
         session.trade_management = self.trade_management
 
     def sizing_label(self) -> str:

@@ -33,6 +33,7 @@ from agentic.standard_pack import build_pack
 from agentic.shortlist import INSPECTION_DISPLAYS, inspection_tables, render_inspection_tables, render_shortlist, shortlist_reference
 from agentic.structure_request import StructureRequestError, _normalize, _strip_direction_words
 from knowledge_engine.models import TradeView
+from knowledge_engine.tail_policy import TAIL_CONSTRAINTS, assign_variant_tails, tail_exclusion_reason, tail_risk_text
 
 # A leg token is present if the remainder has a digit, %, or a leg keyword.
 _HAS_LEG = re.compile(r"[0-9%]|atmf|atm|sigma|target|tgt")
@@ -47,6 +48,14 @@ _MODES = ("recommend", "critique")
 
 
 TOOL_SCHEMAS = [
+    {
+        "name": "set_tail_constraint",
+        "description": "Set or clear the directional tail preference without changing the view. Rebuilds recommendations under the constraint. lower_spot/higher_spot are absolute spot directions; against_view/with_view are resolved by Python using the current view direction. Unknown risks fail closed. Use none to clear only this directional preference; any separate no-tails setting still applies.",
+        "input_schema": {
+            "type": "object", "properties": {"tail_constraint": {"type": "string", "enum": list(TAIL_CONSTRAINTS)}},
+            "required": ["tail_constraint"], "additionalProperties": False,
+        },
+    },
     {
         "name": "inspect_recommendations",
         "description": "Read or compare the already-priced recommendations without repricing. Use ranks for 'explain #2', 'compare 1 and 3', or risk/sizing details. Use family for 'why was vanilla absent?'. Supply the SHORTLIST REFERENCE from the relevant pack; stale references are rejected.",
@@ -105,6 +114,7 @@ TOOL_SCHEMAS = [
                 },
                 "direction_conviction": {"type": "string", "enum": list(_CONVICTIONS)},
                 "mode": {"type": "string", "enum": list(_MODES)},
+                "tail_constraint": {"type": "string", "enum": list(TAIL_CONSTRAINTS), "description": "Optional directional tail constraint. Omit to preserve the chat's existing preference. none explicitly clears it."},
             },
             "required": ["pair", "horizon_days"],
         },
@@ -135,6 +145,8 @@ TOOL_SCHEMAS = [
 def dispatch(session: AgentSession, name: str, args: dict) -> tuple[str, bool]:
     """Run a tool by name. Returns (content_text, is_error)."""
     try:
+        if name == "set_tail_constraint":
+            return _set_tail_constraint(session, args), False
         if name == "inspect_recommendations":
             return _inspect_recommendations(session, args), False
         if name == "run_standard_pack":
@@ -188,6 +200,11 @@ def _inspect_recommendations(session: AgentSession, args: dict) -> str:
                 f"Engine rank {rec.rank}: {'in' if rec in pack.recommended[:5] else 'outside'} the displayed top five.\n"
                 + render_recommended(rec, view.pair[:3]) for rec in matches
             )
+        exclusions = [item for item in pack.tail_exclusions if item["structure_id"] == family]
+        if exclusions:
+            return "Excluded by the active directional tail constraint:\n" + "\n".join(
+                f"{item['variant']}: {item['reason']}" for item in exclusions
+            )
         if any(item.structure_id == family for item in pack.selector_result.shortlist):
             return "The family was shortlisted, but no priced recommendation was retained. The detailed pricing reason was not recorded in this pack; do not invent it."
         return "The family was not retained by the engine's eligibility/scoring stage. The detailed exclusion reason was not recorded in this pack; do not invent it."
@@ -234,6 +251,24 @@ def _kelly_curve_kwargs(session: AgentSession, view: TradeView) -> dict:
     return {"kelly_probs": curve[0], "kelly_bins": curve[1]} if curve else {}
 
 
+def _set_tail_constraint(session, args):
+    from knowledge_engine.tail_policy import tail_constraint_label
+
+    constraint = args.get("tail_constraint")
+    if constraint not in TAIL_CONSTRAINTS:
+        raise _ToolError("Choose a supported directional tail constraint.")
+    if session.view is None:
+        session.tail_constraint = constraint
+        return tail_constraint_label(constraint) + ". This will apply when a view is established."
+    view = session.view
+    return _run_standard_pack(session, {
+        "pair": view.pair, "horizon_days": view.horizon_days,
+        "direction": view.direction, "magnitude_pct": view.magnitude_pct,
+        "direction_conviction": view.direction_conviction, "mode": view.mode,
+        "tail_constraint": constraint,
+    })
+
+
 def _run_standard_pack(session: AgentSession, args: dict) -> str:
     pair = args.get("pair")
     horizon_days = args.get("horizon_days")
@@ -274,9 +309,16 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         mode=args.get("mode", "recommend"),
     )
 
+    from dataclasses import replace
+    original_session = session
+    constraint = args.get("tail_constraint", session.tail_constraint)
+    if constraint not in TAIL_CONSTRAINTS:
+        raise _ToolError("Choose a supported directional tail constraint.")
+    session = replace(session, tail_constraint=constraint)
     cached = session.get_cached(view)
     if cached is not None:
-        session.view, session.pack = view, cached
+        original_session.view, original_session.pack = view, cached
+        original_session.tail_constraint = constraint
         return render_pack(cached, view) + "\n\n(reused cached pack — view unchanged)"
 
     ccy = session.snapshot.get(view.pair)
@@ -285,6 +327,7 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
     pack = build_pack(
         view, ccy, session.cfg,
         structure_constraint=session.structure_constraint,
+        tail_constraint=session.tail_constraint,
         primary_objective=session.primary_objective,
         trade_management=session.trade_management,
         target_rr=session.target_rr,
@@ -295,7 +338,8 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
         **_kelly_curve_kwargs(session, view),
     )
     session.store(view, pack)
-    session.view, session.pack = view, pack
+    original_session.view, original_session.pack = view, pack
+    original_session.tail_constraint = constraint
     return render_pack(pack, view)
 
 
@@ -361,6 +405,10 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
                         context[name] = getattr(origin, name)
             result.variant.sizing_trace = replace(trace, **context)
         session.priced.append(result)
+        from agentic.structure_request import to_variant_dict
+        assign_variant_tails(result.request.family, result.variant, session.pack.is_call,
+                             construction=to_variant_dict(result.request))
+        tail_warning = tail_exclusion_reason(result.variant, session.pack.resolved_tail_constraint, session.view.direction)
         # Characterize the off-menu structure in the same IP-clean vocabulary as the
         # recommended set (scored against the frozen pack) so the LLM can contrast it.
         from agentic.price_structure import characterize_against_pack
@@ -369,5 +417,6 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             is_call=session.pack.is_call, target=session.pack.target,
             smile=getattr(ms, "surface", None), weights=session.pack.scenario_weights,
         )
-        return render_priced_structure(result, tags, base_ccy), False
+        warning = f"CONFLICT WITH ACTIVE TAIL CONSTRAINT: {tail_warning}. Priced only for inspection, not an eligible recommendation.\n" if tail_warning else ""
+        return warning + tail_risk_text(result.variant) + "\n" + render_priced_structure(result, tags, base_ccy), False
     return "Unexpected pricing result.", True

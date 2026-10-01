@@ -7,6 +7,7 @@ import math
 import re
 
 from knowledge_engine.loader import load_agent_vocabulary
+from knowledge_engine.tail_policy import tail_constraint_label, tail_risk_text
 
 SHORTLIST_TOKEN = "[[SHORTLIST]]"
 MARKET_TOKEN = "[[MARKET_COMMENTARY]]"
@@ -50,6 +51,7 @@ def _terms(recommendation) -> str:
         parts.append("Strikes: " + ", ".join(f"{strike:.4f}" for strike in variant.strikes))
     if variant.barrier is not None:
         parts.append(f"KO {variant.barrier:.4f}")
+    parts.append(_cell(tail_risk_text(variant)))
     return "<br>".join(parts)
 
 
@@ -158,12 +160,17 @@ def render_trade_tables(pack, view) -> str:
         variant = rec.variant
         strikes = " / ".join(f"{strike:.4f}" for strike in variant.strikes) or "—"
         notional = "—" if variant.structure_notional is None else f"{'-' if variant.structure_notional < 0 else ''}{view.pair[:3]} {abs(variant.structure_notional):,.0f}"
-        row = f"| {rec.rank} | {_cell(rec.display_name)} | {_cell(variant.variant_label)} | {strikes} | {notional} | {variant.net_premium_pct:+.2%} |"
+        row = f"| {rec.rank} | {_cell(rec.display_name)}<br>{_cell(tail_risk_text(variant))} | {_cell(variant.variant_label)} | {strikes} | {notional} | {variant.net_premium_pct:+.2%} |"
         if kelly:
             risk = "—" if variant.kelly_fraction is None else f"{variant.kelly_fraction * (variant.max_loss_pct or 0.0):.0%}"
             row += f" {risk} |"
         rows.append(row)
     rows.append("\nPositive premium is paid; negative premium is received. PnL score reflects performance across modelled market outcomes, not a guaranteed return.")
+    if pack.resolved_tail_constraint != "none":
+        rows.append(f"Active tail constraint: {tail_constraint_label(pack.tail_constraint)}; effective: {tail_constraint_label(pack.resolved_tail_constraint)}.")
+        if not selected:
+            rows.append("No priced variants satisfy the active tail constraint; none have been substituted.")
+    rows.append("Tail labels describe unprotected losses beyond premium in that spot direction, not necessarily unlimited losses. No tail does not mean no risk.")
     if kelly:
         rows.append("Kelly risk is the full-Kelly sizing-loss proxy as a share of W, before λ; not contractual maximum loss.")
     if any(rec.structure_id == "linear" for rec in selected):
@@ -180,6 +187,7 @@ def shortlist_reference(pack, view) -> str:
                    pack.market_state.r_d, pack.market_state.r_f],
         "pair": view.pair, "horizon": view.horizon_days,
         "method": pack.sizing_method, "weights": pack.scenario_weights,
+        "tail_constraint": pack.tail_constraint, "effective_tails": pack.resolved_tail_constraint,
         "distributions": [getattr(getattr(rec.variant, "sizing_trace", None), "distribution_id", None)
                           for rec in pack.recommended],
     }

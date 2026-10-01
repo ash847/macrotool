@@ -50,6 +50,7 @@ def session_prefs(session: AgentSession) -> dict:
         curve = curve_key(session.view.pair, session.expiry_for(session.view))
     return {
         "structure_constraint": session.structure_constraint,
+        "tail_constraint": session.tail_constraint,
         "primary_objective": session.primary_objective,
         "trade_management": session.trade_management,
         "target_rr": session.target_rr,
@@ -151,6 +152,7 @@ class ConversationService:
         A failed exchange keeps its display text but stores no provider messages, so
         a resumed history never contains a half-finished tool loop.
         """
+        conv = conv.touched(settings={**(conv.settings or {}), "tail_constraint": session.tail_constraint})
         conv, version, link = self._track_active_idea(conv, session)
         turn = Turn(
             conversation_id=conv.id,

@@ -22,6 +22,7 @@ class AgentSession:
     snapshot: MarketSnapshot
     cfg: Any                                    # ResolvedConfig
     structure_constraint: str = "No restriction"
+    tail_constraint: str = "none"
     primary_objective: str = "Balanced"
     trade_management: str = "Standard hold"
     target_rr: float = 3.0          # R:R slider — drives the loss budget on the fly
@@ -50,6 +51,7 @@ class AgentSession:
             view.magnitude_pct,
             view.mode,
             self.structure_constraint,
+            self.tail_constraint,
             self.primary_objective,
             self.trade_management,
             self.target_rr,
