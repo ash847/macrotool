@@ -15,6 +15,7 @@ from agentic.agent_llm import ToolLLM
 from agentic.session import AgentSession
 from agentic.tools import TOOL_SCHEMAS, dispatch, requested_inspection_tables
 from agentic.shortlist import present_shortlist
+from agentic.telemetry import tracked_call
 from knowledge_engine.loader import load_agent_vocabulary
 
 _SYSTEM_PROMPT_TEMPLATE = """You are a structuring assistant for a macro-fund PM trading EM FX options.
@@ -364,6 +365,7 @@ class AgentFlow:
     def advance(self, user_message: str) -> str:
         """Process one PM message; return the final narration text."""
         s = self.session
+        exchange_start = len(s.messages)
         s.messages.append(self._llm.format_user(user_message))
 
         # Inject the live snapshot's pairs so the supported list is never stale.
@@ -373,7 +375,7 @@ class AgentFlow:
         show_shortlist = False
         tables = None
         for _ in range(self.max_rounds):
-            turn = self._llm.create(s.messages, system, TOOL_SCHEMAS)
+            turn = tracked_call(self._llm, s, system, TOOL_SCHEMAS, exchange_start)
 
             if not turn.tool_calls:
                 reply = present_shortlist(

@@ -1065,7 +1065,8 @@ def _log_chat_exchange(surface: str, chat_id: str, session, prompt: str, reply: 
         view = getattr(session, "view", None)
         pair = view.pair if view is not None else None
         vjson = _view_json(view)
-        tool_trace = _tool_trace_from_messages(session.messages[pre_len:]) or None
+        from agentic.telemetry import exchange_trace
+        tool_trace = exchange_trace(_tool_trace_from_messages(session.messages[pre_len:]), session, pre_len) or None
         if seq is None:
             seq = _reserve_chat_seq(chat_id)
         _log_chat_turn(session_id=SESSION_ID, chat_id=chat_id, seq=seq, surface=surface,

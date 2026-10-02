@@ -1,10 +1,10 @@
 [project]
 name = "macrotool"
-version = "0.2.33"
+version = "0.2.35"
 description = "EM FX Trade Structuring & Sizing Tool"
 requires-python = ">=3.10"
 dependencies = [
-    "anthropic>=0.40.0",
+    "anthropic>=0.86.0",
     "google-genai>=1.40.0",
     "pydantic>=2.6.0",
     "numpy>=1.26.0",

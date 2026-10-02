@@ -39,6 +39,7 @@ class AgentSession:
     pack: StandardPack | None = None
 
     messages: list[dict] = field(default_factory=list)
+    llm_calls: list[dict] = field(default_factory=list)
     priced: list[PricedStructure] = field(default_factory=list)
     _cache: dict[tuple, StandardPack] = field(default_factory=dict)
 
