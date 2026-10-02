@@ -23,6 +23,23 @@ def test_selected_carry_case(forward, direction, alignment, action, relation, yi
     assert ("would favour" if alignment == "WITH" else "would work against") in text
     assert "not a forecast of spot" in text
     assert f"forward={forward:.4f}" in text
+    assert f"unchanged expiry spot produces a {'positive' if alignment == 'WITH' else 'negative'} payoff before costs" in text
+    assert ("not a carry headwind" if alignment == "WITH" else "less favourable than today's spot") in text
+
+
+@pytest.mark.parametrize("days,forward,vol,target", [(365, 6.5111, 0.033, 6.75), (90, 6.6676, 0.023, 6.7250)])
+def test_reported_cnh_cases_have_favourable_interpretation(days, forward, vol, target):
+    from agentic.agent_flow import build_system_prompt
+    state = compute_market_state(spot=6.7125, fwd=forward, vol=vol, T=days / 365,
+                                 r_d=0.01, r_f=0.04, direction="base_higher")
+    text = _carry_explanation(state, SimpleNamespace(pair="USDCNH", direction="base_higher", horizon_days=days))
+    assert "positive payoff before costs" in text
+    assert "not a carry headwind or friction to overcome" in text
+    prompt = build_system_prompt(["USDCNH"])
+    assert "not a spot forecast" in prompt
+    assert "does not specify a slow grind" in prompt
+    assert "cross-sectional observations" in prompt
+    assert "not proof that selected" in prompt
 
 
 @pytest.mark.parametrize("direction", ["base_higher", "base_lower"])

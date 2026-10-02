@@ -96,6 +96,13 @@ def _carry_explanation(ms, view) -> str:
             f"This view is {alignment}. {higher_yield} has the higher implied interest rate. "
             + wording[f"{action}_{relation}"].format(base=base, quote=quote)
         )
+        exposure = "long" if action == "buy" else "short"
+        outcome = "positive" if ms.with_carry else "negative"
+        explanation += (
+            f" For a {exposure} {view.pair} forward, unchanged expiry spot produces a "
+            f"{outcome} payoff before costs. "
+            + wording["favourable_interpretation" if ms.with_carry else "adverse_interpretation"]
+        )
     return (
         f"{explanation} {view.pair} spot={ms.spot:.4f}, forward={ms.fwd:.4f}; "
         f"horizon={view.horizon_days}d (c={ms.c:+.3f}, regime={ms.carry_regime}). "

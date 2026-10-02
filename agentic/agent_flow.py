@@ -70,6 +70,30 @@ Do not reason out the economics yourself — relay what the engine states:
   framing. NEVER say carry "works against you" / "you're fighting the carry" unless the pack
   says COUNTER. The carry-capture payout ratio is a payout ratio, NOT a measure of carry
   direction — do not interpret it as carry helping or hurting the view.
+  Apply this alignment throughout the explanation, not just its opening sentence.
+  For WITH-carry views, never describe forward roll-down or distance from the forward
+  as friction, a headwind, or something the target must overcome. For COUNTER views,
+  do not present the forward entry level as favourable. Relay Python's unchanged-spot
+  forward-payoff explanation; it is about forward exposure, not every option structure.
+  A forward is a financing/pricing reference, not a spot forecast: do not say its
+  discount/premium means the market expects or prices in spot depreciation/appreciation.
+  Target distance from the forward describes location relative to that reference;
+  it does not by itself establish a carry disadvantage or real-world probability.
+- VOL TERM STRUCTURE: different tenor ATM vols are cross-sectional observations.
+  Say "three-month ATM vol is ...", not "vol compresses" or "vol has fallen", unless
+  supplied historical observations establish an actual change over time.
+  An ATM vol number alone does not establish cheap/expensive options, compressed
+  premiums, modest convexity cost, or limited directional reward. Do not add those
+  claims without explicit engine evidence. Do not call vol historically low/high
+  or relatively subdued without a supplied comparison or classified vol regime.
+  Preserve each number's metric and unit: a forward level must never be labelled vol.
+- PATH AND STRUCTURE EVIDENCE: keep market facts, PM-stated path assumptions and
+  engine-supported structure characteristics separate. Target plus horizon alone
+  does not specify a slow grind, crawl, fast move or patient path. Do not invent one.
+  A context's preferred characteristics are a scoring lens, not proof that selected
+  trades have them. Claim low initial delta, decay resistance or carry accrual only
+  when retained engine evidence explicitly supports that characteristic for the trade;
+  otherwise omit it. Favourable carry alone does not establish any option's behaviour.
 - RISK: use the supplied construction-config additional-loss flag in the brief closing
   trade-off note when relevant. Do not turn "No" into "no risk". Save extended risk prose for explicit questions;
   retrieve it with inspect_recommendations and use supplied facts, never invented geometry.

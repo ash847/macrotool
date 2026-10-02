@@ -1,6 +1,8 @@
 {
   "chat_invitation": "Want to explore a specific rank, compare two structures, or price a custom variant?",
   "carry_explanations": {
+    "favourable_interpretation": "Carry is favourable for this forward exposure. Distance from the forward is not a carry headwind or friction to overcome; option premiums and payoff risks are separate.",
+    "adverse_interpretation": "Carry is adverse for this forward exposure. The forward entry level is less favourable than today's spot; this is a financing effect, not a forecast of spot or a claim about every option's performance.",
     "buy_below": "You buy {base} forward below today's spot, so unchanged spot at expiry would favour this forward position.",
     "sell_below": "You sell {base} forward below today's spot, so unchanged spot at expiry would work against this forward position.",
     "buy_above": "You buy {base} forward above today's spot, so unchanged spot at expiry would work against this forward position.",
