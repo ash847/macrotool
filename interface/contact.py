@@ -9,8 +9,19 @@ COOLDOWN_SECONDS = 60
 
 
 def contact_ready(config):
-    required = ("host", "username", "password", "from_email", "to_email")
-    return all(isinstance(config.get(key), str) and config[key].strip() for key in required)
+    required = ("host", "username", "password", "from_email")
+    return all(isinstance(config.get(key), str) and config[key].strip() for key in required) and bool(contact_recipients(config))
+
+
+def contact_recipients(config):
+    value = config.get("to_email", [])
+    recipients = [value] if isinstance(value, str) else value
+    if not isinstance(recipients, list) or not recipients:
+        return []
+    if any(not isinstance(address, str) or not address.strip() or "@" not in address
+           or any(char in address for char in "\r\n,;") for address in recipients):
+        return []
+    return list(dict.fromkeys(address.strip() for address in recipients))
 
 
 def send_contact(config, user_email, comments):
@@ -24,7 +35,8 @@ def send_contact(config, user_email, comments):
     message = EmailMessage()
     message["Subject"] = "MacroTool contact message"
     message["From"] = config["from_email"]
-    message["To"] = config["to_email"]
+    recipients = contact_recipients(config)
+    message["To"] = ", ".join(recipients)
     message["Reply-To"] = user_email
     message.set_content(f"From signed-in user: {user_email}\n\n{comments}")
     mode = config.get("security", "starttls")
@@ -41,6 +53,6 @@ def send_contact(config, user_email, comments):
             smtp.starttls(context=context)
             smtp.ehlo()
         smtp.login(config["username"], config["password"])
-        refused = smtp.send_message(message)
+        refused = smtp.send_message(message, to_addrs=recipients)
         if refused:
             raise smtplib.SMTPRecipientsRefused(refused)

@@ -24,7 +24,7 @@ security = "starttls"
 username = "your-smtp-username"
 password = "your-smtp-password"
 from_email = "verified-sender@your-domain.example"
-to_email = "your-inbox@example.com"
+to_email = ["ashwath.venkataraman@gmail.com", "vincent_craignou@hotmail.com"]
 ```
 
 For implicit TLS, use `security = "ssl"` and the provider's port (usually 465).
@@ -43,6 +43,14 @@ Limits: 5,000 characters and a 60-second successful-send cooldown per browser
 session. This is not a global per-user abuse limit, durable queue, or deduplication
 guarantee. Add those before opening anonymous or high-volume access.
 
-Still required: recipient address, chosen mail provider and verified
-sender credentials, plus a real delivery test from the deployed host. No real
-emails were sent during development tests.
+The existing footballnews project's Brevo SMTP account is used for contact mail:
+`smtp-relay.brevo.com`, port 587, STARTTLS. Its credentials remain outside Git.
+The recipient setting accepts one address or a list; both configured addresses
+are passed explicitly in the SMTP delivery envelope.
+
+A local live test was accepted by Brevo for both recipients. Inbox delivery and
+SMTP connectivity from the deployed host still need confirmation. Copy the
+`[contact_email]` block from the local secrets file into the deployed app's
+Streamlit secrets; local secrets are not deployed by Git. Preserve existing
+authentication and database settings. Never paste credentials into chat or commit
+them. Consider a separate Brevo SMTP key for MacroTool to allow independent rotation.

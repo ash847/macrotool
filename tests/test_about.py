@@ -30,8 +30,7 @@ def test_about_copy_is_separate_from_code():
 
 def about_app(config=None):
     app = AppTest.from_string("from interface.about import render_about\nrender_about(user_email='tester@example.com')")
-    if config is not None:
-        app.secrets["contact_email"] = config
+    app.secrets["contact_email"] = config or {}
     return app.run()
 
 
@@ -62,6 +61,8 @@ def test_form_sends_signed_in_user_and_prevents_immediate_repeat(monkeypatch):
     app.text_area[0].set_value("Useful tool").run()
     app.button[0].click().run()
     assert not app.exception and app.success
+    assert not app.info
+    assert any("email the MacroTool team" in element.value for element in app.markdown)
     send.assert_called_once_with(CONFIG, "tester@example.com", "Useful tool")
     app.button[0].click().run()
     assert send.call_count == 1 and app.warning
@@ -115,3 +116,19 @@ def test_refused_delivery_is_not_success(monkeypatch):
     monkeypatch.setattr("interface.contact.smtplib.SMTP", constructor)
     with pytest.raises(smtplib.SMTPRecipientsRefused):
         send_contact(CONFIG, "tester@example.com", "hello")
+
+
+def test_both_contact_recipients_are_in_smtp_envelope(monkeypatch):
+    constructor = MagicMock()
+    smtp = constructor.return_value.__enter__.return_value
+    smtp.send_message.return_value = {}
+    monkeypatch.setattr("interface.contact.smtplib.SMTP", constructor)
+    recipients = ["ashwath.venkataraman@gmail.com", "vincent_craignou@hotmail.com"]
+    send_contact({**CONFIG, "to_email": recipients}, "tester@example.com", "hello")
+    assert smtp.send_message.call_args.kwargs["to_addrs"] == recipients
+    assert str(smtp.send_message.call_args.args[0]["To"]) == ", ".join(recipients)
+
+
+@pytest.mark.parametrize("recipients", [[], [""], [None], ["a@example.com\nBcc: b@example.com"], "a@example.com,b@example.com"])
+def test_bad_recipient_configuration_disables_send(recipients):
+    assert not contact_ready({**CONFIG, "to_email": recipients})

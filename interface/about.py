@@ -36,10 +36,10 @@ def render_about(*, user_email):
         except Exception:
             config = {}
         ready = contact_ready(config) and bool(user_email)
-        st.write("Questions, comments or feedback? Send us a message.")
-        st.caption("Your message and signed-in email address will be sent to the MacroTool team. Please do not include confidential trade or account information.")
+        st.write("Questions, comments or feedback? Use the box below to email the MacroTool team.")
+        st.caption("Your signed-in email address is included so we can reply to you. Please do not include confidential trade or account information.")
         if not ready:
-            st.info("Contact delivery is not configured yet. Messages cannot be sent from this form at present.")
+            st.info("Email contact is currently unavailable. Please try again later.")
         with st.form("about_contact"):
             comments = st.text_area("Comments", max_chars=MAX_COMMENT_LENGTH, key="about_comments", height=160)
             submitted = st.form_submit_button("Send", disabled=not ready)
