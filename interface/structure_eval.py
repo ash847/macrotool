@@ -319,6 +319,7 @@ def render_structure_variants(
     # digital legs hit a smile arbitrage (dropped rather than mis-marked).
     _priced: list = []          # (item, pvs)
     _unpriced: list[str] = []   # display names with one or more dropped variants
+    _failed: list[str] = []     # display names whose pricing raised (details go to the error log)
     for _item in _primary_items:
         _warns: list[str] = []
         try:
@@ -330,7 +331,9 @@ def render_structure_variants(
                 exclude_loss_beyond_premium=getattr(flow, "structure_constraint", "No restriction") == "Avoid tail-risky structures",
             )
         except Exception as _e:
-            st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
+            from interface.debug_log import log_error
+            log_error(f"price_variants:{_item.structure_id}", _e)
+            _failed.append(_item.display_name)
             continue
         if _warns:
             _unpriced.append(_item.display_name)
@@ -354,9 +357,12 @@ def render_structure_variants(
         "the shown max loss is the achieved one, below budget."
     )
 
+    if _failed:
+        st.caption("Could not price: " + ", ".join(_failed) + ".")
+
     if _unpriced:
         st.warning(
-            "⚠️ **Not priced: " + ", ".join(_unpriced) + ".** "
+            "**Not priced: " + ", ".join(_unpriced) + ".** "
             "One or more variants fall in a region where the interpolated vol smile implies "
             "a local arbitrage (negative risk-neutral density — typically far-OTM spline "
             "overshoot), so no reliable digital price is available. These are omitted rather "
@@ -470,15 +476,15 @@ def _render_cell_drivers(eval_result, structure_id: str, base_ccy: str) -> None:
     st.markdown(f"**Key P&L drivers** — {ev.variant_label} (weighted contribution)")
     col_pos, col_neg = st.columns(2)
     with col_pos:
-        st.caption("Top contributors")
+        st.caption(":green[Top contributors]")
         for c in pos:
-            st.markdown(f"🟢 {_line(c)}")
+            st.markdown(f"- {_line(c)}")
         if not pos:
             st.caption("none positive")
     with col_neg:
-        st.caption("Top detractors")
+        st.caption(":red[Top detractors]")
         for c in neg:
-            st.markdown(f"🔴 {_line(c)}")
+            st.markdown(f"- {_line(c)}")
         if not neg:
             st.caption("none negative")
 
@@ -741,9 +747,9 @@ def render_structure_evaluation(
     except Exception:
         _wsrc = ""
     if _wsrc.startswith("supabase (personal"):
-        st.caption(f"⚙️ Weights profile: **personal** — {_ue}")
+        st.caption(f"Weights profile: **personal** — {_ue}")
     else:
-        st.caption("⚙️ Weights profile: **global**")
+        st.caption("Weights profile: **global**")
 
     # Verbal spec of the active context's scoring philosophy + driver glossary, from
     # the GLOBAL commentary store. Both omitted gracefully if absent.

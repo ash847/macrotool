@@ -64,6 +64,6 @@ def test_llm_failure_is_captured_and_saved_as_a_failed_turn():
     llm.gate.set()
     job = start_agent_job(flow, "hello", conversation=conv, seq=0, service=svc)
     assert job.done.wait(30)
-    assert job.failed and job.error is not None and job.reply.startswith("⚠️")
+    assert job.failed and job.error is not None and job.reply.startswith("Error:")
     (turn,) = svc.store.list_turns(ME, conv.id)
-    assert turn.llm_messages == [] and turn.reply_text.startswith("⚠️")
+    assert turn.llm_messages == [] and turn.reply_text.startswith("Error:")

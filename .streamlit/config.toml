@@ -1,0 +1,56 @@
+# MacroTool theme — restrained, low-chroma finance look. Light only (base is pinned so
+# the app does not flip with the viewer's OS theme and drift from tested colours).
+# Secrets stay in .streamlit/secrets.toml (gitignored); this file is safe to commit.
+
+[client]
+# Hide the Deploy button / dev menu items for viewers.
+toolbarMode = "minimal"
+
+[theme]
+base = "light"
+
+# Surfaces and text
+primaryColor = "#1F3A5F"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F5F8"
+textColor = "#1B2430"
+linkColor = "#2B5C9E"
+linkUnderline = false
+
+# Borders and shape
+borderColor = "#D5DBE4"
+dataframeBorderColor = "#D5DBE4"
+dataframeHeaderBackgroundColor = "#EAEEF4"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "0.25rem"
+buttonRadius = "0.25rem"
+
+# Muted status palette (drives st.success / st.warning / st.error / :green[] / :red[])
+greenColor = "#1E7F4F"
+redColor = "#B3372F"
+orangeColor = "#B7791F"
+yellowColor = "#B7791F"
+blueColor = "#2B5C9E"
+violetColor = "#5B4A93"
+grayColor = "#6B7788"
+
+# Typography — denser than the default; headings and metrics are far smaller than stock.
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap, sans-serif"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap, sans-serif"
+codeFont = "JetBrains Mono:https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap, monospace"
+baseFontSize = 15
+headingFontSizes = ["1.9rem", "1.45rem", "1.2rem", "1.05rem", "1rem", "0.9rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+metricValueFontSize = "1.6rem"
+metricValueFontWeight = 600
+codeFontSize = "0.85rem"
+
+# Charts — muted, distinguishable, colour-blind-tolerant categorical set.
+chartCategoricalColors = ["#1F3A5F", "#B7791F", "#1E7F4F", "#B3372F", "#5B4A93", "#2B7A8C", "#8A6D3B", "#6B7788"]
+chartSequentialColors = ["#EAEEF4", "#C5D1E3", "#9FB3D1", "#7893BD", "#5173A6", "#365A8D", "#1F3A5F", "#142744"]
+chartDivergingColors = ["#B3372F", "#C9645C", "#DD928C", "#EEC4C0", "#F3F5F8", "#BFD3EA", "#8CAFD6", "#5A8BC0", "#2B5C9E"]
+
+[theme.sidebar]
+backgroundColor = "#EEF1F6"
+secondaryBackgroundColor = "#E3E8F0"

@@ -33,7 +33,7 @@ def sizing_summary(settings: ChatSettings, session) -> str:
     pack = session.pack
     if settings.sizing_method == "kelly":
         if tag and pack is not None and getattr(pack, "kelly_fallback", False):
-            return (f"⚠️ **Kelly selected — no distribution for {tag}**, so this trade is "
+            return (f":orange[**Kelly selected — no distribution for {tag}**], so this trade is "
                     f"sized **fixed-loss** (R:R {settings.target_rr:g})")
         if tag and pack is not None and pack.sizing_method == "kelly":
             return f"**Kelly λ {settings.kelly_lambda:g}** · your distribution for {tag}"
@@ -63,7 +63,7 @@ def render_agent_settings(
         st.caption(tail_constraint_label(settings.tail_constraint))
 
     k = f"ags_{conv.id[:8]}_"          # widget keys are per chat
-    with st.expander("✎ Sizing & preferences for this chat", expanded=False):
+    with st.expander(":material/tune: Sizing & preferences for this chat", expanded=False):
         c1, c2 = st.columns(2)
         method_label = c1.radio(
             "Size trades by", list(_METHODS),

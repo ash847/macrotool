@@ -579,7 +579,7 @@ def render_option2_inputs(n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
 
     total_pct = int(probs_pct.sum())
     if total_pct == 100:
-        st.success("Bucket probabilities sum to 100% ✓")
+        st.success("Bucket probabilities sum to 100%.")
     else:
         msg_col, btn_col = st.columns([3, 1])
         diff = total_pct - 100

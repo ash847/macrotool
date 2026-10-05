@@ -61,7 +61,7 @@ def start_agent_job(
         except Exception as e:
             job.error = e
             job.failed = True
-            job.reply = f"⚠️ {type(e).__name__}: {e}"
+            job.reply = f"Error: {type(e).__name__}: {e}"
         try:
             job.conversation = service.record_exchange(
                 conversation, flow.session, seq=seq, prompt=prompt,

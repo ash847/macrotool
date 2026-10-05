@@ -400,7 +400,7 @@ def render(make_flow, snapshot, is_admin: bool, user_email: str | None = None) -
 
     st.subheader("Per-trade detail")
     for _idx, (r, res) in enumerate(zip(results, evals)):
-        label = r["title"] + ("   ❌" if r["error"] else "")
+        label = r["title"] + ("  (error)" if r["error"] else "")
         with st.expander(label, expanded=False):
             if r["error"]:
                 st.error(f"Could not run this trade: {r['error']}")

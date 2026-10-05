@@ -151,7 +151,7 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
         edited = probs_pct != [int(seed_pct[i]) if i < len(seed_pct) else 0 for i in range(n)]
         total = int(sum(probs_pct))
         if total == 100:
-            st.success("Bucket probabilities sum to 100% ✓")
+            st.success("Bucket probabilities sum to 100%.")
         else:
             m_col, b_col = st.columns([3, 1])
             m_col.warning(f"Bucket probabilities sum to {total}%, not 100% (off by {total - 100:+d}%).")
@@ -207,7 +207,7 @@ def render_kelly_elicitation(ms, target: float | None = None, direction: str | N
             side = "long (base higher)" if is_long else "short (base lower)"
             lean = "below" if is_long else "above"
             st.warning(
-                f"⚠ Your distribution's mean ({el_mean:.4f}) is {lean} the forward "
+                f"Your distribution's mean ({el_mean:.4f}) is {lean} the forward "
                 f"({ms.fwd:.4f}) — against this {side} view. Kelly will size this small or to zero."
             )
     return probs, bins, edited

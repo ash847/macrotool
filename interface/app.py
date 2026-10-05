@@ -75,7 +75,7 @@ from interface.debug_log import (
 
 st.set_page_config(
     page_title="MacroTool",
-    page_icon="📈",
+    page_icon=":material/query_stats:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -1079,12 +1079,12 @@ def _render_reaction(
     pair: str | None = None, view_summary: str | None = None,
     chat_id: str | None = None, seq: int | None = None,
 ) -> None:
-    """Passive 👍/👎 (record-once per target) with one-tap reason chips on 👎. Writes
-    to the reactions table on click; never prompts or blocks."""
+    """Passive thumbs up/down (record-once per target) with one-tap reason chips on
+    thumbs-down. Writes to the reactions table on click; never prompts or blocks."""
     state_key = f"rx_{target_ref}"
     recorded = st.session_state.get(state_key)
     if recorded:
-        st.caption(f"✓ feedback recorded: {recorded}")
+        st.caption(f":material/check: Feedback recorded — {recorded}")
         return
     pending_key = f"rxpending_{target_ref}"
 
@@ -1099,11 +1099,11 @@ def _render_reaction(
             pass
 
     c = st.columns([1, 1, 8])
-    if c[0].button("👍", key=f"{state_key}_up", help="Helpful"):
+    if c[0].button(":material/thumb_up:", key=f"{state_key}_up", help="Helpful"):
         _write("up")
-        st.session_state[state_key] = "👍"
+        st.session_state[state_key] = "helpful"
         st.rerun()
-    if c[1].button("👎", key=f"{state_key}_down", help="Not helpful"):
+    if c[1].button(":material/thumb_down:", key=f"{state_key}_down", help="Not helpful"):
         st.session_state[pending_key] = True
         st.rerun()
 
@@ -1113,7 +1113,7 @@ def _render_reaction(
         for i, label in enumerate(_REASON_CHIPS):
             if chip_cols[i].button(label, key=f"{state_key}_chip_{i}"):
                 _write("down", label)
-                st.session_state[state_key] = f"👎 {label}"
+                st.session_state[state_key] = f"not helpful ({label})"
                 st.session_state.pop(pending_key, None)
                 st.rerun()
 
@@ -1135,7 +1135,7 @@ def _render_recommendation_reaction(surface: str, flow, target: float | None) ->
 
 def _render_agent_diagnostic(session) -> None:
     trace = _agent_tool_trace(session)
-    label = f"🔍 Engine trace — {len(trace)} tool call(s)"
+    label = f":material/manage_search: Engine trace — {len(trace)} tool call(s)"
     with st.expander(label, expanded=False):
         if session.pack is not None:
             st.caption(
@@ -1145,7 +1145,7 @@ def _render_agent_diagnostic(session) -> None:
             st.caption("No tool calls yet. A 'why/what' question should make zero calls.")
             return
         for i, t in enumerate(trace, 1):
-            flag = " ❌" if t["is_error"] else ""
+            flag = " (error)" if t["is_error"] else ""
             st.markdown(f"**{i}. `{t['name']}`{flag}**")
             st.code(json.dumps(t["args"], indent=2, default=str), language="json")
             st.text(t["result"] or "")
@@ -1339,7 +1339,7 @@ def _finalize_agent_jobs(svc, jobs: dict) -> None:
             continue
         st.session_state.agent_chat.append(("assistant", job.reply))
         if job.store_error is not None:
-            st.session_state.ws_info = "⚠️ The last exchange couldn't be saved."
+            st.session_state.ws_info = "The last exchange couldn't be saved."
         elif job.conversation is not None:
             first = job.seq == 0
             renamed = job.conversation.title != current.title
@@ -1397,7 +1397,7 @@ def _render_agent() -> None:
 
     svc, ws_warning = get_workspace(USER_EMAIL)
     if ws_warning:
-        st.caption(f"⚠️ {ws_warning}")
+        st.caption(f":material/warning: {ws_warning}")
 
     # Open requests: sidebar click / "New conversation" / a ?chat=<id> link.
     request = st.session_state.pop("ws_open", None)
@@ -1588,7 +1588,7 @@ def _render_trade_chat(flow) -> None:
                     reply = st.session_state.tv_chat_flow.advance(prompt)
                 except Exception as e:
                     log_error("trade_chat_advance", e)
-                    reply = f"⚠️ {type(e).__name__}: {e}"
+                    reply = f"Error: {type(e).__name__}: {e}"
             st.markdown(reply)
             _render_reply_reaction("trade_view", _tv_chat_id,
                                    len(st.session_state.tv_chat), _tv_view)
@@ -1607,8 +1607,8 @@ if allowed_page(st.session_state.page, IS_ADMIN) != st.session_state.page:
     st.rerun()
 
 if VIEW_AS_TESTER:
-    st.info("👁 Viewing as tester — switch off **View as tester** in the sidebar to "
-            "return to admin.")
+    st.info("Viewing as tester — switch off **View as tester** in the sidebar to "
+            "return to admin.", icon=":material/visibility:")
 
 if st.session_state.page == "Market Data":
     _render_market_data()
