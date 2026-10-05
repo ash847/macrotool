@@ -48,11 +48,11 @@ def test_all_ranked_variants_match_trade_view(direction, method, monkeypatch):
         )
     assert any(rec.structure_id == "linear" for rec in pack.recommended)
     table = render_shortlist(pack, view)
-    assert "### Market state" in table and "### Shortlisted structures" in table
-    assert "### Top structures" in table
+    assert "### Market state" in table and "### Structure Fit" in table
+    assert "### Ranked packages" in table
     assert "Net P&L at target" not in table and "Additional loss beyond premium?" not in table
     reply = present_shortlist("A regime explanation. Selection fits that regime.", pack, view, automatic=True)
-    assert reply.index("Market state") < reply.index("A regime explanation") < reply.index("Shortlisted structures") < reply.index("Top structures")
+    assert reply.index("Market state") < reply.index("A regime explanation") < reply.index("Structure Fit") < reply.index("Ranked packages")
     session = AgentSession(snapshot=snapshot, cfg=config, view=view, pack=pack)
     reference = shortlist_reference(pack, view)
     family = next(rec.structure_id for rec in pack.recommended if sum(other.structure_id == rec.structure_id for other in pack.recommended) > 1)

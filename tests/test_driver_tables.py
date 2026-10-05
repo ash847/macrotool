@@ -169,7 +169,7 @@ def test_new_view_clears_previous_driver_selection(context, monkeypatch):
     ])
     session = AgentSession(snapshot=snapshot, cfg=cfg, view=view, pack=pack)
     reply = AgentFlow(llm, session).advance("Switch view")
-    assert "### Top structures" in reply and "### Top contributors" not in reply
+    assert "### Ranked packages" in reply and "### Top contributors" not in reply
     assert f"{changed.market_state.spot:.4f}" in reply
 
 

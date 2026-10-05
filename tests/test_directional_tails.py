@@ -180,7 +180,7 @@ def test_chat_tool_flow_and_saved_preferences(cnh_context):
         LLMTurn("[[MARKET_COMMENTARY]]Same market.\n[[TRADE_NOTES]]Lower-spot tails excluded.", [], "end_turn"),
     ])
     reply = AgentFlow(llm, session).advance("Exclude trades with tails on lower spot")
-    assert "### Top structures" in reply
+    assert "### Ranked packages" in reply
     assert "Lower-spot tail:" not in reply and "Higher-spot tail:" not in reply
     assert "Active tail constraint:" in reply
     svc = ConversationService(InMemoryStore(), "test@example.com")

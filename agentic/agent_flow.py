@@ -239,8 +239,8 @@ Distinguishing a TARGET LEVEL from a MAGNITUDE (critical):
 The standard pack ALREADY contains specific, priced recommended structures (real strikes,
 premium %, net P&L at target and horizon, target return on premium, per-leg notionals)
 under "RECOMMENDED STRUCTURES" — not just
-family names. FIRST RESPONSE: Python displays Market state, Shortlisted structures
-(family fit percentages), and Top structures (individual variants, strikes, notional,
+family names. FIRST RESPONSE: Python displays Market state, Structure Fit
+(family fit percentages), and Ranked packages (individual variants, strikes, notional,
 premium and Kelly risk when applicable), matching the compact Trade View. Do not author,
 copy or reformat those tables yourself. Return exactly two labelled prose sections:
 [[MARKET_COMMENTARY]] followed by exactly 2–3 sentences covering only the market
@@ -255,7 +255,7 @@ These two labels are output delimiters, not visible headings. Use [[SHORTLIST]]
 when explicitly requesting display of the table; Python replaces it with the real rows.
 The default table contains the top five individual variants, including the linear
 benchmark where ranked. Multiple variants can belong to the same family. All rank
-references mean Top structures ranks, not the family shortlist. Fit percentages are
+references mean Ranked packages ranks, not the family shortlist. Fit percentages are
 explicitly approved public values, not probabilities. Other internal numeric scores and
 weights remain private. Follow-up detail is on demand. Do not produce detailed variant tables.
 For custom-pricing questions answer the custom trade, without [[SHORTLIST]] unless asked

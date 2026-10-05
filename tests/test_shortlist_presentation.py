@@ -29,13 +29,17 @@ def context():
 def test_top_five_has_agreed_columns_and_exact_sized_values(context):
     _, _, view, pack = context
     table = render_shortlist(pack, view)
-    rows = [line for line in table.split("### Top structures")[1].splitlines() if line.startswith("| ")][2:]
+    rows = [line for line in table.split("### Ranked packages")[1].splitlines() if line.startswith("| ")][2:]
     assert len(rows) == min(5, len(pack.recommended))
     for line, rec in zip(rows, pack.recommended):
         assert len(line.split("|")) == 8
         assert line.startswith(f"| {rec.rank} |")
         assert f"USD {rec.variant.structure_notional:,.0f}" in line
     assert "Fit score" in table
+    assert "| Carry score |" in table
+    assert "| ATMF/ATMS ratio |" in table
+    assert "### Structure Fit" in table
+    assert "### Ranked packages" in table
     assert "Target return on premium" not in table
     assert "score_ccy" not in table
     assert "Lower-spot tail:" not in table
@@ -130,7 +134,7 @@ def test_model_authored_tables_are_not_displayed_as_engine_numbers(context):
     result = present_shortlist(text, pack, view, automatic=True)
     assert "invented" not in result
     assert result.count("| Rank |") == 1
-    assert result.index("Short explanation.") < result.index("### Shortlisted structures")
+    assert result.index("Short explanation.") < result.index("### Structure Fit")
 
 
 def test_reference_and_detail_routing_are_in_model_context(context):

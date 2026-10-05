@@ -184,7 +184,7 @@ if "submitted" not in st.session_state:
     st.session_state.submitted = False
 if "page" not in st.session_state:
     # A ?chat=<id> link opens straight into that saved conversation.
-    st.session_state.page = "Agent" if st.query_params.get("chat") else "Trade view"
+    st.session_state.page = "Agent" if st.query_params.get("chat") or not IS_ADMIN else "Trade view"
 
 # "Admin test" (admin-only) shows the full admin surface; "Trade view" always
 # renders with tester visibility so both surfaces are live simultaneously.
@@ -235,15 +235,8 @@ with st.sidebar:
                        "until you switch this off.")
     st.divider()
 
-    # Admins get "Admin test" (full surface) + "Trade view" (tester surface) side by side.
-    # Testers see "Trade view" + "Agent".
-    if IS_ADMIN:
-        nav_labels = (
-            "Admin test", "Trade view", "Agent", "Kelly Sizing",
-            "Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log",
-        )
-    else:
-        nav_labels = ("Trade view", "Agent")
+    from interface.navigation import available_pages
+    nav_labels = available_pages(IS_ADMIN)
     from interface.conversations_ui import (
         NEW as _WS_NEW,
         is_new_chat_open as _ws_new_chat_open,
@@ -1608,8 +1601,9 @@ def _render_trade_chat(flow) -> None:
 # Page routing
 # ---------------------------------------------------------------------------
 
-if not IS_ADMIN and st.session_state.page not in ("Trade view", "Agent"):
-    st.session_state.page = "Trade view"
+from interface.navigation import allowed_page
+if allowed_page(st.session_state.page, IS_ADMIN) != st.session_state.page:
+    st.session_state.page = "Agent"
     st.rerun()
 
 if VIEW_AS_TESTER:
@@ -1621,6 +1615,10 @@ if st.session_state.page == "Market Data":
 
 elif st.session_state.page == "Agent":
     _render_agent()
+
+elif st.session_state.page == "About":
+    from interface.about import render_about
+    render_about(user_email=USER_EMAIL)
 
 elif st.session_state.page == "Query log":
     _render_query_log()

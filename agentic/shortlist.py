@@ -146,7 +146,7 @@ def render_market_state(pack, view) -> str:
         "| ---: | ---: | ---: | ---: | ---: |",
         f"| {state.spot:.4f} | {state.fwd:.4f} | {state.vol:.1%} | {view.horizon_days}d | {target_spot} |",
         "",
-        "| Carry c | Carry regime | Target z (vs spot) | Target z (vs fwd) | ATM fwd ratio |",
+        "| Carry score | Carry regime | Target z (vs spot) | Target z (vs fwd) | ATMF/ATMS ratio |",
         "| ---: | --- | ---: | ---: | ---: |",
         f"| {state.c:+.3f} | {regime[state.carry_regime]} | {target_z_spot} | {target_z} | {ratio} |",
         "",
@@ -157,13 +157,13 @@ def render_market_state(pack, view) -> str:
 
 
 def render_trade_tables(pack, view) -> str:
-    rows = ["### Shortlisted structures", "Ranked by structure-fit score, as a percentage of the maximum possible; not a probability of success.",
+    rows = ["### Structure Fit", "Ranked by structure-fit score, as a percentage of the maximum possible; not a probability of success.",
             "", "| # | Structure | Fit score |", "| --- | --- | ---: |"]
     for rank, family in enumerate(pack.affinity_shortlist, 1):
         rows.append(f"| {rank} | {_cell(family['display_name'])} | {family['fit_pct']:.0f}% |")
     if not pack.affinity_shortlist:
         rows.append("\nNo eligible primary structures.")
-    rows.extend(["", "### Top structures"])
+    rows.extend(["", "### Ranked packages"])
     if not pack.variants_ranked:
         rows.append("Scenario ranking unavailable; specify a usable target to rank individual variants.")
         return "\n".join(rows)
