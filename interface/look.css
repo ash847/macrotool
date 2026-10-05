@@ -36,7 +36,7 @@
   white-space: normal !important;
   overflow: visible !important;
   text-overflow: clip !important;
-  overflow-wrap: break-word;
+  overflow-wrap: normal;      /* wrap at spaces only — never split a word */
 }
 [data-testid="stMetricLabel"] p {
   line-height: 1.3;
@@ -46,6 +46,44 @@
 [data-testid="stMetricValue"] p {
   font-size: clamp(1.1rem, 1.55vw, 1.75rem) !important;
   line-height: 1.25;
+}
+
+/* Market state is centre-aligned: the headline cards (keyed container "market_headline")
+   and the "More market detail" grid ("market_detail"). Scoped by key so other metrics and
+   captions in the app keep their normal left alignment. */
+/* On a narrow window the five cards wrap onto a second row rather than being crushed. */
+.st-key-market_headline [data-testid="stHorizontalBlock"] {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.st-key-market_headline [data-testid="stColumn"] {
+  flex: 1 1 150px !important;
+  min-width: 150px !important;
+  width: auto !important;
+}
+.st-key-market_headline [data-testid="stMetric"] {
+  align-items: center;
+  text-align: center;
+}
+.st-key-market_headline [data-testid="stMetricLabel"] {
+  justify-content: center;
+  width: 100%;
+}
+.st-key-market_headline [data-testid="stMetricLabel"] p,
+.st-key-market_headline [data-testid="stMetricValue"],
+.st-key-market_headline [data-testid="stMetricValue"] p {
+  text-align: center;
+}
+.st-key-market_headline [data-testid="stMetricValue"] {
+  width: 100%;
+  justify-content: center;
+}
+.st-key-market_detail [data-testid="stCaptionContainer"] {
+  justify-content: center;
+  text-align: center;
+}
+.st-key-market_detail [data-testid="stMarkdownContainer"] {
+  text-align: center;
 }
 
 /* Bordered containers: rounder with a faint lift instead of a hard outline */

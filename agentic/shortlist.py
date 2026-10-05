@@ -144,17 +144,17 @@ def render_market_state(pack, view) -> str:
     return "\n".join([
         f"### Market state — {view.pair}",
         f"| {L('spot')} | {L('forward')} | {L('implied_vol')} | {L('horizon')} | Target |",
-        "| ---: | ---: | ---: | ---: | ---: |",
+        "| :---: | :---: | :---: | :---: | :---: |",
         f"| {state.spot:.4f} | {state.fwd:.4f} | {state.vol:.1%} | {view.horizon_days}d | {target_spot} |",
         "",
         f"| {L('carry')} | {L('carry_vs_vol')} | {L('target_distance_spot')} | "
         f"{L('target_distance_fwd')} | {L('carry_payout_ratio')} |",
-        "| ---: | --- | ---: | ---: | ---: |",
+        "| :---: | :---: | :---: | :---: | :---: |",
         f"| {state.c:+.3f} | {UL.carry_vs_vol_label(state.carry_regime)} | {target_z_spot} | {target_z} | {ratio} |",
         "",
         f"| {L('rate_base', ccy=view.pair[:3])} | {L('rate_quote', ccy=view.pair[3:])} | "
         f"{L('skew')} | {L('smile_curvature')} |",
-        "| ---: | ---: | ---: | ---: |",
+        "| :---: | :---: | :---: | :---: |",
         f"| {state.r_f:.2%} | {state.r_d:.2%} | {rr} | {fly} |",
     ])
 

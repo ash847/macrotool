@@ -1382,6 +1382,11 @@ def _freeze_agent_header_css() -> None:
     )
 
 
+# Agent-page chat avatars: a plain person for the PM, and the chart glyph that is also the
+# browser-tab icon for the assistant (replaces Streamlit's default face / robot).
+_AGENT_AVATARS = {"user": ":material/person:", "assistant": ":material/query_stats:"}
+
+
 def _render_agent() -> None:
     from interface.conversations_ui import NEW, get_workspace
 
@@ -1444,7 +1449,7 @@ def _render_agent() -> None:
     _chat_id = st.session_state.get("agent_chat_id", "unknown")
     _view = getattr(st.session_state.agent_flow.session, "view", None)
     for idx, (role, text) in enumerate(st.session_state.agent_chat):
-        with st.chat_message(role):
+        with st.chat_message(role, avatar=_AGENT_AVATARS.get(role)):
             st.markdown(text)
             if role == "assistant" and idx > 0:   # skip the canned/first opener
                 _render_reply_reaction("agent_tab", _chat_id, idx, _view)
@@ -1453,7 +1458,7 @@ def _render_agent() -> None:
         # Wait for the background turn. Each placeholder update is a Streamlit call,
         # so navigating away interrupts only this wait — the turn itself carries on
         # and is saved; its reply is picked up the next time this page renders.
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=_AGENT_AVATARS["assistant"]):
             ph = st.empty()
             while not pending.done.wait(0.25):
                 ph.markdown(f"_Thinking… {pending.elapsed()}s_")
@@ -1790,7 +1795,8 @@ else:
             # Headline row: the few numbers a PM reads first. Everything else is one
             # click away under "More market detail".
             _tz = (f"{ms.target_z:+.2f}σ ({ms.put_call})" if ms.target_z is not None else "—")
-            h1, h2, h3, h4, h5 = st.columns(5)
+            _mh = st.container(key="market_headline")     # keyed so look.css can centre it
+            h1, h2, h3, h4, h5 = _mh.columns(5)
             h1.metric(UL.label("spot"), f"{ms.spot:.4f}", help=UL.tip("spot"))
             h2.metric(UL.label("forward"), f"{ms.fwd:.4f}", help=UL.tip("forward"))
             h3.metric(UL.label("implied_vol"), f"{ms.vol:.1%}", help=UL.tip("implied_vol"))
@@ -1806,8 +1812,9 @@ else:
             with st.expander("More market detail", expanded=False):
                 _pair = flow.view.pair
                 _base, _quote = _pair[:3], _pair[3:]
+                _md = st.container(key="market_detail")   # keyed so look.css can centre it
 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4 = _md.columns(4)
                 _ms_cell(c1, UL.label("horizon"), f"{h}d", tip=UL.tip("horizon"))
                 _ms_cell(c2, UL.label("carry"), f"{ms.c:+.3f}", tip=UL.tip("carry"))
                 _ms_cell(c3, UL.label("carry_vs_vol"), UL.carry_vs_vol_label(ms.carry_regime),
@@ -1816,7 +1823,7 @@ else:
                          f"{ms.atmfsratio:.2f}x" if ms.atmfsratio is not None else "—",
                          tip=UL.tip("carry_payout_ratio"))
 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4 = _md.columns(4)
                 _ms_cell(c1, UL.label("rate_base", ccy=_base), f"{ms.r_f:.2%}", tip=UL.tip("rate_base"))
                 _ms_cell(c2, UL.label("rate_quote", ccy=_quote), f"{ms.r_d:.2%}", tip=UL.tip("rate_quote"))
                 try:
@@ -1833,7 +1840,7 @@ else:
                     _ms_cell(c3, UL.label("skew"), "—", tip=UL.tip("skew"))
                     _ms_cell(c4, UL.label("smile_curvature"), "—", tip=UL.tip("smile_curvature"))
 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4 = _md.columns(4)
                 _ms_cell(c1, UL.label("target_distance_spot"),
                          f"{ms.target_z_spot:+.2f}σ ({ms.put_call})" if ms.target_z_spot is not None else "—",
                          tip=UL.tip("target_distance_spot"))
