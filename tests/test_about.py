@@ -44,6 +44,13 @@ def test_about_panels_and_unconfigured_contact():
     assert "Risk 1 to make" in content["sizing_fixed_loss"]
     assert "you can lose more than the premium" in content["sizing_fixed_loss"]
     assert "total portfolio capital" in content["sizing_kelly"]
+    assert "comparable sizing budget" in content["sizing_fixed_loss"]
+    assert "stress-loss estimate" in content["sizing_fixed_loss"]
+    assert "not a guaranteed maximum loss" in content["sizing_fixed_loss"]
+    assert "shared capital input across chats" in content["sizing_fixed_loss"]
+    assert "shared capital input across chats" in content["sizing_kelly"]
+    assert "market-implied distribution" in content["sizing_kelly"]
+    assert "long-term compounded capital growth, based on your estimated probabilities" in content["sizing_kelly"]
     assert "[here](https://en.wikipedia.org/wiki/Kelly_criterion)" in content["sizing_kelly"]
     assert app.button[0].label == "Send" and app.button[0].disabled
 
