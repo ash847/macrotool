@@ -6,6 +6,7 @@ import json
 import math
 import re
 
+from knowledge_engine import ui_labels as UL
 from knowledge_engine.loader import load_agent_vocabulary
 from knowledge_engine.tail_policy import tail_constraint_label, tail_risk_text
 
@@ -132,7 +133,7 @@ def render_shortlist(pack, view, ranks=None) -> str:
 
 def render_market_state(pack, view) -> str:
     state = pack.market_state
-    regime = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
+    L = UL.label
     target_spot = f"{pack.target:.4f}" if pack.target is not None else "—"
     target_z = f"{state.target_z:+.2f}σ" if state.target_z is not None else "—"
     target_z_spot = f"{state.target_z_spot:+.2f}σ" if state.target_z_spot is not None else "—"
@@ -142,23 +143,25 @@ def render_market_state(pack, view) -> str:
     fly = f"{quotes['fly25']:+.2%}" if quotes.get("fly25") is not None else "—"
     return "\n".join([
         f"### Market state — {view.pair}",
-        "| Spot | Forward | ATM Vol | Horizon | Target |",
+        f"| {L('spot')} | {L('forward')} | {L('implied_vol')} | {L('horizon')} | Target |",
         "| ---: | ---: | ---: | ---: | ---: |",
         f"| {state.spot:.4f} | {state.fwd:.4f} | {state.vol:.1%} | {view.horizon_days}d | {target_spot} |",
         "",
-        "| Carry score | Carry regime | Target z (vs spot) | Target z (vs fwd) | ATMF/ATMS ratio |",
+        f"| {L('carry')} | {L('carry_vs_vol')} | {L('target_distance_spot')} | "
+        f"{L('target_distance_fwd')} | {L('carry_payout_ratio')} |",
         "| ---: | --- | ---: | ---: | ---: |",
-        f"| {state.c:+.3f} | {regime[state.carry_regime]} | {target_z_spot} | {target_z} | {ratio} |",
+        f"| {state.c:+.3f} | {UL.carry_vs_vol_label(state.carry_regime)} | {target_z_spot} | {target_z} | {ratio} |",
         "",
-        f"| r {view.pair[:3]} | r {view.pair[3:]} (implied) | 25d RR | 25d Fly |",
+        f"| {L('rate_base', ccy=view.pair[:3])} | {L('rate_quote', ccy=view.pair[3:])} | "
+        f"{L('skew')} | {L('smile_curvature')} |",
         "| ---: | ---: | ---: | ---: |",
         f"| {state.r_f:.2%} | {state.r_d:.2%} | {rr} | {fly} |",
     ])
 
 
 def render_trade_tables(pack, view) -> str:
-    rows = ["### Structure Fit", "Ranked by structure-fit score, as a percentage of the maximum possible; not a probability of success.",
-            "", "| # | Structure | Fit score |", "| --- | --- | ---: |"]
+    rows = ["### Structure Fit", "Ranked by how well each type of structure fits the view, as a percentage of the maximum possible; not a probability of success.",
+            "", f"| # | Structure | {UL.label('fit_score')} |", "| --- | --- | ---: |"]
     for rank, family in enumerate(pack.affinity_shortlist, 1):
         rows.append(f"| {rank} | {_cell(family['display_name'])} | {family['fit_pct']:.0f}% |")
     if not pack.affinity_shortlist:
@@ -170,7 +173,8 @@ def render_trade_tables(pack, view) -> str:
     rows.extend([load_agent_vocabulary()["shortlist_scope"], ""])
     selected = pack.recommended[:5]
     kelly = any(rec.variant.kelly_fraction is not None for rec in selected)
-    rows.append("| Rank | Structure | Variant | Strikes | Notional | Premium |" + (" Kelly risk |" if kelly else ""))
+    rows.append("| Rank | Structure | Variant | Strikes | Notional | Premium |"
+                + (f" {UL.label('kelly_risk')} |" if kelly else ""))
     rows.append("| --- | --- | --- | --- | ---: | ---: |" + (" ---: |" if kelly else ""))
     for rec in selected:
         variant = rec.variant
@@ -187,7 +191,7 @@ def render_trade_tables(pack, view) -> str:
         if not selected:
             rows.append("No priced variants satisfy the active tail constraint; none have been substituted.")
     if kelly:
-        rows.append("Kelly risk is the full-Kelly sizing-loss proxy as a share of W, before λ; not contractual maximum loss.")
+        rows.append(f"{UL.label('kelly_risk')} is the full-Kelly sizing-loss proxy as a share of W, before λ; not contractual maximum loss.")
     if any(rec.structure_id == "linear" for rec in selected):
         rows.append("Linear is the Trade View benchmark with modelled capped scenario losses, not contractual protection.")
     if pack.kelly_fallback:

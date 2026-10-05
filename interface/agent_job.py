@@ -61,7 +61,9 @@ def start_agent_job(
         except Exception as e:
             job.error = e
             job.failed = True
-            job.reply = f"Error: {type(e).__name__}: {e}"
+            # Details are logged by the caller (job.error); the PM gets a calm one-liner,
+            # not a provider stack trace / raw API JSON.
+            job.reply = "Error: the assistant couldn't complete that request. Please try again in a moment."
         try:
             job.conversation = service.record_exchange(
                 conversation, flow.session, seq=seq, prompt=prompt,

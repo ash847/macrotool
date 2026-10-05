@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from conversation.flow import ConversationFlow, target_from_reference
+from knowledge_engine import ui_labels as UL
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +352,7 @@ def render_structure_variants(
         "**R/R**: gross payoff at target per unit of max loss (zero-cost seagull: "
         "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
         "**% of W**: the variant's max loss as a share of the sizing capital. "
-        "**Kelly risk**: full-Kelly capital at risk (f*×max loss, pre-λ) as a share of W; "
+        f"**{UL.label('kelly_risk')}**: full-Kelly capital at risk (f*×max loss, pre-λ) as a share of W; "
         "shown under Kelly sizing (hover the header for the notional relationship). "
         "**(cap)**: the 10·W notional cap bound before the loss budget was reached — "
         "the shown max loss is the achieved one, below budget."
@@ -409,7 +410,7 @@ def render_structure_variants(
                 }
                 if getattr(pv, "kelly_fraction", None) is not None:
                     _car = pv.kelly_fraction * (pv.max_loss_pct or 0.0)
-                    r["Kelly risk"] = f"{_car:.0%}"
+                    r[UL.label("kelly_risk")] = f"{_car:.0%}"
                 if scenario_pnl is not None:
                     _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
                     r["PnL score"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"
@@ -419,8 +420,8 @@ def render_structure_variants(
                     r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
                 _rows.append(r)
             _kelly_cfg = {}
-            if any("Kelly risk" in _r for _r in _rows):
-                _kelly_cfg["Kelly risk"] = st.column_config.Column(help=_KELLY_RISK_HELP)
+            if any(UL.label("kelly_risk") in _r for _r in _rows):
+                _kelly_cfg[UL.label("kelly_risk")] = st.column_config.Column(help=_KELLY_RISK_HELP)
             if any("PnL score" in _r for _r in _rows):
                 _kelly_cfg["PnL score"] = st.column_config.Column(help=_PNL_SCORE_HELP)
             _show_df(

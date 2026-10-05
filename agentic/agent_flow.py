@@ -16,6 +16,7 @@ from agentic.session import AgentSession
 from agentic.tools import TOOL_SCHEMAS, dispatch, requested_inspection_tables
 from agentic.shortlist import present_shortlist
 from agentic.telemetry import tracked_call
+from knowledge_engine import ui_labels
 from knowledge_engine.loader import load_agent_vocabulary
 
 _SYSTEM_PROMPT_TEMPLATE = """You are a structuring assistant for a macro-fund PM trading EM FX options.
@@ -69,7 +70,7 @@ the approach in plain terms but never state, quote, or imply any weight, score, 
 Do not reason out the economics yourself — relay what the engine states:
 - CARRY: the pack states whether the view is WITH or COUNTER to the carry. Use that exact
   framing. NEVER say carry "works against you" / "you're fighting the carry" unless the pack
-  says COUNTER. The carry-capture payout ratio is a payout ratio, NOT a measure of carry
+  says COUNTER. The carry payout ratio is a payout ratio, NOT a measure of carry
   direction — do not interpret it as carry helping or hurting the view.
   Apply this alignment throughout the explanation, not just its opening sentence.
   For WITH-carry views, never describe forward roll-down or distance from the forward
@@ -349,7 +350,15 @@ def build_system_prompt(pairs) -> str:
     data, so adding a pair to the snapshot exposes it to the agent with no code change."""
     pair_list = ", ".join(pairs) if pairs else ", ".join(_FALLBACK_PAIRS)
     wording = "\n".join(f"- {rule}" for rule in load_agent_vocabulary()["narration_rules"])
-    return _SYSTEM_PROMPT_TEMPLATE.replace("<PAIRS>", pair_list) + "\n\nAPPROVED LANGUAGE:\n" + wording
+    return (
+        _SYSTEM_PROMPT_TEMPLATE.replace("<PAIRS>", pair_list)
+        + "\n\nAPPROVED LANGUAGE:\n" + wording
+        # Same wording file as the on-screen labels (knowledge/defaults/ui_labels.json),
+        # so the chat and the screen use the same words for the same numbers.
+        + "\n\nAUDIENCE AND STYLE:\n" + ui_labels.audience_rules_text()
+        + "\n\nTERMS (the plain label is what the PM sees on screen; the market term is "
+          "what it stands for):\n" + ui_labels.glossary_text()
+    )
 
 
 # Backward-compat export (the live prompt is built per-session in advance()).

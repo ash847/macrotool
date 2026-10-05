@@ -1,0 +1,132 @@
+{
+  "_comment": "Plain-English labels and one-line explanations for everything a PM sees on screen. SINGLE source of truth: the UI (interface/*) reads these through knowledge_engine/ui_labels.py, and the Agent's system prompt builds its TERMS glossary from the same entries, so screen and chat use the same words. `label` is what is shown; `term` is the market shorthand it stands for (shown only in the tooltip / on request); `tip` is the one-line explanation. Audience: quantitative PMs who are comfortable with sigma, vol, forwards and probability but new to FX-options structuring. Edit wording here — no Python change needed (restart to pick up edits; loader is cached).",
+
+  "labels": {
+    "spot": {
+      "label": "Spot",
+      "tip": "Today's exchange rate."
+    },
+    "forward": {
+      "label": "Forward",
+      "tip": "The market forward rate for your horizon: spot adjusted for the interest-rate difference between the two currencies."
+    },
+    "implied_vol": {
+      "label": "Implied vol (ATM)",
+      "term": "ATM vol",
+      "tip": "At-the-money implied volatility for this horizon: the market's price for how much the pair is expected to move."
+    },
+    "horizon": {
+      "label": "Horizon",
+      "tip": "Time to expiry."
+    },
+    "target_distance_fwd": {
+      "label": "Target distance from forward",
+      "term": "target z (vs fwd)",
+      "tip": "How far your target is from the forward, in standard deviations of the move over the horizon (σ). The Put/Call tag is the option side your target implies."
+    },
+    "target_distance_spot": {
+      "label": "Target distance from spot",
+      "term": "target z (vs spot)",
+      "tip": "The same measure, from today's spot instead of the forward."
+    },
+    "carry": {
+      "label": "Carry (in vols)",
+      "term": "carry c",
+      "tip": "Forward drift over the horizon divided by the horizon's volatility: ln(forward ÷ spot) ÷ (σ√T). Positive means the forward is above spot."
+    },
+    "carry_vs_vol": {
+      "label": "Carry vs vol",
+      "term": "carry regime",
+      "tip": "Whether carry is large enough relative to vol to matter. Low: carry is noise next to vol. Moderate or High: carry is a real factor in the trade."
+    },
+    "carry_payout_ratio": {
+      "label": "Carry payout ratio",
+      "term": "ATM fwd ratio",
+      "tip": "Payout-to-cost ratio of the spread that captures carry (ATM-forward vs ATM-spot). Higher means carry capture is better rewarded. It does not say whether carry helps or hurts your view."
+    },
+    "rate_base": {
+      "label": "{ccy} rate",
+      "tip": "Base-currency interest rate for the horizon, read from the discount curve."
+    },
+    "rate_quote": {
+      "label": "{ccy} rate (implied)",
+      "tip": "Quote-currency rate implied by the forward (covered interest parity)."
+    },
+    "skew": {
+      "label": "Skew",
+      "term": "25Δ risk reversal (25d RR)",
+      "tip": "25Δ call vol minus 25Δ put vol. Positive: base-currency calls are priced richer than puts, so the market pays up for upside in the base currency."
+    },
+    "smile_curvature": {
+      "label": "Smile curvature",
+      "term": "25Δ butterfly (25d Fly)",
+      "tip": "Average of the 25Δ call and put vols, minus ATM vol: how much the wings are priced above the middle."
+    },
+    "move_to_target": {
+      "label": "Move to target",
+      "tip": "(Target − forward) ÷ forward."
+    },
+    "stop_distance": {
+      "label": "Stop distance ({rr:.1f}:1 reward-to-risk)",
+      "term": "implied stop (R:R)",
+      "tip": "Move to target ÷ reward-to-risk: how far the forward can reverse before the stop level."
+    },
+    "stop_level": {
+      "label": "Stop level",
+      "term": "stop price",
+      "tip": "The forward level that corresponds to the stop distance."
+    },
+    "loss_budget": {
+      "label": "Loss budget",
+      "tip": "Capital × stop distance. Each structure is sized so its maximum loss equals this."
+    },
+    "bankroll": {
+      "label": "Bankroll (W)",
+      "tip": "Kelly notionals are λ·f*·W, where f* is each structure's full-Kelly size as a multiple of W."
+    },
+    "fit_score": {
+      "label": "Fit to your view",
+      "term": "fit score (affinity)",
+      "tip": "How well the structure family matches the characteristics of your view (target distance, carry and so on), as a % of the maximum possible. It ranks types of structure, not specific strikes."
+    },
+    "pnl_score": {
+      "label": "PnL score",
+      "tip": "How a structure performs across a range of possible market outcomes, tuned to match an expert practitioner's process."
+    },
+    "kelly_risk": {
+      "label": "Capital at risk (Kelly)",
+      "term": "Kelly risk",
+      "tip": "Full-Kelly capital at risk (f* × max loss, before the λ haircut) as a share of W. The notional column already applies λ."
+    },
+    "premium": {
+      "label": "Premium",
+      "tip": "Net premium as a % of notional. Positive: you pay it. Negative: you receive it."
+    },
+    "variant": {
+      "label": "Variant",
+      "tip": "How the strikes are chosen: by option delta (Δ), at-the-money forward, or by % premium."
+    },
+    "strikes": {
+      "label": "Strikes",
+      "tip": "Strike levels, in the order of the structure's legs."
+    },
+    "notional": {
+      "label": "Notional",
+      "tip": "Size of the structure in base-currency units, set by the sizing method you chose."
+    }
+  },
+
+  "carry_vs_vol_values": {
+    "0": "Low",
+    "1": "Moderate",
+    "2": "High"
+  },
+
+  "audience_rules": [
+    "Your reader is a quantitative PM who is new to FX-options structuring: comfortable with σ, vol, forwards and probability, but not with FX-options market shorthand or this tool's internal concepts.",
+    "Use the plain labels listed under TERMS by default. Mention the market term in brackets only when it helps, or when the PM uses it first.",
+    "Do not teach unprompted: no derivations and no pricing tutorials. If asked what a term means, answer in one to three plain sentences using its TERMS entry, then stop and offer to go deeper.",
+    "Keep rigour available, not in the way: lead with the decision-relevant point and offer detail on request.",
+    "Never lead with market shorthand (25d RR, fly, z-score, regime numbers) as the main label for a number."
+  ]
+}

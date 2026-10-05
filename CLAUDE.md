@@ -39,6 +39,7 @@ interface/      Streamlit app (Trade View / Agent / Kelly / Batch), charts, Supa
 - `knowledge/defaults/structure_profiles.json` — display names, overlay_only flag, major_risk text.
 - `knowledge/defaults/sizing_defaults.json` — Kelly fractions, vol-regime adjustments, tranche schedules, TP rules.
 - `knowledge/defaults/critique_defaults.json` — evaluation dimensions for PM structure critique.
+- `knowledge/defaults/ui_labels.json` — plain-English labels, tooltips and the Agent's audience rules (see "Look, feel and wording" below).
 
 **Python** handles all computation, type safety, and orchestration. JSON files are loaded via `knowledge_engine/loader.py` (lru_cache — process restart needed to pick up local edits; Streamlit Cloud redeploy clears cache automatically).
 
@@ -330,6 +331,17 @@ Scenario weights (`scenario_definitions`) can be **forked per user** for a selec
 Each base-weighting context has a `commentary` (`{market_behavior, trade_guidance}`) — the **verbal spec of that context's scoring philosophy** (mirrors both the affinity scores and the scenario weights). It is **GLOBAL — shared across all profiles, not per-account** — stored in its **own** config (`knowledge/defaults/context_commentary.json` locally; config_history key `context_commentary` in Supabase), decoupled from the per-user weights so it stays singular. Loaders: `scenario_weighter.get_context_commentary(ctx_id)`, `get_driver_glossary()`, `load_context_commentary()` / `clear_context_commentary_cache()` (single global cache, no per-profile keying). Edited co-located with the grid (Scenario Weightings → Base scenario grid tab) via its **own "Save commentary (global)"** button, separate from the per-profile grid Save, and clearly labelled global.
 
 The commentary is the **lens** (which scenarios this regime privileges — the scenario-weighting layer only, *not* affinity gating); the **numbers** are the already-computed `driver_contribs(score)` split (Carry/Directional/Adverse/Vega — relabelled *decay / directional / adverse / vega* for users). `DRIVER_BUCKETS` + `driver_contribs` live in `knowledge_engine/scenario_scorer.py` (re-exported from `interface/structure_eval.py` for the UI). The agent pack (`agentic/render.py:render_pack`) carries a `CONTEXT GUIDANCE` block + a per-structure `drivers:` line so the LLM joins lens + numbers to explain *why* a regime favours a structure — **without** overriding the engine's ranked pick (system-prompt rule). Trade View / Batch surface the same as "About this context" + "What the P&L drivers mean" expanders. Guard: `tests/test_context_commentary.py`.
+
+## Look, feel and wording
+
+**Audience:** quantitative PMs who are comfortable with σ, vol, forwards and probability but new to FX-options structuring. Keep the rigour one click away, never a tutorial up front: lead with plain labels, put the market shorthand in a tooltip, and let the Agent explain on demand.
+
+- **One wording file.** `knowledge/defaults/ui_labels.json` holds every on-screen label (`label`), the market term it stands for (`term`) and a one-line `tip`. The UI reads it via `knowledge_engine/ui_labels.py` (`label()`, `tip()`, `carry_vs_vol_label()`), and the **Agent's system prompt builds its AUDIENCE AND STYLE + TERMS glossary from the same entries** (`agentic/agent_flow.py: build_system_prompt`), so the screen and the chat use the same words. Edit wording there, not in Python. The Agent's pack lines (`agentic/render.py`) and tables (`agentic/shortlist.py`) use the same labels. Adding a `UL.label("x")` call? Add `"x"` to `USED_KEYS` in `tests/test_ui_labels.py`.
+- **Trade View market state** is a five-card headline row (spot, forward, implied vol, target distance from forward, loss budget — or bankroll under Kelly) plus a collapsed **More market detail** expander. Tester tables carry tooltips on their column headers.
+- **Explain on demand:** "Ask about this trade" has one-click chips (*Why this ranking? / What's the main risk? / How is this sized? / What do the terms mean?*) that go through the same Agent as typed questions.
+- **Theme:** `.streamlit/config.toml` is self-contained ("Soft Light": navy on pale, 0.75rem corners, Figtree). **Do not make it point at a theme file** — a missing `base = "<file>"` stops Streamlit from starting at all. Spacing and card styling that the theme can't express is `interface/look.css`, injected by `interface/look.py` (`MACROTOOL_LOOK_CSS` overrides the file; empty string turns it off). Fonts load from Google Fonts; if blocked the app falls back to a system sans.
+- **Design previews:** `./design_looks.sh start` runs the real app locally (dev login bypass, no Supabase secrets); `compare` also runs the alternative looks in `themes/*.toml` (navy_light, graphite_dark, editorial_light) from temp config folders on :8502+. Theme edits need `restart`; Python/CSS edits hot-reload.
+- Streamlit quirk: `theme.headingFont` in `"<name>:<url>"` form is silently ignored in this version; only plain family names (`serif`, `sans-serif`) take effect for headings.
 
 ## Deployment
 

@@ -29,6 +29,7 @@ import pandas as pd
 
 from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
+from interface.look import apply_look_css
 from interface.security import can_see, current_user_email, is_admin_user, require_login, user_role
 from interface.llm_config import (
     get_llm_provider,
@@ -59,6 +60,7 @@ from interface.prefs import (
     merged_pref_label,
 )
 from interface.kelly_inline import render_kelly_elicitation
+from knowledge_engine import ui_labels as UL
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
@@ -79,6 +81,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+apply_look_css()
 
 # ---------------------------------------------------------------------------
 # Secrets → os.environ — must run before session state so ConversationFlow
@@ -1497,6 +1500,20 @@ def _trade_chat_signature(flow) -> tuple:
     )
 
 
+_TRADE_CHAT_QUICK_QUESTIONS = (
+    ("Why this ranking?",
+     "Why is the top structure ranked first, and what separates it from the others? "
+     "Keep it short and in plain terms."),
+    ("What's the main risk?",
+     "What is the main risk in the top-ranked structure?"),
+    ("How is this sized?",
+     "How were these structures sized? Explain briefly in plain terms."),
+    ("What do the terms mean?",
+     "In one line each, what do these terms mean: skew, smile curvature, carry vs vol, "
+     "and target distance from forward?"),
+)
+
+
 def _render_trade_chat(flow) -> None:
     """In-context chat pre-loaded with the current Trade View trade (task 1). Mirrors
     the Agent tab but seeded from this trade's pack, so the PM asks about *this* trade
@@ -1566,6 +1583,14 @@ def _render_trade_chat(flow) -> None:
             st.caption(f"Chat unavailable — {type(e).__name__}.")
             return
 
+    # One-click questions: explanation on demand rather than up front. They go through the
+    # same agent as typed questions, so answers use the same plain vocabulary.
+    _quick_prompt = None
+    _chips = st.columns(len(_TRADE_CHAT_QUICK_QUESTIONS))
+    for _ci, (_chip_label, _chip_question) in enumerate(_TRADE_CHAT_QUICK_QUESTIONS):
+        if _chips[_ci].button(_chip_label, key=f"tv_quick_{_ci}", use_container_width=True):
+            _quick_prompt = _chip_question
+
     _tv_chat_id = st.session_state.get("tv_chat_id", "unknown")
     _tv_view = getattr(st.session_state.tv_chat_flow.session, "view", None)
     for idx, (role, text) in enumerate(st.session_state.tv_chat):
@@ -1574,10 +1599,11 @@ def _render_trade_chat(flow) -> None:
             if role == "assistant" and idx > 0:   # skip the canned opener
                 _render_reply_reaction("trade_view", _tv_chat_id, idx, _tv_view)
 
-    if prompt := st.chat_input(
+    _typed_prompt = st.chat_input(
         "Ask about this trade — e.g. why the 1x1.5? what's the risk?",
         key="trade_chat_input",
-    ):
+    )
+    if prompt := (_quick_prompt or _typed_prompt):
         st.session_state.tv_chat.append(("user", prompt))
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -1588,7 +1614,8 @@ def _render_trade_chat(flow) -> None:
                     reply = st.session_state.tv_chat_flow.advance(prompt)
                 except Exception as e:
                     log_error("trade_chat_advance", e)
-                    reply = f"Error: {type(e).__name__}: {e}"
+                    reply = ("Error: the assistant couldn't complete that request. "
+                             "Please try again in a moment.")
             st.markdown(reply)
             _render_reply_reaction("trade_view", _tv_chat_id,
                                    len(st.session_state.tv_chat), _tv_view)
@@ -1730,42 +1757,6 @@ else:
         _target = target_price(flow)
         _show_market_state = can_see("market_state", ROLE)
 
-        if _show_market_state:
-            st.subheader("Market state")
-
-            c1, c2, c3, c4 = st.columns(4)
-            _ms_cell(c1, "Spot", f"{ms.spot:.4f}")
-            _ms_cell(c2, "Forward", f"{ms.fwd:.4f}")
-            _ms_cell(c3, "ATM Vol", f"{ms.vol:.1%}")
-            _ms_cell(c4, "Horizon", f"{h}d")
-
-            c1, c2, c3, c4, c5 = st.columns(5)
-            regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
-            _ms_cell(c1, "Carry c", f"{ms.c:+.3f}")
-            _ms_cell(c2, "Carry regime", regime_label[ms.carry_regime])
-            _ms_cell(c3, "Target z (vs spot)",
-                     f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})" if ms.target_z_spot is not None else "—")
-            _ms_cell(c4, "Target z (vs fwd)",
-                     f"{ms.target_z:+.2f}σ  ({ms.put_call})" if ms.target_z is not None else "—")
-            _ms_cell(c5, "ATM fwd ratio",
-                     f"{ms.atmfsratio:.2f}x" if ms.atmfsratio is not None else "—")
-
-            _pair = flow.view.pair
-            _base, _quote = _pair[:3], _pair[3:]
-            c1, c2, c3, c4 = st.columns(4)
-            _ms_cell(c1, f"r {_base}", f"{ms.r_f:.2%}")
-            _ms_cell(c2, f"r {_quote} (implied)", f"{ms.r_d:.2%}")
-            try:
-                v25dc = interpolate_vol(flow.ccy, h, "25DC")
-                v25dp = interpolate_vol(flow.ccy, h, "25DP")
-                rr  = v25dc - v25dp
-                fly = 0.5 * (v25dc + v25dp) - ms.vol
-                _ms_cell(c3, "25d RR", f"{rr:+.2%}", tip=f"25DC {v25dc:.2%} / ATM {ms.vol:.2%} / 25DP {v25dp:.2%}")
-                _ms_cell(c4, "25d Fly", f"{fly:+.2%}", tip="0.5×(25DC+25DP) − ATM  |  synthetic data")
-            except Exception:
-                _ms_cell(c3, "25d RR", "—")
-                _ms_cell(c4, "25d Fly", "—")
-
         _move_pct = _stop_pct = _stop_price = _loss_budget = None
         _base_ccy_top = flow.view.pair[:3]
         # Build the sizing spec (Kelly vs fixed loss) and stash on the flow so the
@@ -1792,22 +1783,66 @@ else:
             _stop_pct = _move_pct / flow.target_rr
             _stop_price = ms.fwd * (1 - _stop_pct) if _is_call else ms.fwd * (1 + _stop_pct)
             _loss_budget = sizing_capital() * _stop_pct
-            if _show_market_state:
-                if _kelly_mode:
-                    c1, c2 = st.columns(2)
-                    _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
-                    _ms_cell(c2, "Bankroll (W)", fmt_ccy(sizing_capital(), _base_ccy_top),
-                             tip="Kelly notionals are λ·f*·W. The per-structure full-Kelly "
-                                 "fraction f* is in the Kelly f* column of the variants table.")
-                else:
-                    c1, c2, c3, c4 = st.columns(4)
-                    _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
-                    _ms_cell(c2, f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}",
-                             tip="move_to_target / R:R — acceptable reversal from fwd before stopping out")
-                    _ms_cell(c3, "Stop price", f"{_stop_price:.4f}", tip="fwd level implying the stop loss")
-                    _ms_cell(c4, "Loss budget", fmt_ccy(_loss_budget, _base_ccy_top),
-                             tip=f"Capital W {fmt_ccy(sizing_capital(), _base_ccy_top)} × stop %. "
-                                 "Each structure variant is sized so its max loss equals this.")
+
+        if _show_market_state:
+            st.subheader("Market state")
+
+            # Headline row: the few numbers a PM reads first. Everything else is one
+            # click away under "More market detail".
+            _tz = (f"{ms.target_z:+.2f}σ ({ms.put_call})" if ms.target_z is not None else "—")
+            h1, h2, h3, h4, h5 = st.columns(5)
+            h1.metric(UL.label("spot"), f"{ms.spot:.4f}", help=UL.tip("spot"))
+            h2.metric(UL.label("forward"), f"{ms.fwd:.4f}", help=UL.tip("forward"))
+            h3.metric(UL.label("implied_vol"), f"{ms.vol:.1%}", help=UL.tip("implied_vol"))
+            h4.metric(UL.label("target_distance_fwd"), _tz, help=UL.tip("target_distance_fwd"))
+            if _kelly_mode:
+                h5.metric(UL.label("bankroll"), fmt_ccy(sizing_capital(), _base_ccy_top),
+                          help=UL.tip("bankroll"))
+            elif _loss_budget is not None:
+                h5.metric(UL.label("loss_budget"), fmt_ccy(_loss_budget, _base_ccy_top),
+                          help=f"{UL.tip('loss_budget')} Capital W is "
+                               f"{fmt_ccy(sizing_capital(), _base_ccy_top)}.")
+
+            with st.expander("More market detail", expanded=False):
+                _pair = flow.view.pair
+                _base, _quote = _pair[:3], _pair[3:]
+
+                c1, c2, c3, c4 = st.columns(4)
+                _ms_cell(c1, UL.label("horizon"), f"{h}d", tip=UL.tip("horizon"))
+                _ms_cell(c2, UL.label("carry"), f"{ms.c:+.3f}", tip=UL.tip("carry"))
+                _ms_cell(c3, UL.label("carry_vs_vol"), UL.carry_vs_vol_label(ms.carry_regime),
+                         tip=UL.tip("carry_vs_vol"))
+                _ms_cell(c4, UL.label("carry_payout_ratio"),
+                         f"{ms.atmfsratio:.2f}x" if ms.atmfsratio is not None else "—",
+                         tip=UL.tip("carry_payout_ratio"))
+
+                c1, c2, c3, c4 = st.columns(4)
+                _ms_cell(c1, UL.label("rate_base", ccy=_base), f"{ms.r_f:.2%}", tip=UL.tip("rate_base"))
+                _ms_cell(c2, UL.label("rate_quote", ccy=_quote), f"{ms.r_d:.2%}", tip=UL.tip("rate_quote"))
+                try:
+                    v25dc = interpolate_vol(flow.ccy, h, "25DC")
+                    v25dp = interpolate_vol(flow.ccy, h, "25DP")
+                    rr = v25dc - v25dp
+                    fly = 0.5 * (v25dc + v25dp) - ms.vol
+                    _ms_cell(c3, UL.label("skew"), f"{rr:+.2%}",
+                             tip=f"{UL.tip('skew')} Now: 25Δ call {v25dc:.2%}, ATM {ms.vol:.2%}, "
+                                 f"25Δ put {v25dp:.2%}.")
+                    _ms_cell(c4, UL.label("smile_curvature"), f"{fly:+.2%}",
+                             tip=f"{UL.tip('smile_curvature')} (Synthetic data.)")
+                except Exception:
+                    _ms_cell(c3, UL.label("skew"), "—", tip=UL.tip("skew"))
+                    _ms_cell(c4, UL.label("smile_curvature"), "—", tip=UL.tip("smile_curvature"))
+
+                c1, c2, c3, c4 = st.columns(4)
+                _ms_cell(c1, UL.label("target_distance_spot"),
+                         f"{ms.target_z_spot:+.2f}σ ({ms.put_call})" if ms.target_z_spot is not None else "—",
+                         tip=UL.tip("target_distance_spot"))
+                if _move_pct is not None:
+                    _ms_cell(c2, UL.label("move_to_target"), f"{_move_pct:+.1%}", tip=UL.tip("move_to_target"))
+                    if not _kelly_mode:
+                        _ms_cell(c3, UL.label("stop_distance", rr=flow.target_rr), f"{_stop_pct:.1%}",
+                                 tip=UL.tip("stop_distance"))
+                        _ms_cell(c4, UL.label("stop_level"), f"{_stop_price:.4f}", tip=UL.tip("stop_level"))
 
         if can_see("scores_table", ROLE):
             st.subheader("Structure scores")

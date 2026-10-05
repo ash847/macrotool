@@ -10,6 +10,7 @@ from agentic.session import AgentSession
 from agentic.shortlist import present_shortlist, render_shortlist, shortlist_reference
 from agentic.standard_pack import build_pack
 from agentic.tools import dispatch
+from knowledge_engine import ui_labels as UL
 from config.loader import load_config
 from data.snapshot_loader import load_snapshot
 from knowledge_engine.models import TradeView
@@ -35,9 +36,10 @@ def test_top_five_has_agreed_columns_and_exact_sized_values(context):
         assert len(line.split("|")) == 8
         assert line.startswith(f"| {rec.rank} |")
         assert f"USD {rec.variant.structure_notional:,.0f}" in line
-    assert "Fit score" in table
-    assert "| Carry score |" in table
-    assert "| ATMF/ATMS ratio |" in table
+    # Headers come from the shared plain-English labels (knowledge/defaults/ui_labels.json).
+    assert UL.label("fit_score") in table
+    assert f"| {UL.label('carry')} |" in table
+    assert f"| {UL.label('carry_payout_ratio')} |" in table
     assert "### Structure Fit" in table
     assert "### Ranked packages" in table
     assert "Target return on premium" not in table

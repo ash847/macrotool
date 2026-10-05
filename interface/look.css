@@ -1,0 +1,85 @@
+/* LOOK D — spacing and card styling that Streamlit's theme config can't express.
+   Selectors use Streamlit's data-testid attributes; re-check after a Streamlit upgrade. */
+
+/* More air around the page */
+[data-testid="stMainBlockContainer"] {
+  padding: 3.5rem 3rem 5rem 3rem;
+}
+
+/* Looser rhythm between the page's top-level sections only. (Nested blocks — e.g. a
+   label stacked over its value inside a column — keep Streamlit's default gap so the
+   pair still reads as one unit.) */
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] {
+  gap: 1.5rem;
+}
+
+/* Section headings get breathing room above them */
+[data-testid="stMain"] h2,
+[data-testid="stMain"] h3 {
+  padding-top: 1rem;
+}
+
+/* Metrics as soft white cards on the pale page */
+[data-testid="stMetric"] {
+  background: #FFFFFF;
+  border: 1px solid #E8EDF4;
+  border-radius: 1rem;
+  padding: 1rem 1.15rem;
+  box-shadow: 0 1px 2px rgba(30, 45, 70, 0.04), 0 4px 14px rgba(30, 45, 70, 0.04);
+  height: 100%;
+}
+/* Streamlit truncates metric text with an ellipsis when a card is narrow. Wrap it instead,
+   and let the value scale with the window so five cards stay readable on a laptop. */
+[data-testid="stMetric"] p,
+[data-testid="stMetric"] div,
+[data-testid="stMetric"] span {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: break-word;
+}
+[data-testid="stMetricLabel"] p {
+  line-height: 1.3;
+}
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] div,
+[data-testid="stMetricValue"] p {
+  font-size: clamp(1.1rem, 1.55vw, 1.75rem) !important;
+  line-height: 1.25;
+}
+
+/* Bordered containers: rounder with a faint lift instead of a hard outline */
+[data-testid="stVerticalBlockBorderWrapper"] {
+  border-radius: 1rem;
+}
+
+/* Expanders and tables: rounded, with a hairline border */
+[data-testid="stExpander"] details {
+  border-radius: 1rem;
+  border: 1px solid #E3E8F0;
+  background: #FFFFFF;
+}
+[data-testid="stExpander"] summary {
+  padding: 0.85rem 1.1rem;
+}
+[data-testid="stDataFrame"] {
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid #E3E8F0;
+}
+
+/* Alerts */
+[data-testid="stAlert"] {
+  border-radius: 1rem;
+}
+
+/* Buttons: a little more padding and a medium weight, sidebar nav a touch taller */
+.stButton > button,
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-primary"] {
+  font-weight: 500;
+  padding: 0.5rem 1.1rem;
+}
+[data-testid="stSidebar"] .stButton > button {
+  min-height: 2.75rem;
+}

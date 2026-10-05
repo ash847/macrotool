@@ -13,6 +13,7 @@ from agentic.price_structure import PricedStructure, PricingUnavailable
 from agentic.standard_pack import StandardPack
 from agentic.shortlist import render_shortlist, shortlist_reference
 from analytics.product_model import AnchorKind
+from knowledge_engine import ui_labels as UL
 from knowledge_engine.models import TradeView
 from knowledge_engine.payoff_risk import payoff_risk_note
 from knowledge_engine.scenario_scorer import cell_label
@@ -105,7 +106,8 @@ def _carry_explanation(ms, view) -> str:
         )
     return (
         f"{explanation} {view.pair} spot={ms.spot:.4f}, forward={ms.fwd:.4f}; "
-        f"horizon={view.horizon_days}d (c={ms.c:+.3f}, regime={ms.carry_regime}). "
+        f"horizon={view.horizon_days}d (carry in vols {ms.c:+.3f}; carry vs vol: "
+        f"{UL.carry_vs_vol_label(ms.carry_regime).lower()}). "
         + wording["qualification"]
     )
 
@@ -127,16 +129,16 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
     )
 
     lines.append("\nMARKET CONTEXT (computed):")
-    lines.append(f"  spot={ms.spot:.4f}  fwd={ms.fwd:.4f}  atm_vol={ms.vol:.4%}")
+    lines.append(f"  spot={ms.spot:.4f}  forward={ms.fwd:.4f}  implied vol (ATM)={ms.vol:.4%}")
     lines.append(f"  CARRY: {_carry_explanation(ms, view)}")
     if ms.atmfsratio is not None:
         lines.append(
-            f"  carry-capture payout ratio={ms.atmfsratio:.2f} (payout of the carry-capturing "
+            f"  carry payout ratio={ms.atmfsratio:.2f} (payout of the carry-capturing "
             "spread; higher → carry capture is better rewarded. This is NOT a measure of "
             "whether carry helps or hurts your view.)"
         )
     if ms.target_z is not None:
-        lines.append(f"  target_z(fwd)={ms.target_z:+.2f}σ  put_call={ms.put_call}")
+        lines.append(f"  target distance from forward={ms.target_z:+.2f}σ ({ms.put_call} side)")
 
     # Context guidance — the verbal spec of how this regime is scored (the scenario-
     # weighting lens). Relay when explaining WHY a structure suits the regime; it does
