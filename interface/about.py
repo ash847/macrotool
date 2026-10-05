@@ -21,7 +21,7 @@ def render_about(*, user_email):
     with st.expander("How it does it"):
         st.markdown(content["how"])
     with st.expander("Sizing"):
-        st.subheader("fixed loss")
+        st.subheader("Fixed loss")
         st.markdown(content["sizing_fixed_loss"])
         st.subheader("Kelly")
         st.markdown(content["sizing_kelly"])

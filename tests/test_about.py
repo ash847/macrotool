@@ -25,7 +25,7 @@ def test_about_copy_is_separate_from_code():
     content = load_about_content()
     assert set(content) == {"what", "how", "who", "sizing_fixed_loss", "sizing_kelly"}
     assert "50+" in content["what"]
-    assert "deterministic" in content["how"] and "static, not live" in content["how"]
+    assert "deterministic" in content["how"] and "as of the date indicated, not live" in content["how"]
 
 
 def about_app(config=None):
@@ -39,11 +39,11 @@ def test_about_panels_and_unconfigured_contact():
     app = about_app()
     assert not app.exception
     assert [panel.label for panel in app.expander] == ["What the tool does", "How it does it", "Sizing", "Who we are", "Contact us"]
-    assert [heading.value for heading in app.subheader] == ["fixed loss", "Kelly"]
+    assert [heading.value for heading in app.subheader] == ["Fixed loss", "Kelly"]
     content = load_about_content()
     assert "Risk 1 to make" in content["sizing_fixed_loss"]
-    assert "not a guaranteed maximum loss" in content["sizing_fixed_loss"]
-    assert "Fractional Kelly (λ)" in content["sizing_kelly"]
+    assert "you can lose more than the premium" in content["sizing_fixed_loss"]
+    assert "total portfolio capital" in content["sizing_kelly"]
     assert "[here](https://en.wikipedia.org/wiki/Kelly_criterion)" in content["sizing_kelly"]
     assert app.button[0].label == "Send" and app.button[0].disabled
 
