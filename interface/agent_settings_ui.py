@@ -64,6 +64,14 @@ def render_agent_settings(
 
     k = f"ags_{conv.id[:8]}_"          # widget keys are per chat
     with st.expander(":material/tune: Sizing & preferences for this chat", expanded=False):
+        from knowledge_engine.loader import load_agent_vocabulary
+
+        pack = session.pack
+        if pack is not None and pack.sizing_method != "kelly" and pack.loss_budget is not None:
+            st.markdown(f"**Loss budget*: {pack.loss_budget:,.0f} {session.view.pair[:3]}** (currently applied trade)")
+        else:
+            st.caption("Loss budget*: N/A under Kelly sizing, or unavailable until an active trade is calculated.")
+        st.caption(load_agent_vocabulary()["loss_budget_footnote"])
         c1, c2 = st.columns(2)
         method_label = c1.radio(
             "Size trades by", list(_METHODS),

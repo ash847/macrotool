@@ -61,6 +61,17 @@ def compute_trade_economics(
         max_loss = premium
         loss_reason = "Non-negative terminal payoff of the long option; premium at risk on the stated base-currency basis"
 
+    if structure_id in {"1x1_spread", "1x2x1_spread"}:
+        from analytics.expiry_loss import maximum_expiry_loss
+
+        weights = (1, -1) if structure_id == "1x1_spread" else (1, -2, 1)
+        if len(variant.strikes) == len(weights):
+            bound = maximum_expiry_loss(list(zip(weights, variant.strikes, [is_call] * len(weights))), premium)
+            if bound is not None:
+                loss_status = "bounded" if math.isfinite(bound) else "unbounded"
+                max_loss = bound if math.isfinite(bound) else None
+                loss_reason = "Actual strike and leg-ratio expiry extrema, net of entry premium, on the engine's base-currency basis (excluding fees and funding)"
+
     net_pnl = None
     pnl_reason = None
     supported = {
@@ -96,6 +107,9 @@ def compute_trade_economics(
     elif net_pnl is None:
         ratio_status = "unavailable"
         ratio_reason = pnl_reason
+    elif days == expiry_days and abs(net_pnl + premium) < 1e-12:
+        ratio_status = "not_applicable"
+        ratio_reason = "N/A — zero expiry payoff at target; premium is lost"
     else:
         ratio_status = "available"
         ratio_reason = None

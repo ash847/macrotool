@@ -19,15 +19,15 @@
     },
     "directional_low_carry": {
       "market_behavior": "Vol dominates carry; the trade is subject to mean reversion. It is unlikely not to move; adverse moves are likely and undershoot is more likely than overshoot.",
-      "trade_guidance": "Privilege trades with smaller delta at the onset, which are vol-resistant but also perform in undershoot scenarios — e.g. digitals, 1x1.5, 1x2, ERKO. Avoid seagulls."
+      "trade_guidance": "Privilege trades with smaller delta at the onset, which are vol-resistant but also perform in undershoot scenarios — e.g. digitals, 1x1.5, 1x2, ERKO. This qualitative preference is not a seagull exclusion: report actual eligibility and ranking from the engine."
     },
     "long_dated": {
-      "market_behavior": "Long tenor (>6 months) — a large window for spot to reach the target early and then drift away before expiry, and for vol moves to compound. Early-touch-then-retrace is a real risk, especially for capped structures.",
-      "trade_guidance": "Privilege trades that lock in value on the path or hold up if the target is reached early and then given back; beware capped structures that only pay at expiry."
+      "market_behavior": "Long tenor (>6 months) gives spot and implied volatility more time to change. Intermediate mark-to-market can differ substantially from the eventual expiry payoff.",
+      "trade_guidance": "Compare early mark-to-market only when discretionary monetisation is relevant. All supported structures settle from expiry spot; an earlier target touch does not lock in any payoff."
     },
     "short_dated": {
       "market_behavior": "Short tenor (<1 month) — theta and pin risk dominate; there is little time for path scenarios to develop independently of the final outcome, so terminal intrinsic value is what matters.",
-      "trade_guidance": "Privilege trades whose value is the terminal payoff at the target with low time-decay drag; path-dependent and slow-accrual structures have little room to work."
+      "trade_guidance": "Compare terminal payoff at the target and time-decay exposure over the remaining tenor. All supported products have expiry-only payoffs."
     }
   },
   "driver_glossary": {

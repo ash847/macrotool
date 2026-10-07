@@ -74,7 +74,7 @@ def dashboard_cells(rec, pack, view, driver_count):
         if economics.target_return_on_premium is not None:
             ratio = f"{economics.target_return_on_premium:.2f}×"
         elif economics.ratio_status == "not_applicable":
-            ratio = "N/A — no premium outlay"
+            ratio = _cell((economics.ratio_reason or "N/A").replace("Not applicable", "N/A"))
         else:
             ratio = "Unavailable — " + _cell(economics.ratio_reason or "not calculated")
         budget = _scaled(economics.sizing_loss_pct, variant.structure_notional, currency)

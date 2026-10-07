@@ -2,6 +2,8 @@
 
 import math
 
+from analytics.expiry_loss import maximum_expiry_loss
+
 
 def payoff_risk_note(structure_id, variant, priced_structure, is_call):
     side = "above" if is_call else "below"
@@ -66,12 +68,8 @@ def payoff_risk_note(structure_id, variant, priced_structure, is_call):
     if structure_id == "vanilla":
         return f"Can lose the {max(premium, 0):.2%} premium paid (of base-currency notional). Time decay reduces value if the move is slow."
     if structure_id == "1x1_spread":
-        low_intercept = intrinsic(0)
-        low_slope = sum(-weight for weight, _, call in terms if not call)
-        high_slope = sum(weight for weight, _, call in terms if call)
-        low_limit = low_slope - premium if abs(low_intercept) < 1e-12 else math.copysign(math.inf, low_intercept)
-        minimum = min([intrinsic(level) / level - premium for level in knots] + [low_limit, high_slope - premium])
-        loss = f"{max(-minimum, 0):.2%} of base-currency notional" if math.isfinite(minimum) else "unbounded on the engine's base-currency basis"
+        bound = maximum_expiry_loss(terms, premium)
+        loss = f"{bound:.2%} of base-currency notional" if math.isfinite(bound) else "unbounded on the engine's base-currency basis"
         return f"Expiry option payoff capped {side} {strikes[1]:.4f}. Maximum net loss: {loss}."
     if structure_id == "1x2x1_spread":
         peak = max(knots, key=intrinsic)
@@ -83,5 +81,8 @@ def payoff_risk_note(structure_id, variant, priced_structure, is_call):
             note += f" Outside {knots[0]:.4f}–{knots[-1]:.4f}, payoff is zero; net P&L is {-premium:+.2%} of base-currency notional."
         else:
             note += " Unequal wings can leave a non-zero outer payoff."
+        bound = maximum_expiry_loss(terms, premium)
+        loss = f"{bound:.2%} of base-currency notional" if math.isfinite(bound) else "unbounded on the engine's base-currency basis"
+        note += f" Maximum net loss: {loss}."
         return note
     return "Expiry payoff follows the retained option legs; no adverse outer-tail slope. Premium remains part of net P&L."

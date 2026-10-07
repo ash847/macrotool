@@ -150,11 +150,15 @@ def render_pack(pack: StandardPack, view: TradeView) -> str:
         if _comm.get("market_behavior") or _comm.get("trade_guidance"):
             lines.append("\nCONTEXT GUIDANCE — the scoring lens for the current regime. Paraphrase this in your own"
                          " words to explain the fit; do NOT state any internal regime/label name. It explains the"
-                         " engine's ranking, it never overrides it:")
+                         " engine's ranking, it never overrides it. This is qualitative guidance, NOT an exclusion log."
+                         " Do not claim a family was excluded or avoided unless an explicit exclusion record says so."
+                         " Current products have expiry-only payoffs; ignore any legacy touch/retrace or path-trigger guidance:")
             if _comm.get("market_behavior"):
                 lines.append(f"  Market behaviour: {_comm['market_behavior']}")
             if _comm.get("trade_guidance"):
                 lines.append(f"  Privileges: {_comm['trade_guidance']}")
+            eligible = ", ".join(item.display_name for item in pack.selector_result.shortlist)
+            lines.append(f"  Actual affinity shortlist (passed selection; NOT regime-excluded): {eligible or 'none'}. Later variant restrictions and pricing can still apply.")
 
     if pack.recommended and pack.variants_ranked:
         lines.append(
@@ -307,6 +311,8 @@ def _sizing_explanation(v, ccy: str) -> str | None:
     ]
     if trace.fallback_reason:
         parts.append(f"Fallback reason: {trace.fallback_reason}")
+    if trace.binding_constraint == "net_credit_policy":
+        parts.append("The net-credit policy directly sets this final notional to 10×W INSTEAD OF budget-based sizing. It is not an additional sizing adjustment or a second cap.")
     if trace.loss_budget is not None:
         parts.append(f"Internal reference input={trace.loss_budget:,.2f} {ccy} (explain only on sizing-method requests)")
     if trace.budget_distance is not None:

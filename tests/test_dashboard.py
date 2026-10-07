@@ -149,7 +149,7 @@ def test_financial_cells_match_canonical_engine_facts(context):
             assert cells["target_pnl"].startswith(f"{economics.target_net_pnl_pct * variant.structure_notional:,.2f} GBP")
             assert cells["loss_budget"] == f"{economics.sizing_loss_pct * variant.structure_notional:,.2f} GBP"
             if economics.ratio_status == "not_applicable":
-                assert cells["target_return_on_premium"] == "N/A — no premium outlay"
+                assert cells["target_return_on_premium"] == economics.ratio_reason.replace("Not applicable", "N/A")
         else:
             assert cells["target_pnl"] == "Unavailable" and cells["target_return_on_premium"] == "Unavailable"
 

@@ -78,7 +78,7 @@
     },
     "loss_budget": {
       "label": "Loss budget",
-      "tip": "Capital × stop distance. Each structure is sized so its maximum loss equals this."
+      "tip": "Common fixed-loss sizing input, not a guaranteed maximum loss. Actual package sizing amounts can differ because of caps and sizing policies."
     },
     "bankroll": {
       "label": "Bankroll (W)",

@@ -114,7 +114,7 @@ def render_shortlist(pack, view, ranks=None) -> str:
             if economics.target_return_on_premium is not None:
                 ratio = f"{economics.target_return_on_premium:.2f}×"
             elif economics.ratio_status == "not_applicable":
-                ratio = vocabulary["no_premium_return"]
+                ratio = _cell((economics.ratio_reason or vocabulary["no_premium_return"]).replace("Not applicable", "N/A"))
             else:
                 ratio = "Unavailable — " + _cell(economics.ratio_reason or "not calculated")
         flag = getattr(variant, "can_lose_beyond_premium", None)
@@ -135,6 +135,8 @@ def render_market_state(pack, view) -> str:
     state = pack.market_state
     L = UL.label
     target_spot = f"{pack.target:.4f}" if pack.target is not None else "—"
+    target_pct = f"{pack.target / state.spot - 1:+.2%}" if pack.target is not None and state.spot > 0 else "—"
+    budget = _money(pack.loss_budget, view.pair[:3]) if pack.sizing_method != "kelly" else "N/A — Kelly sizing"
     target_z = f"{state.target_z:+.2f}σ" if state.target_z is not None else "—"
     target_z_spot = f"{state.target_z_spot:+.2f}σ" if state.target_z_spot is not None else "—"
     ratio = f"{state.atmfsratio:.2f}x" if state.atmfsratio is not None else "—"
@@ -143,9 +145,11 @@ def render_market_state(pack, view) -> str:
     fly = f"{quotes['fly25']:+.2%}" if quotes.get("fly25") is not None else "—"
     return "\n".join([
         f"### Market state — {view.pair}",
-        f"| {L('spot')} | {L('forward')} | {L('implied_vol')} | {L('horizon')} | Target |",
-        "| :---: | :---: | :---: | :---: | :---: |",
-        f"| {state.spot:.4f} | {state.fwd:.4f} | {state.vol:.1%} | {view.horizon_days}d | {target_spot} |",
+        f"| {L('spot')} | {L('forward')} | {L('implied_vol')} | {L('horizon')} | Target | Target (%) | Loss budget* |",
+        "| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        f"| {state.spot:.4f} | {state.fwd:.4f} | {state.vol:.1%} | {view.horizon_days}d | {target_spot} | {target_pct} | {budget} |",
+        "",
+        "Target (%) is the signed move from spot. " + load_agent_vocabulary()["loss_budget_footnote"],
         "",
         f"| {L('carry')} | {L('carry_vs_vol')} | {L('target_distance_spot')} | "
         f"{L('target_distance_fwd')} | {L('carry_payout_ratio')} |",

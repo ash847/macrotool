@@ -121,9 +121,10 @@ def test_render_scales_once_and_hides_legacy_fields(market):
     assert "rr=" not in text
     assert "max_loss=" not in text
     assert "90-day horizon" in text
-    assert "target return on premium=-1.00×" in text
+    assert "zero expiry payoff at target" in text
+    assert "target return on premium=-1.00×" not in text
     assert "net P&L at target≈-20,000 EUR" in amounts
-    assert "loss budget=20,000 EUR" in amounts
+    assert "Loss budget≈20,000 EUR" in amounts
     assert "contractual maximum loss≈" not in amounts
 
 
@@ -165,3 +166,39 @@ def test_pack_numbers_and_rankings_unchanged(monkeypatch, direction, sizing_meth
             results.append((rec.structure_id, rec.rank, rec.score_ccy, data))
         return results
     assert numeric_results(updated) == numeric_results(legacy)
+
+
+@pytest.mark.parametrize("is_call", [True, False])
+@pytest.mark.parametrize("family", ["1x1_spread", "1x2x1_spread"])
+def test_bounded_package_maximum_loss(market, is_call, family):
+    trade = variant()
+    trade.strikes = ([100, 110] if is_call else [100, 90])
+    if family == "1x2x1_spread":
+        trade.strikes.append(120 if is_call else 80)
+    result = compute_trade_economics(trade, family, market, target=105, is_call=is_call)
+    assert result.contractual_loss_status == "bounded"
+    assert result.contractual_max_loss_pct == pytest.approx(0.02)
+
+
+def test_unequal_butterfly_wings_not_assumed_premium_only(market):
+    trade = variant()
+    trade.strikes = [100, 110, 130]
+    result = compute_trade_economics(trade, "1x2x1_spread", market, target=105, is_call=True)
+    assert result.contractual_max_loss_pct == pytest.approx(0.02 + 10 / 130)
+
+
+def test_unequal_put_butterfly_can_be_unbounded_in_base_currency(market):
+    trade = variant()
+    trade.strikes = [100, 90, 70]
+    result = compute_trade_economics(trade, "1x2x1_spread", market, target=95, is_call=False)
+    assert result.contractual_loss_status == "unbounded"
+    assert result.contractual_max_loss_pct is None
+
+
+@pytest.mark.parametrize("is_call,target", [(True, 90), (False, 110)])
+def test_zero_expiry_payoff_ratio_na_keeps_loss(market, is_call, target):
+    result = compute_trade_economics(variant(), "vanilla", market, target=target, is_call=is_call)
+    assert result.target_return_on_premium is None
+    assert result.ratio_status == "not_applicable"
+    assert "zero expiry payoff" in result.ratio_reason
+    assert result.target_net_pnl_pct == pytest.approx(-0.02)

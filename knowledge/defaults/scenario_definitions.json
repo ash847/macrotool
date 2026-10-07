@@ -21,7 +21,7 @@
   ],
   "scenario_column_descriptions": {
     "S": "No move — spot ends unchanged from today (the grid's spot-anchored centre). Tests time decay and vol sensitivity in isolation. The forward is shown per time-row as a decaying reference.",
-    "t%→K": "Early touch then retrace — spot trades through the target at this time point but mean-reverts before expiry. Critical for path-dependent features: barriers, American-style triggers, and structures whose value is locked in on a touch.",
+    "t%→K": "Mark-to-market with spot at the target at this time point. Relevant to discretionary early monetisation; no contractual payoff is triggered or locked in. Supported products settle from expiry spot.",
     "K−½σ": "Falls just short — spot ends half a sigma short of the target, in the direction of the view. A partial move that does not quite reach the objective; tests whether the structure still pays when the move undershoots the target.",
     "K": "Target hit — spot ends at the target level. The PM's directional view plays out as expected.",
     "K+½σ": "Overshoot — spot moves significantly beyond the target. Tests whether the structure captures or is exposed to extended moves beyond the initial objective.",
@@ -190,7 +190,7 @@
     },
     {
       "id": "long_dated",
-      "comment": "Tenor over 6 months: there is a large window for the market to reach the target early and then drift away before expiry — a real risk for capped structures and spreads. EARLY_TARGET (touch-and-retrace) deserves elevated weight. Vol sensitivity also matters more because vol moves have more time to compound.",
+      "comment": "Tenor over 6 months: intermediate mark-to-market and volatility sensitivity can differ substantially from expiry payoff. Early valuations matter for discretionary monetisation, not contractual touch or path triggers; all supported payoffs depend on expiry spot.",
       "when": [
         {
           "field": "T",
