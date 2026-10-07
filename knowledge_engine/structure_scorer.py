@@ -14,7 +14,6 @@ code (context_builder, app) requires no changes.
 from __future__ import annotations
 
 from analytics.market_state import MarketState
-from knowledge_engine.construction_policy import family_has_no_tail_construction
 from knowledge_engine.loader import load_affinity_scores, load_structure_profiles
 from knowledge_engine.models import StructureSelectionResult, StructureShortlistItem
 
@@ -189,7 +188,7 @@ def _passes_gates(
     buckets: dict,
 ) -> bool:
     structure_constraint = buckets.get("structure_constraint", "No restriction")
-    if structure_constraint == "Avoid tail-risky structures" and not family_has_no_tail_construction(struct_id):
+    if structure_constraint == "Avoid capped structures" and struct_id != "vanilla":
         return False
     if struct_id in _CONSTRAINT_GATED_STRUCTURES.get(structure_constraint, set()):
         return False

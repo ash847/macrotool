@@ -215,7 +215,16 @@ def _recommend_ranked(
     # ranks by score_ccy) and matches this pack's own "best ... by PnL score" label
     # (render.py — "PnL score" is the external name for score_ccy; kept vague on
     # purpose). Display rank then follows that order. None scores sort last.
-    out = _filter_directional_tails(out, is_call, tail_constraint, tail_exclusions)
+    from knowledge_engine.preference_policy import preference_exclusion_reason
+
+    eligible = []
+    for rec in out:
+        reason = preference_exclusion_reason(rec.structure_id, rec.variant, structure_constraint)
+        if reason is None:
+            eligible.append(rec)
+        elif tail_exclusions is not None:
+            tail_exclusions.append({"structure_id": rec.structure_id, "variant": rec.variant.variant_label, "reason": reason})
+    out = _filter_directional_tails(eligible, is_call, tail_constraint, tail_exclusions)
     out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else 0.0, reverse=True)
     for i, r in enumerate(out, 1):
         r.rank = i
@@ -258,7 +267,7 @@ def _price_recommended_fallback(
             variants = price_variants(
                 ms, item.structure_id, target=target, is_call=is_call,
                 smile=surface, warnings=[],
-                exclude_loss_beyond_premium=structure_constraint == "Avoid tail-risky structures",
+                structure_constraint=structure_constraint,
             )
         except Exception:
             variants = []
@@ -321,8 +330,6 @@ def build_pack(
     from knowledge_engine.tail_policy import resolved_tail_constraint
 
     resolved_tails = resolved_tail_constraint(tail_constraint, view.direction)
-    if structure_constraint == "Avoid tail-risky structures":
-        resolved_tails = "both"
     tail_exclusions = []
 
     T = view.horizon_years
@@ -432,7 +439,8 @@ def build_pack(
          "fit_pct": max(0.0, min(100.0, 100.0 * (row["total_score"] or 0.0) / ceiling))}
         for row in get_scoring_detail(market_state, structure_constraint=structure_constraint)
         if not row["overlay_only"] and row["eligible"]
-        and (resolved_tails == "none" or any(rec.structure_id == row["structure_id"] for rec in recommended))
+        and ((resolved_tails == "none" and structure_constraint != "Avoid tail-risky structures")
+             or any(rec.structure_id == row["structure_id"] for rec in recommended))
     ][:3]
     market_quotes = {}
     try:

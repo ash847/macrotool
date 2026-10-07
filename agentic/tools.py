@@ -379,8 +379,11 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
     if fam_only is not None:
         rec = next((r for r in session.pack.recommended if r.structure_id == fam_only), None)
         if rec is not None:
-            if session.structure_constraint == "Avoid tail-risky structures" and getattr(rec.variant, "can_lose_beyond_premium", None) is not False:
-                return "Excluded by the active no-tails preference: this construction is not classified as unable to lose beyond premium paid.", False
+            from knowledge_engine.preference_policy import preference_exclusion_reason
+
+            reason = preference_exclusion_reason(rec.structure_id, rec.variant, session.structure_constraint)
+            if reason is not None:
+                return "Excluded by the active preference: " + reason, False
             return render_recommended(rec, base_ccy), False
 
     ms = session.pack.market_state

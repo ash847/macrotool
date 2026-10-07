@@ -138,6 +138,7 @@ def price_variants(
     variants_override: list[dict] | None = None,
     evaluation_days: int | None = None,
     exclude_loss_beyond_premium: bool = False,
+    structure_constraint: str = "No restriction",
 ) -> list[PricedVariant]:
     """
     Price all defined variants for a structure. Returns [] if no variants defined.
@@ -245,7 +246,16 @@ def price_variants(
             loss_budget=loss_budget, stop_price=stop_price, surface=smile,
             evaluation_days=evaluation_days,
         )
-    return result
+    from knowledge_engine.preference_policy import preference_exclusion_reason
+
+    eligible = []
+    for variant in result:
+        reason = preference_exclusion_reason(structure_id, variant, structure_constraint)
+        if reason is None:
+            eligible.append(variant)
+        elif warnings is not None:
+            warnings.append(f"{variant.variant_label}: {reason}")
+    return eligible
 
 
 def _apply_notional(pv: PricedVariant, notional: float) -> None:

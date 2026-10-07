@@ -66,9 +66,10 @@ def test_only_boolean_false_passes(value):
     assert passes_no_tails({"can_lose_beyond_premium": False})
 
 
-def test_family_gate_uses_config_including_one_and_half_ratio(market):
+def test_defined_loss_filter_is_applied_after_pricing(market):
     ids = {item.structure_id for item in score_structures(market, NO_TAILS).shortlist}
-    assert not ids & {"seagull", "1x1.5_spread", "1x2_spread", "risk_reversal"}
+    for family in ids & {"seagull", "1x1.5_spread", "1x2_spread", "risk_reversal"}:
+        assert not price_variants(market, family, target=5.45, structure_constraint=NO_TAILS)
     assert {"vanilla", "1x2x1_spread"} <= ids
 
 
@@ -86,19 +87,19 @@ def test_custom_matching_is_by_terms_not_label(mixed_catalog):
     assert configured_additional_loss("vanilla", {"label": "allow", "delta": 0.31}) is None
 
 
-def test_custom_unknown_remains_priceable_only_without_restriction(market):
+def test_custom_vanilla_has_computed_bound_without_catalog_classification(market):
     unclassified = price_structure("vanilla 31Δ", market, is_call=True, target=5.45)
     assert isinstance(unclassified, PricedStructure)
     assert unclassified.variant.can_lose_beyond_premium is None
     blocked = price_structure("vanilla 31Δ", market, is_call=True, target=5.45, structure_constraint=NO_TAILS)
-    assert isinstance(blocked, PricingUnavailable)
-    assert "no approved risk classification" in blocked.detail
+    assert isinstance(blocked, PricedStructure)
+    assert blocked.variant.economics.contractual_loss_status == "bounded"
     known = price_structure("vanilla 25Δ", market, is_call=True, target=5.45, structure_constraint=NO_TAILS)
     assert isinstance(known, PricedStructure)
-    assert known.variant.can_lose_beyond_premium is False
+    assert known.variant.economics.contractual_loss_status == "bounded"
     risky = price_structure("1x1.5 25Δ/10Δ", market, is_call=True, target=5.45, structure_constraint=NO_TAILS)
     assert isinstance(risky, PricingUnavailable)
-    assert "can lose more than premium" in risky.detail
+    assert "verified finite maximum loss" in risky.detail
 
 
 def test_comparator_and_fallback_cannot_reintroduce_disallowed_variants(market, mixed_catalog):
@@ -106,7 +107,7 @@ def test_comparator_and_fallback_cannot_reintroduce_disallowed_variants(market, 
         market, selection(), target=5.45, is_call=True,
         stop_price=5.1, loss_budget=1, preferences=PMPreferences(structure_constraint=NO_TAILS),
     )
-    assert [item.variant_label for item in result.priced_variants_by_structure["vanilla"]] == ["allow"]
+    assert {item.variant_label for item in result.priced_variants_by_structure["vanilla"]} == {"allow", "deny", "unknown"}
     fallback = _price_recommended_fallback(market, selection(), None, True, None, structure_constraint=NO_TAILS)
     assert [item.variant.variant_label for item in fallback] == ["allow"]
 
@@ -121,7 +122,7 @@ def test_trade_view_evaluation_filters_same_mixed_family(market, mixed_catalog):
     result = compute_structure_evaluation(flow, 5.45)
     assert result is not None
     variants = [item for item in result.variants if item.structure_id != "linear"]
-    assert [item.variant_label for item in variants] == ["allow"]
+    assert {item.variant_label for item in variants} == {"allow", "deny", "unknown"}
 
 
 @pytest.mark.parametrize("direction", ["base_higher", "base_lower"])

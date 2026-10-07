@@ -1,13 +1,8 @@
-"""Merged PM preference menu (Trade View intake form).
+"""PM menu mapped to stable engine fields.
 
-The UI asks ONE question — structure constraint and trade-management style are
-intrinsically linked on the desk — and maps the answer to the two engine fields.
-The engine keeps both fields (plus primary_objective, now fixed at "Balanced"), so
-affinity scoring and context selection are untouched; only the UI surface shrank.
-
-Note: with primary_objective pinned to "Balanced", the preference-aware contexts
-conditioned on "Keep cost low" / "Keep risk clean" (cheap_carry, conservative_carry)
-are unreachable from the UI — same status as the already-dormant contexts.
+Capped-upside avoidance is vanilla-only; tail avoidance requires a verified finite
+loss bound. Early monetisation is retired from the menu, not erased from saved chats.
+Primary objective remains Balanced; management overlay mappings remain compatible.
 """
 
 from __future__ import annotations
@@ -16,8 +11,7 @@ from __future__ import annotations
 MERGED_PREF_OPTIONS: dict[str, tuple[str, str]] = {
     "No restriction · standard hold":       ("No restriction", "Standard hold"),
     "Avoid capped upside":                  ("Avoid capped structures", "Standard hold"),
-    "May monetise early — keep it simple":  ("Avoid complex structures", "May monetise early"),
-    "Defendable risk, no tails":            ("Avoid tail-risky structures", "Need defendable mark-to-market"),
+    "Avoid tails — defined loss only":     ("Avoid tail-risky structures", "Need defendable mark-to-market"),
 }
 
 DEFAULT_MERGED_PREF = "No restriction · standard hold"

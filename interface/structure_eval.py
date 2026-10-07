@@ -329,7 +329,7 @@ def render_structure_variants(
                 stop_price=stop_price, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=_smile, warnings=_warns,
-                exclude_loss_beyond_premium=getattr(flow, "structure_constraint", "No restriction") == "Avoid tail-risky structures",
+                structure_constraint=getattr(flow, "structure_constraint", "No restriction"),
             )
         except Exception as _e:
             from interface.debug_log import log_error
@@ -622,7 +622,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
                 stop_price=stop, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=smile,
-                exclude_loss_beyond_premium=getattr(flow, "structure_constraint", "No restriction") == "Avoid tail-risky structures",
+                structure_constraint=getattr(flow, "structure_constraint", "No restriction"),
             )
         except Exception:
             continue
@@ -661,6 +661,13 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
         "label": linear_item.display_name,
     })
 
+    from knowledge_engine.preference_policy import preference_exclusion_reason
+
+    constraint = getattr(flow, "structure_constraint", "No restriction")
+    for entry in structs:
+        entry["variants"] = [value for value in entry["variants"]
+                             if preference_exclusion_reason(entry["item"].structure_id, value["pv"], constraint) is None]
+    structs = [entry for entry in structs if entry["variants"]]
     if not structs:
         return None
 

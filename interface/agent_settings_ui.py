@@ -55,10 +55,13 @@ def render_agent_settings(
     settings = ChatSettings.from_dict(conv.settings)
     from knowledge_engine.tail_policy import tail_constraint_label
     pref_label = merged_pref_label(settings.structure_constraint, settings.trade_management)
+    active_fields = (settings.structure_constraint, settings.trade_management)
+    legacy_preference = active_fields not in MERGED_PREF_OPTIONS.values()
+    summary_pref = f"Saved preference: {settings.structure_constraint} · {settings.trade_management}" if legacy_preference else pref_label
 
     # Plain markdown (not an HTML wrapper — markdown isn't rendered inside raw HTML).
     st.markdown(f"Sizing: {sizing_summary(settings, session)} · "
-                f"W {capital:,.0f} {capital_ccy} · {pref_label}")
+                f"W {capital:,.0f} {capital_ccy} · {summary_pref}")
     if settings.tail_constraint != "none":
         st.caption(tail_constraint_label(settings.tail_constraint))
 
@@ -96,6 +99,8 @@ def render_agent_settings(
             disabled=method != "kelly",
         )
         labels = list(MERGED_PREF_OPTIONS)
+        if legacy_preference:
+            st.caption("This chat retains a retired preference. Select a replacement and click Apply to change it.")
         pref = st.selectbox("Structure & management style", labels,
                             index=labels.index(pref_label), key=k + "pref")
 

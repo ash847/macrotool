@@ -99,14 +99,10 @@ def price_structure(
 
     classification = configured_additional_loss(parsed.family, variant_dict)
     variant_dict["can_lose_beyond_premium"] = classification
-    if structure_constraint == "Avoid tail-risky structures" and classification is not False:
-        reason = (
-            "this construction can lose more than premium paid"
-            if classification is True else "this custom construction has no approved risk classification"
-        )
+    if structure_constraint == "Avoid capped structures" and parsed.family != "vanilla":
         return PricingUnavailable(
             request=parsed,
-            detail=f"Excluded by the active no-tails preference: {reason}. Unknown is not treated as safe.",
+            detail="Excluded by the active vanilla-only preference.",
         )
     surface = getattr(ms, "surface", None) if smile is _UNSET else smile
 
@@ -123,7 +119,7 @@ def price_structure(
         warnings=warnings,
         variants_override=[variant_dict],
         sizing_spec=sizing_spec,
-        exclude_loss_beyond_premium=structure_constraint == "Avoid tail-risky structures",
+        structure_constraint=structure_constraint,
     )
 
     if not priced:
