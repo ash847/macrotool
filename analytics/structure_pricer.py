@@ -106,6 +106,8 @@ class PricedVariant:
     max_loss_pct: float           # fraction of spot
     wing_ratio: float | None      # seagull only: units of wing sold per unit of spread
     is_zero_cost: bool
+    breakevens: list[float] | None = field(default=None, kw_only=True)
+    breakeven_has_zero_region: bool = field(default=False, kw_only=True)
     economics: TradeEconomics | None = field(default=None, kw_only=True)
     can_lose_beyond_premium: bool | None = field(default=None, kw_only=True)
     lower_spot_tail: bool | None = field(default=None, kw_only=True)
@@ -220,6 +222,18 @@ def price_variants(
     # growth-optimal bet under the PM's distribution; otherwise the fixed-loss path (today's
     # behaviour) sizes to the loss budget. Default sizing_spec=None ⇒ fixed-loss, so every
     # existing caller is byte-for-byte unchanged.
+    from analytics.expiry_breakeven import expiry_breakevens, variant_terms
+
+    for variant in result:
+        terms = variant_terms(structure_id, variant.strikes, is_call, variant.wing_ratio)
+        variant.breakevens, variant.breakeven_has_zero_region = expiry_breakevens(
+            terms, variant.net_premium_pct,
+            barrier=variant.barrier if structure_id == "european_rko" else None,
+            is_call=is_call, digital=structure_id == "european_digital",
+        )
+        roots = variant.breakevens
+        variant.breakeven = roots[0] if roots is not None and len(roots) == 1 and not variant.breakeven_has_zero_region else None
+
     if sizing_spec is not None and sizing_spec.method == "kelly" and sizing_spec.has_distribution():
         _size_variants_kelly(result, structure_id, is_call, spot, r_f, T, sizing_spec, linear_notional)
     elif loss_budget is not None and loss_budget > 0:
@@ -527,11 +541,9 @@ def _vanilla(
         if is_call:
             K = otm_call_strike(F, leg_vol, T, delta)
             prem = black76_call(F, K, T, leg_vol, DF)
-            be = K + prem
         else:
             K = otm_put_strike(F, leg_vol, T, delta)
             prem = black76_put(F, K, T, leg_vol, DF)
-            be = K - prem
 
         prem_pct = prem / spot
         payoff_pct, rr = None, None
@@ -545,7 +557,7 @@ def _vanilla(
             strikes=[K],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=be,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -579,10 +591,8 @@ def _spread(
 
         if is_call:
             max_payoff = K_short - K_long   # capped upside
-            be = K_long + net_prem
         else:
             max_payoff = K_long - K_short
-            be = K_long - net_prem
 
         payoff_pct, rr = None, None
         if target is not None:
@@ -598,7 +608,7 @@ def _spread(
             strikes=[K_long, K_short],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=be,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -636,13 +646,10 @@ def _1x1p5(
         prem_pct = net_prem / spot
         is_zero_cost = abs(net_prem) < 0.0001 * spot
 
-        breakeven = None
-        if not is_zero_cost and net_prem > 0:
-            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
-
         payoff_pct = None
         if target is not None:
-            gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
+            gross_at_target = ((max(target - K1, 0.0) - 1.5 * max(target - K2, 0.0)) if is_call
+                               else (max(K1 - target, 0.0) - 1.5 * max(K2 - target, 0.0)))
             payoff_pct = gross_at_target / target
         rr = (
             payoff_pct / prem_pct
@@ -659,7 +666,7 @@ def _1x1p5(
             strikes=[K1, K2],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=max_loss_pct,
@@ -695,13 +702,10 @@ def _1x2(
         prem_pct = net_prem / spot
         is_zero_cost = abs(net_prem) < 0.0001 * spot
 
-        breakeven = None
-        if not is_zero_cost and net_prem > 0:
-            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
-
         payoff_pct = None
         if target is not None:
-            gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
+            gross_at_target = ((max(target - K1, 0.0) - 2.0 * max(target - K2, 0.0)) if is_call
+                               else (max(K1 - target, 0.0) - 2.0 * max(K2 - target, 0.0)))
             payoff_pct = gross_at_target / target
         rr = (
             payoff_pct / prem_pct
@@ -717,7 +721,7 @@ def _1x2(
             strikes=[K1, K2],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=max_loss_pct,
@@ -768,10 +772,6 @@ def _1x2x1(
         prem_pct = net_prem / spot
         is_zero_cost = abs(net_prem) < 0.0001 * spot
 
-        breakeven = None
-        if not is_zero_cost and net_prem > 0:
-            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
-
         payoff_pct = None
         if target is not None:
             if is_call:
@@ -796,7 +796,7 @@ def _1x2x1(
             strikes=[K1, K2, K3],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=max_loss_pct,
@@ -879,7 +879,7 @@ def _seagull(
             payoff_at_target_pct=payoff_pct,
             rr_at_target=None,
             max_loss_pct=max_loss,
-            wing_ratio=round(wing_ratio, 2),
+            wing_ratio=wing_ratio,
             is_zero_cost=True,
         ))
     return result
@@ -958,7 +958,7 @@ def _digital(
             strikes=[K],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=K,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -1014,7 +1014,7 @@ def _digital_rko(
             strikes=[K],
             barrier=barrier,
             net_premium_pct=prem_pct,
-            breakeven=K,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -1061,10 +1061,6 @@ def _european_rko(
             continue
         prem_pct = prem / spot
 
-        breakeven = None
-        if prem > 1e-8:
-            breakeven = (K + prem) if is_call else (K - prem)
-
         payoff_pct, rr = None, None
         raw = max(target - K, 0.0) if is_call else max(K - target, 0.0)
         not_ko = (target < barrier) if is_call else (target > barrier)
@@ -1080,7 +1076,7 @@ def _european_rko(
             strikes=[K, barrier],
             barrier=barrier,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,

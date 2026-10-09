@@ -385,6 +385,9 @@ def _variant_summary(v) -> str:
     else:
         prem_tag = "net debit — PM pays"
     parts.append(f"premium={v.net_premium_pct:.2%} ({prem_tag})")
+    from analytics.expiry_breakeven import breakeven_text
+
+    parts.append("Expiry breakeven(s): " + breakeven_text(v) + " (base-currency P&L, entry premium not accrued)")
     risk = getattr(v, "can_lose_beyond_premium", None)
     risk_label = "yes" if risk is True else "no" if risk is False else "unknown — construction not classified"
     parts.append(f"can lose beyond premium paid: {risk_label} (construction config; not a maximum-loss amount)")

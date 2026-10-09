@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from conversation.flow import ConversationFlow, target_from_reference
+from analytics.expiry_breakeven import breakeven_text
 from knowledge_engine import ui_labels as UL
 
 
@@ -278,9 +279,9 @@ def _show_df(df, *, key=None, height=None, column_config=None) -> None:
 # Header tooltip for the Kelly capital-at-risk column (st.dataframe supports a header
 # help tooltip, not per-cell hover; the per-row sized notional is the Notional column).
 _KELLY_RISK_HELP = (
-    "Full-Kelly capital at risk = f* × max loss, as a share of W, BEFORE the λ haircut "
+    "Full-Kelly sizing-reference exposure = f* × sizing loss reference, as a share of W, BEFORE the λ haircut "
     "(the Notional column already applies λ). f* is the growth-optimal notional as a "
-    "multiple of W, so the full-Kelly notional is f*×W."
+    "multiple of W, so the full-Kelly notional is f*×W. This is not a maximum-loss bound."
 )
 
 # Header tooltip / caption line for the PnL score column — the fixed, reused explanation
@@ -349,13 +350,13 @@ def render_structure_variants(
         ("Indicative pricing — interpolated smile vol per strike. " if _smile is not None
          else "Indicative pricing — flat ATM vol for all strikes. ")
         + "Premium and payoff as % of spot. "
-        "**R/R**: gross payoff at target per unit of max loss (zero-cost seagull: "
+        "**R/R**: gross payoff at target per unit of sizing loss reference (zero-cost seagull: "
         "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
-        "**% of W**: the variant's max loss as a share of the sizing capital. "
-        f"**{UL.label('kelly_risk')}**: full-Kelly capital at risk (f*×max loss, pre-λ) as a share of W; "
+        "**% of W**: the sized loss reference as a share of the sizing capital, not a maximum-loss bound. "
+        f"**{UL.label('kelly_risk')}**: full-Kelly sizing-reference exposure (f*×sizing loss reference, pre-λ) as a share of W; "
         "shown under Kelly sizing (hover the header for the notional relationship). "
         "**(cap)**: the 10·W notional cap bound before the loss budget was reached — "
-        "the shown max loss is the achieved one, below budget."
+        "the shown sizing amount is below the input budget. Actual losses can exceed the sizing reference."
     )
 
     if _failed:
@@ -402,9 +403,9 @@ def render_structure_variants(
                     "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
                     "Notional":   _notional_cell,
                     "Premium":    _prem_cell,
-                    "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
+                    "Break-even": breakeven_text(pv),
                     "Payout at target": _payoff_cell,
-                    "Max loss":   f"{pv.max_loss_pct:.1%}  ({fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
+                    UL.label("sizing_loss_reference"): f"{pv.max_loss_pct:.1%}  ({fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
                     "R/R":        _payout_per_1,
                     "% of W":     _pct_of_w,
                 }
@@ -644,7 +645,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
     # Linear benchmark (delta-1, max-loss capped) — mirrors Trade View.
     linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
     linear_pv = _PricedVariant(
-        variant_label="Delta 1 (max-loss capped)",
+        variant_label="Delta 1 (scenario loss capped; not contractual)",
         strikes=[], barrier=None, net_premium_pct=0.0, breakeven=None,
         payoff_at_target_pct=None, rr_at_target=None, max_loss_pct=stop_pct,
         wing_ratio=None, is_zero_cost=True, structure_notional=_W,

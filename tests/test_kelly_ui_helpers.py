@@ -46,7 +46,7 @@ class TestBuildSizingSpec:
 class TestLabels:
     def test_column_label(self):
         assert "Kelly" in notional_column_label("kelly")
-        assert "max-loss" in notional_column_label("fixed_loss")
+        assert "fixed-loss sizing" in notional_column_label("fixed_loss")
 
     def test_banner_differs(self):
         assert meaning_banner("kelly") != meaning_banner("fixed_loss")

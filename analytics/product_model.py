@@ -86,6 +86,8 @@ class PricedStructure:
     max_loss_pct: float
     breakeven: float | None
     is_zero_cost: bool
+    breakevens: list[float] | None = field(default=None, kw_only=True)
+    breakeven_has_zero_region: bool = field(default=False, kw_only=True)
     barrier: float | None = None
     wing_ratio: float | None = None      # derived (|wing leg notional|) for display/back-compat
     warnings: list[str] = field(default_factory=list)

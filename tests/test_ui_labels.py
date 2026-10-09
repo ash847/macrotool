@@ -17,7 +17,7 @@ USED_KEYS = (
     "spot", "forward", "implied_vol", "horizon", "target_distance_fwd",
     "target_distance_spot", "carry", "carry_vs_vol", "carry_payout_ratio",
     "rate_base", "rate_quote", "skew", "smile_curvature", "move_to_target",
-    "stop_distance", "stop_level", "loss_budget", "bankroll", "fit_score",
+    "stop_distance", "stop_level", "loss_budget", "sizing_loss_reference", "bankroll", "fit_score",
     "pnl_score", "kelly_risk", "premium", "variant", "strikes", "notional",
 )
 
