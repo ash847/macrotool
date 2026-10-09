@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 
 from agentic.standard_pack import build_pack
+from analytics.market_density import density_for_pack
 from analytics.payoff_curve import curves_for_pack
 from config.loader import load_config
 from data.snapshot_loader import load_snapshot
@@ -48,7 +49,7 @@ def _pack(pair: str, direction: str, horizon_days: int, magnitude_pct: float):
         horizon_days=horizon_days, magnitude_pct=magnitude_pct, mode="recommend",
     )
     pack = build_pack(view, snap.get(pair), cfg)
-    return pack, curves_for_pack(pack, pair)
+    return pack, curves_for_pack(pack, pair), density_for_pack(pack, snap.get(pair))
 
 
 snap, _ = _snapshot_and_cfg()
@@ -67,7 +68,7 @@ with st.sidebar:
     horizon_days = st.number_input("Horizon (days)", 7, 730, VIEW["horizon_days"], step=7)
     magnitude_pct = st.number_input("Target move from forward (%)", 0.5, 30.0, VIEW["magnitude_pct"], step=0.5)
 
-pack, curves = _pack(pair, direction, int(horizon_days), float(magnitude_pct))
+pack, curves, density = _pack(pair, direction, int(horizon_days), float(magnitude_pct))
 ms = pack.market_state
 
 c1, c2, c3, c4 = st.columns(4)
@@ -96,12 +97,20 @@ with right:
         disabled=not has_notional, help="Same curve, rescaled. Notional = the pack's sized notional.",
     )
     units = "pct" if units_choice.startswith("%") else "notional"
+    show_density = st.checkbox(
+        "Show market distribution", value=True, disabled=density is None,
+        help="Faint background: the market-implied distribution of the expiry spot "
+             "(the engine's smile distribution). Independent of the P&L axis.",
+    )
 
 rec, curve = pack.recommended[idx], curves[idx]
 v = rec.variant
 
 with left:
-    fig = payoff_figure(curve, units=units, sigma_sqrt_t=ms.vol * ms.T ** 0.5)
+    fig = payoff_figure(
+        curve, units=units, sigma_sqrt_t=ms.vol * ms.T ** 0.5,
+        density=density if show_density else None,
+    )
     if fig is None:
         st.error(
             "Chart withheld — it did not reconcile with the engine. "
@@ -135,3 +144,11 @@ if curve is not None:
     for c in curve.checks:
         mark = "✅" if c.ok else ("❌" if c.severity == "fail" else "⚠️")
         st.markdown(f"{mark} **{c.name}** — {c.detail}")
+    st.subheader("Distribution self-checks")
+    if density is None:
+        st.markdown("⚠️ **market distribution unavailable** — neither the smile nor the flat-vol "
+                    "fallback reconciled, so no overlay is drawn (the P&L chart is unaffected).")
+    else:
+        st.markdown(f"**{density.label}**")
+        for c in density.checks:
+            st.markdown(f"{'✅' if c.ok else '❌'} **{c.name}** — {c.detail}")

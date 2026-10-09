@@ -19,6 +19,7 @@ from typing import Literal
 import numpy as np
 import plotly.graph_objects as go
 
+from analytics.market_density import MarketDensity
 from analytics.payoff_curve import PayoffCurve
 
 Units = Literal["pct", "notional"]
@@ -31,6 +32,9 @@ _SPOT = "#7F7F7F"
 _FWD = "#9B7FB8"
 _STRIKE = "rgba(127,127,127,0.55)"
 _BARRIER = "#D64541"
+_DENSITY_FILL = "rgba(110, 125, 150, 0.16)"
+_DENSITY_LINE = "rgba(110, 125, 150, 0.45)"
+_DENSITY_HEIGHT_FRAC = 0.30     # the density's peak reaches this fraction of the plot height
 
 PLOTLY_CONFIG = {
     "scrollZoom": True,
@@ -66,8 +70,13 @@ def payoff_figure(
     curve: PayoffCurve | None,
     units: Units = "pct",
     sigma_sqrt_t: float | None = None,
+    density: MarketDensity | None = None,
 ) -> go.Figure | None:
-    """Expiry P&L chart, or None if the curve is missing or failed a hard check."""
+    """Expiry P&L chart, or None if the curve is missing or failed a hard check.
+
+    ``density`` (optional) is drawn faintly behind the P&L as the market distribution at
+    expiry. It is enrichment only: a missing or failed density never affects the P&L chart.
+    """
     if curve is None or not curve.ok:
         return None
 
@@ -79,6 +88,16 @@ def payoff_figure(
     y_fmt = "%{y:.2f}%" if units == "pct" else "%{y:,.2f}"
 
     fig = go.Figure()
+
+    # Market distribution, behind everything else, on its own hidden y-axis (y2) so it can
+    # never distort the P&L scale and does not rescale when the P&L axis is zoomed.
+    show_density = density is not None and density.ok and float(density.pdf.max()) > 0.0
+    if show_density:
+        fig.add_trace(go.Scatter(
+            x=density.spots, y=density.pdf, yaxis="y2", mode="lines", name=density.label,
+            line=dict(color=_DENSITY_LINE, width=1), fill="tozeroy", fillcolor=_DENSITY_FILL,
+            hoverinfo="skip", showlegend=False,
+        ))
 
     # Shaded profit / loss regions (clipped at zero; the exact zero-crossings are grid points).
     fig.add_trace(go.Scatter(
@@ -132,6 +151,16 @@ def payoff_figure(
     ylo, yhi = float(min(ys.min(), 0.0)), float(max(ys.max(), 0.0))
     ypad = 0.10 * ((yhi - ylo) or 1.0)
 
+    if show_density:
+        fig.update_layout(yaxis2=dict(
+            overlaying="y", side="right", visible=False, fixedrange=True,
+            range=[0.0, float(density.pdf.max()) / _DENSITY_HEIGHT_FRAC],
+        ))
+        fig.add_annotation(
+            text=f"▒ {density.label}", xref="paper", yref="paper", x=1.0, y=-0.14,
+            showarrow=False, xanchor="right", font=dict(size=11, color="rgba(110,125,150,0.95)"),
+        )
+
     fig.update_layout(
         height=520,
         margin=dict(l=10, r=10, t=30, b=10),
@@ -145,6 +174,6 @@ def payoff_figure(
         yaxis=dict(title=y_label, range=[ylo - ypad, yhi + ypad], showgrid=True,
                    gridcolor="rgba(127,127,127,0.18)", zeroline=False),
         # Zoom survives reruns that don't change the structure/units; a new key resets it.
-        uirevision=f"{curve.pair}|{curve.structure_id}|{curve.label}|{units}",
+        uirevision=f"{curve.pair}|{curve.structure_id}|{curve.label}|{units}|{show_density}",
     )
     return fig
