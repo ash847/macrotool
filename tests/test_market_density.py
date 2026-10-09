@@ -128,8 +128,12 @@ def _curve():
                               vol=0.10, T=0.25, is_call=True, target=None)
 
 
+def _is_density(t) -> bool:
+    return str(t.name or "").startswith("Market distribution")
+
+
 def _pnl_traces(fig):
-    return [t for t in fig.data if t.yaxis != "y2"]
+    return [t for t in fig.data if not _is_density(t)]
 
 
 def test_overlay_does_not_change_any_pnl_trace(snap):
@@ -141,16 +145,24 @@ def test_overlay_does_not_change_any_pnl_trace(snap):
     for a, b in zip(_pnl_traces(with_d), _pnl_traces(without)):
         np.testing.assert_array_equal(np.asarray(a.x), np.asarray(b.x))
         np.testing.assert_array_equal(np.asarray(a.y), np.asarray(b.y))
-    assert any(t.yaxis == "y2" for t in with_d.data) and not any(t.yaxis == "y2" for t in without.data)
+    assert any(_is_density(t) for t in with_d.data) and not any(_is_density(t) for t in without.data)
+    # …and it cannot move the P&L axes either
+    assert list(with_d.layout.yaxis.range) == list(without.layout.yaxis.range)
+    assert list(with_d.layout.xaxis.range) == list(without.layout.xaxis.range)
 
 
-def test_density_axis_is_hidden_fixed_and_scaled_to_a_fraction_of_the_plot(snap):
+def test_density_shares_the_pnl_axis_and_origin_with_no_secondary_axis(snap):
     ccy = snap.get("USDBRL")
     d = market_density(ccy, 91, compute_smile_distribution(ccy, 91))
     fig = payoff_figure(_curve(), density=d)
-    y2 = fig.layout.yaxis2
-    assert y2.visible is False and y2.fixedrange is True
-    assert y2.range[1] == pytest.approx(float(d.pdf.max()) / 0.30)
+    dens = next(t for t in fig.data if _is_density(t))
+    assert dens.yaxis in (None, "y")                        # same y-axis as the P&L
+    assert dens.fill == "tozeroy" and float(np.min(dens.y)) >= 0.0   # filled to, and never below, the zero line
+    assert "yaxis2" not in fig.to_dict()["layout"]           # no second axis anywhere
+    ylo, yhi = fig.layout.yaxis.range
+    default_span = (yhi - ylo) / 1.2                        # range = span + 2 × 10% padding
+    assert float(np.max(dens.y)) == pytest.approx(0.30 * default_span, rel=1e-6)
+    np.testing.assert_allclose(dens.y / np.max(dens.y), d.pdf / d.pdf.max())   # shape preserved exactly
 
 
 def test_failed_density_is_silently_ignored(snap):
@@ -158,7 +170,7 @@ def test_failed_density_is_silently_ignored(snap):
     d = market_density(ccy, 91, compute_smile_distribution(ccy, 91))
     d.checks.append(md.CurveCheck("forced", False, "forced failure"))
     fig = payoff_figure(_curve(), density=d)
-    assert fig is not None and not any(t.yaxis == "y2" for t in fig.data)
+    assert fig is not None and not any(_is_density(t) for t in fig.data)
 
 
 def test_failed_pnl_curve_still_returns_no_chart_even_with_a_good_density(snap):

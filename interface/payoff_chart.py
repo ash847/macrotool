@@ -32,9 +32,9 @@ _SPOT = "#7F7F7F"
 _FWD = "#9B7FB8"
 _STRIKE = "rgba(127,127,127,0.55)"
 _BARRIER = "#D64541"
-_DENSITY_FILL = "rgba(110, 125, 150, 0.16)"
-_DENSITY_LINE = "rgba(110, 125, 150, 0.45)"
-_DENSITY_HEIGHT_FRAC = 0.30     # the density's peak reaches this fraction of the plot height
+_DENSITY_FILL = "rgba(110, 125, 150, 0.09)"
+_DENSITY_LINE = "rgba(110, 125, 150, 0.28)"
+_DENSITY_HEIGHT_FRAC = 0.30     # the density's peak reaches this fraction of the default P&L y-span
 
 PLOTLY_CONFIG = {
     "scrollZoom": True,
@@ -89,12 +89,24 @@ def payoff_figure(
 
     fig = go.Figure()
 
-    # Market distribution, behind everything else, on its own hidden y-axis (y2) so it can
-    # never distort the P&L scale and does not rescale when the P&L axis is zoomed.
+    # Default window + a y-range fitted to it. Computed from the P&L alone, so the density
+    # overlay can never influence the P&L axis.
+    x0, x1 = default_window(curve, sigma_sqrt_t)
+    mask = (x >= x0) & (x <= x1)
+    ys = y[mask] if mask.any() else y
+    ylo, yhi = float(min(ys.min(), 0.0)), float(max(ys.max(), 0.0))
+    ypad = 0.10 * ((yhi - ylo) or 1.0)
+
+    # Market distribution, behind everything else. Same y-axis and the same origin as the
+    # P&L (it grows up from the zero line), but in its own units: the density is multiplied
+    # by a constant so its peak is ``_DENSITY_HEIGHT_FRAC`` of the default P&L y-span. There
+    # is deliberately no secondary axis — the height is a shape cue, not a readable value —
+    # so it zooms and pans together with the P&L axis.
     show_density = density is not None and density.ok and float(density.pdf.max()) > 0.0
     if show_density:
+        k = _DENSITY_HEIGHT_FRAC * ((yhi - ylo) or 1.0) / float(density.pdf.max())
         fig.add_trace(go.Scatter(
-            x=density.spots, y=density.pdf, yaxis="y2", mode="lines", name=density.label,
+            x=density.spots, y=density.pdf * k, mode="lines", name=density.label,
             line=dict(color=_DENSITY_LINE, width=1), fill="tozeroy", fillcolor=_DENSITY_FILL,
             hoverinfo="skip", showlegend=False,
         ))
@@ -144,21 +156,10 @@ def payoff_figure(
         )
     fig.add_hline(y=0.0, line=dict(color="rgba(127,127,127,0.7)", width=1))
 
-    # Default window + a y-range fitted to it.
-    x0, x1 = default_window(curve, sigma_sqrt_t)
-    mask = (x >= x0) & (x <= x1)
-    ys = y[mask] if mask.any() else y
-    ylo, yhi = float(min(ys.min(), 0.0)), float(max(ys.max(), 0.0))
-    ypad = 0.10 * ((yhi - ylo) or 1.0)
-
     if show_density:
-        fig.update_layout(yaxis2=dict(
-            overlaying="y", side="right", visible=False, fixedrange=True,
-            range=[0.0, float(density.pdf.max()) / _DENSITY_HEIGHT_FRAC],
-        ))
         fig.add_annotation(
             text=f"▒ {density.label}", xref="paper", yref="paper", x=1.0, y=-0.14,
-            showarrow=False, xanchor="right", font=dict(size=11, color="rgba(110,125,150,0.95)"),
+            showarrow=False, xanchor="right", font=dict(size=11, color="rgba(110,125,150,0.8)"),
         )
 
     fig.update_layout(
