@@ -66,9 +66,34 @@ def _forced_role() -> str | None:
 # configured, so e.g. Auth0 (magic-link / passwordless email, for testers without a
 # Google account) appears automatically once its secrets are set, no other code change.
 _PROVIDERS: tuple[tuple[str, str], ...] = (
-    ("google", "Sign in with Google"),
     ("auth0", "Sign in with magic link"),
 )
+
+
+def _email_list(key: str) -> set[str]:
+    try:
+        values = st.secrets.get(key, [])
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            return set()
+        return {value.strip().lower() for value in values if value.strip()}
+    except Exception:
+        return set()
+
+
+def _verified_magic_email() -> str | None:
+    try:
+        metadata = st.secrets["auth"]["auth0"]["server_metadata_url"]
+        issuer = metadata.removesuffix(".well-known/openid-configuration")
+        if st.user.get("iss") != issuer or st.user.get("email_verified") is not True:
+            return None
+        if not str(st.user.get("sub", "")).startswith("email|"):
+            return None
+        email = st.user.get("email")
+        if not isinstance(email, str) or "@" not in email or any(char.isspace() for char in email.strip()):
+            return None
+        return email.strip().lower()
+    except Exception:
+        return None
 
 
 def _provider_configured(provider: str) -> bool:
@@ -115,11 +140,7 @@ def is_admin_user() -> bool:
     email = current_user_email()
     if not email:
         return False
-    try:
-        admins = st.secrets.get("admin_emails", [])
-    except Exception:
-        admins = []
-    return email in admins
+    return email.strip().lower() in _email_list("admin_emails")
 
 
 def user_role() -> str:
@@ -169,15 +190,34 @@ def require_login() -> None:
         return
     if not auth_configured():
         st.title("MacroTool")
-        st.error("Authentication is not configured. Add the `[auth]` block and `admin_emails` to Streamlit secrets.")
+        st.error("Magic-link authentication is not configured. Configure [auth] and [auth.auth0] in Streamlit secrets.")
         st.stop()
 
     if not st.user.is_logged_in:
         st.title("MacroTool")
         st.write("Sign in to continue.")
-        providers = _configured_providers()
-        for i, (key, label) in enumerate(providers):
-            if i > 0:
-                st.caption("or")
-            st.button(label, key=f"login_{key}", on_click=st.login, args=(key,))
+        st.button("Sign in with magic link", key="login_auth0", on_click=st.login, args=("auth0",))
+        st.stop()
+
+    email = _verified_magic_email()
+    if not email:
+        st.error("Please sign out and sign in using a verified email magic link.")
+        st.button("Sign out", on_click=st.logout)
+        st.stop()
+    if email not in _email_list("allowed_emails"):
+        from interface.access_requests import request_access
+
+        st.title("MacroTool")
+        st.write("Sorry but looks like your email is not approved for access. Would you like access?")
+        if st.button("Yes", key="request_access"):
+            try:
+                sent = request_access(dict(st.secrets.get("contact_email", {})), email)
+            except Exception:
+                st.error("We couldn't send your request. Please try again later.")
+            else:
+                if sent:
+                    st.success("Your access request has been sent. Approval is required before you can enter.")
+                else:
+                    st.info("A request was recently submitted. Please wait before trying again.")
+        st.button("Sign out", on_click=st.logout)
         st.stop()

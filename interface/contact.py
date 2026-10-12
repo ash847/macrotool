@@ -24,7 +24,7 @@ def contact_recipients(config):
     return list(dict.fromkeys(address.strip() for address in recipients))
 
 
-def send_contact(config, user_email, comments):
+def send_contact(config, user_email, comments, *, subject="MacroTool contact message"):
     comments = comments.strip()
     if not comments or len(comments) > MAX_COMMENT_LENGTH:
         raise ValueError("Please enter between 1 and 5,000 characters.")
@@ -33,7 +33,7 @@ def send_contact(config, user_email, comments):
     if not user_email or any(char in user_email for char in "\r\n"):
         raise ValueError("Please sign in before sending a message.")
     message = EmailMessage()
-    message["Subject"] = "MacroTool contact message"
+    message["Subject"] = subject
     message["From"] = config["from_email"]
     recipients = contact_recipients(config)
     message["To"] = ", ".join(recipients)
