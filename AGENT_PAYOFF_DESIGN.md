@@ -160,7 +160,7 @@ render stays inside the "numbers come from a tool result" invariant.
 
 All three render sites gain one `PAYOFF:` line, built from the priced legs already in hand:
 
-- `render._legs_breakdown` caller in `render_pack` (recommended set, top-3).
+- `render._legs_breakdown` caller in `render_pack` (recommended set, top-N — `_TOP_N` was 3 at the time of writing, later raised to 5).
 - `render_recommended` (a recommended structure restated via `price_structure`).
 - `render_priced_structure` (a PM-named off-menu structure) — uses the *same*
   `payoff_profile()` on its `priced_structure.priced_legs`, so an off-menu 1x2 is described

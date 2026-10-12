@@ -22,9 +22,6 @@ from typing import Literal
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-# Conviction → weight toward the target (vs the forward) for the view-implied seed.
-_CONVICTION_WEIGHT = {"low": 0.33, "medium": 0.66, "high": 1.0}
-
 DEFAULT_BANKROLL = 100.0          # nominal W; == interface LINEAR_NOTIONAL for scale continuity
 DEFAULT_KELLY_LAMBDA = 0.5        # fractional-Kelly multiplier (full Kelly is fragile)
 _F_MAX = 1000.0                   # search ceiling for x = notional/bankroll; real cap applied downstream
@@ -42,6 +39,10 @@ class SizingSpec:
     # engine layer needs no dependency on the UI's Distribution type.
     kelly_probs: tuple[float, ...] | None = None
     kelly_bins: tuple[float, ...] | None = None
+    # Kelly was selected but the PM has stated no distribution for this trade, so the
+    # trade is sized FIXED-LOSS instead (and the UI/agent must say so). The tool never
+    # synthesises an edge the PM didn't give.
+    kelly_fallback: bool = False
 
     def has_distribution(self) -> bool:
         return self.kelly_probs is not None and self.kelly_bins is not None
@@ -96,29 +97,25 @@ def kelly_notional(probs, pnl_per_notional, spec: SizingSpec, cap: float) -> flo
     return min(spec.kelly_lambda * x_star * spec.bankroll, cap)
 
 
-def view_implied_distribution(
+def market_distribution(
     spot: float,
     fwd: float,
     vol: float,
     T: float,
-    target: float,
-    conviction: str = "medium",
     n_bins: int = 41,
     sigma_extent: float = 4.0,
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    """A real-world (edged) terminal-spot distribution synthesised from the PM's view.
+    """The market-implied terminal-spot distribution: a lognormal centred on the
+    forward with width ``vol·√T`` (ATM vol, flat). It states **no edge** — the
+    elicitation's starting point, and the curve Kelly sizes against when the PM has
+    not stated one for this trade. Returns ``(probs, bins)`` as plain tuples.
 
-    A lognormal whose log-centre is blended between the forward and the target by
-    conviction (`high` → fully at the target), with width `vol·√T`. Because the
-    centre sits off the forward, it carries directional edge — so Kelly will size a
-    bet (unlike the risk-neutral/market-implied distribution, which has zero edge).
-    Used as the low-friction default seed and for the Batch ranking sweep. Returns
-    `(probs, bins)` as plain tuples — the shape `SizingSpec` carries."""
-    if target <= 0 or fwd <= 0 or spot <= 0:
-        raise ValueError("spot/fwd/target must be positive")
-    w = _CONVICTION_WEIGHT.get(conviction, 0.66)
+    Deliberately takes no target/conviction: the tool never synthesises an edge
+    the PM didn't explicitly give."""
+    if fwd <= 0 or spot <= 0:
+        raise ValueError("spot/fwd must be positive")
     sig = max(vol * math.sqrt(max(T, 1e-9)), 1e-6)
-    ln_center = (1.0 - w) * math.log(fwd) + w * math.log(target)
+    ln_center = math.log(fwd)
     bins = np.linspace(
         math.exp(ln_center - sigma_extent * sig),
         math.exp(ln_center + sigma_extent * sig),
@@ -128,3 +125,33 @@ def view_implied_distribution(
     dens = np.exp(-0.5 * z * z) / bins            # lognormal pdf shape
     probs = dens / dens.sum()
     return tuple(float(p) for p in probs), tuple(float(b) for b in bins)
+
+
+def expiry_for(snapshot_date, horizon_days: int):
+    """The trade's expiry date: pricing (snapshot) date + horizon."""
+    from datetime import timedelta
+    return snapshot_date + timedelta(days=int(horizon_days))
+
+
+def curve_key(pair: str, expiry) -> str:
+    """Identity of the trade a stated distribution belongs to: ``"PAIR|YYYY-MM-DD"``.
+
+    A distribution is a set of probabilities over *that pair's* spot levels at *that
+    expiry*, so it is valid only for the same pair + expiry date. Keyed on the expiry
+    DATE (not horizon days) so a saved view stays attached to its trade as time passes
+    (a 91d trade reopened later is a 70d trade to the same date). The target doesn't
+    change the belief, so it is not part of the key."""
+    exp = expiry.isoformat() if hasattr(expiry, "isoformat") else str(expiry)
+    return f"{pair}|{exp[:10]}"
+
+
+def curve_for_trade(curves: dict | None, pair: str, expiry):
+    """The PM's stated ``(probs, bins)`` for this pair + expiry from a
+    ``{curve_key: (probs, bins)}`` map, else None."""
+    if not curves:
+        return None
+    hit = curves.get(curve_key(pair, expiry))
+    if not hit:
+        return None
+    probs, bins = hit
+    return tuple(probs), tuple(bins)

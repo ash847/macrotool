@@ -10,7 +10,7 @@ this; ``flow._run_engines`` delegates its core chain to it too.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 
 from analytics.market_state import MarketState
 from analytics.models import MaturityHistogram, PriceDistribution
@@ -30,18 +30,6 @@ def target_from_reference(
         return None
     sign = 1 if direction == "base_higher" else -1
     return reference * (1 + sign * magnitude_pct / 100)
-
-
-def _major_risk(structure_id: str) -> str:
-    """The engine's canonical primary-risk text for a structure (from profiles).
-
-    Used so the LLM relays the correct risk instead of inventing payoff geometry.
-    """
-    try:
-        from knowledge_engine.loader import load_structure_profiles
-        return load_structure_profiles().get(structure_id, {}).get("major_risk", "") or ""
-    except Exception:
-        return ""
 
 
 def _priced_structure_for(family, label, ms, is_call, target, surface, stop_price):
@@ -65,7 +53,7 @@ def _priced_structure_for(family, label, ms, is_call, target, surface, stop_pric
 
 @dataclass
 class RecommendedStructure:
-    """A specific, priced representative construction for a shortlisted family."""
+    """A specific priced variant with its retained scenario evidence."""
 
     structure_id: str
     display_name: str
@@ -73,7 +61,7 @@ class RecommendedStructure:
     rationale: str
     variant: PricedVariant
     score_ccy: float | None = None   # scenario-weighted P&L the variant was ranked on
-    major_risk: str = ""             # engine's canonical primary risk (from profiles)
+    major_risk: str = ""
     priced_structure: object | None = None   # product-model PricedStructure (legs first-class)
     drivers: dict | None = None      # P&L driver split (Carry/Directional/Adverse/Vega), pct
                                      # — kept server-side for derivation; NOT rendered to the LLM
@@ -81,6 +69,8 @@ class RecommendedStructure:
     cell_drivers: tuple[list, list] | None = None   # (top contributors, top detractors) —
                                      # CellBreakdown lists from top_bottom_cells(pm_score);
                                      # same numbers as Trade View's "Key P&L drivers" panel
+    score_pct: float | None = None
+    absolute_contribution_total_pct: float | None = None
 
 
 @dataclass
@@ -95,7 +85,7 @@ class StandardPack:
     maturity_histogram: MaturityHistogram | None
     target: float | None        # target spot (from forward + magnitude), or None
     is_call: bool               # direction → call/put, for downstream Tier-2 pricing
-    recommended: list[RecommendedStructure]   # specific priced structures per family
+    recommended: list[RecommendedStructure]
     loss_budget: float | None = None          # base-ccy max-loss budget the trades are sized to
                                               # (= LINEAR_NOTIONAL × stop%, R:R-derived)
     active_context: str | None = None         # fired scenario-weighting context id
@@ -104,6 +94,15 @@ class StandardPack:
     sizing_method: str = "fixed_loss"         # active sizing regime the trades were sized under
     kelly_lambda: float = 0.5                 # fractional-Kelly multiplier (Kelly regime only)
     linear_notional: float = 100.0            # sizing capital W
+    kelly_fallback: bool = False              # Kelly selected, no stated distribution → fixed-loss
+    expiry: object | None = None              # trade expiry date (pricing date + horizon)
+    sizing_spec: object | None = None         # the SizingSpec used (Tier-2 reuses it)
+    affinity_shortlist: list[dict] = field(default_factory=list)
+    market_quotes: dict = field(default_factory=dict)
+    variants_ranked: bool = False
+    tail_constraint: str = "none"
+    resolved_tail_constraint: str = "none"
+    tail_exclusions: list[dict] = field(default_factory=list)
 
 
 _COMPARATOR_LINEAR_NOTIONAL = 100.0
@@ -114,8 +113,9 @@ def _recommend_ranked(
     primary_objective, trade_management, structure_constraint, target_rr,
     user_email=None, linear_notional: float = _COMPARATOR_LINEAR_NOTIONAL,
     sizing_spec: object | None = None,
+    tail_constraint: str = "none", tail_exclusions: list | None = None,
 ) -> list[RecommendedStructure]:
-    """Per shortlisted family, pick the variant the scoring ranks best.
+    """Rank all priced variants, including Trade View's linear comparator.
 
     Uses the comparator's scenario evaluation (pm_score.score_ccy — PM-overlay
     weighted P&L in base ccy, the same metric the Trade View variants table and
@@ -154,15 +154,16 @@ def _recommend_ranked(
     from knowledge_engine.structure_attributes import attributes as _attributes, deciding_axis as _deciding_axis
 
     out: list[RecommendedStructure] = []
-    agg_by_sid: dict[str, object] = {}   # structure_id -> aggregates, for the deciding-axis pick
+    agg_by_sid: dict[tuple[str, str], object] = {}
     for item in selector_result.shortlist:
         evals = inputs.variant_evaluations_by_structure.get(item.structure_id) or []
-        scored = [e for e in evals if e.pm_score.score_ccy is not None]
-        best = (
-            max(scored, key=lambda e: e.pm_score.score_ccy) if scored
-            else (evals[0] if evals else None)
-        )
-        if best is not None:
+        for best in evals:
+            if best.variant.sizing_trace is not None and best.variant.sizing_trace.effective_method == "fixed_loss":
+                best.variant.sizing_trace = replace(
+                    best.variant.sizing_trace, budget_distance=stop_pct,
+                    budget_reference=fwd, budget_target=target,
+                    budget_input_rr=max(target_rr, 1e-6),
+                )
             _cd_pos, _cd_neg = top_bottom_cells(best.pm_score)
             out.append(RecommendedStructure(
                 structure_id=item.structure_id,
@@ -171,7 +172,8 @@ def _recommend_ranked(
                 rationale=item.rationale,
                 variant=best.variant,
                 score_ccy=best.pm_score.score_ccy,
-                major_risk=_major_risk(item.structure_id),
+                score_pct=best.pm_score.score_pct,
+                absolute_contribution_total_pct=best.pm_score.absolute_contribution_total_pct,
                 priced_structure=_priced_structure_for(
                     item.structure_id, best.variant.variant_label, ms, is_call,
                     target, surface, stop_price,
@@ -180,14 +182,50 @@ def _recommend_ranked(
                 attributes=_attributes(item.structure_id, best.pm_score, best.aggregates),
                 cell_drivers=(_cd_pos, _cd_neg) if (_cd_pos or _cd_neg) else None,
             ))
-            agg_by_sid[item.structure_id] = best.aggregates
+            agg_by_sid[(item.structure_id, best.variant.variant_label)] = best.aggregates
+
+    from analytics.scenario_pricer import price_linear_scenarios
+    from knowledge_engine.scenario_scorer import score_structure
+    from knowledge_engine.comparator import summarize_scenario_rows
+
+    trade_inputs = dict(spot=ms.spot, forward=ms.fwd, implied_vol=ms.vol,
+                        tenor_years=ms.T, target=target, r_d=ms.r_d, r_f=ms.r_f)
+    linear_rows = price_linear_scenarios(inputs.scenarios, trade_inputs, is_call, linear_notional, loss_budget)
+    linear_score = score_structure(linear_rows, inputs.weights)
+    linear_variant = PricedVariant(
+        variant_label="Delta 1 (scenario loss capped; not contractual)", strikes=[], barrier=None,
+        net_premium_pct=0.0, breakeven=None, payoff_at_target_pct=None,
+        rr_at_target=None, max_loss_pct=stop_pct, wing_ratio=None, is_zero_cost=True,
+        structure_notional=linear_notional, net_premium_ccy=0.0,
+        payoff_at_target_ccy=None, max_loss_ccy=loss_budget,
+    )
+    out.append(RecommendedStructure(
+        structure_id="linear", display_name="Linear", rank=0,
+        rationale="Modelled linear benchmark; scenario losses are capped, not a contractual loss guarantee.",
+        variant=linear_variant, score_ccy=linear_score.score_ccy,
+        score_pct=linear_score.score_pct,
+        absolute_contribution_total_pct=linear_score.absolute_contribution_total_pct,
+        major_risk="The modelled loss cap is not a guaranteed executable stop or contractual protection.",
+        cell_drivers=top_bottom_cells(linear_score),
+    ))
+    agg_by_sid[("linear", linear_variant.variant_label)] = summarize_scenario_rows(linear_rows)
 
     # Order by scenario-weighted P&L (score_ccy), NOT affinity rank, so the agent
     # surfaces the same top structures as the Trade View Structure Evaluation (which
     # ranks by score_ccy) and matches this pack's own "best ... by PnL score" label
     # (render.py — "PnL score" is the external name for score_ccy; kept vague on
     # purpose). Display rank then follows that order. None scores sort last.
-    out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else float("-inf"), reverse=True)
+    from knowledge_engine.preference_policy import preference_exclusion_reason
+
+    eligible = []
+    for rec in out:
+        reason = preference_exclusion_reason(rec.structure_id, rec.variant, structure_constraint)
+        if reason is None:
+            eligible.append(rec)
+        elif tail_exclusions is not None:
+            tail_exclusions.append({"structure_id": rec.structure_id, "variant": rec.variant.variant_label, "reason": reason})
+    out = _filter_directional_tails(eligible, is_call, tail_constraint, tail_exclusions)
+    out.sort(key=lambda r: r.score_ccy if r.score_ccy is not None else 0.0, reverse=True)
     for i, r in enumerate(out, 1):
         r.rank = i
 
@@ -195,13 +233,32 @@ def _recommend_ranked(
     # from the runner-up (IP-clean gloss; numbers stay server-side).
     deciding = None
     if len(out) >= 2:
-        deciding = _deciding_axis(agg_by_sid[out[0].structure_id], agg_by_sid[out[1].structure_id])
+        deciding = _deciding_axis(
+            agg_by_sid[(out[0].structure_id, out[0].variant.variant_label)],
+            agg_by_sid[(out[1].structure_id, out[1].variant.variant_label)],
+        )
 
     return out, loss_budget, inputs.active_context, deciding, inputs.weights
 
 
+def _filter_directional_tails(recommendations, is_call, constraint, exclusions):
+    from knowledge_engine.tail_policy import assign_variant_tails, tail_exclusion_reason
+
+    kept = []
+    for rec in recommendations:
+        assign_variant_tails(rec.structure_id, rec.variant, is_call)
+        reason = tail_exclusion_reason(rec.variant, constraint, "base_higher" if is_call else "base_lower")
+        if reason is None:
+            kept.append(rec)
+        elif exclusions is not None:
+            exclusions.append({"structure_id": rec.structure_id, "variant": rec.variant.variant_label, "reason": reason})
+    return kept
+
+
 def _price_recommended_fallback(
-    ms: MarketState, selector_result, target, is_call, surface, cap: int = 6
+    ms: MarketState, selector_result, target, is_call, surface, cap: int = 6,
+    structure_constraint: str = "No restriction",
+    tail_constraint: str = "none", tail_exclusions: list | None = None,
 ) -> list[RecommendedStructure]:
     """Fallback when no target: first curated variant that prices, per family."""
     out: list[RecommendedStructure] = []
@@ -210,10 +267,20 @@ def _price_recommended_fallback(
             variants = price_variants(
                 ms, item.structure_id, target=target, is_call=is_call,
                 smile=surface, warnings=[],
+                structure_constraint=structure_constraint,
             )
         except Exception:
             variants = []
-        rep = next((v for v in variants if v.net_premium_pct is not None), None)
+        from knowledge_engine.tail_policy import assign_variant_tails, tail_exclusion_reason
+        eligible = []
+        for variant in variants:
+            assign_variant_tails(item.structure_id, variant, is_call)
+            reason = tail_exclusion_reason(variant, tail_constraint, "base_higher" if is_call else "base_lower")
+            if reason is None:
+                eligible.append(variant)
+            elif tail_exclusions is not None:
+                tail_exclusions.append({"structure_id": item.structure_id, "variant": variant.variant_label, "reason": reason})
+        rep = next((v for v in eligible if v.net_premium_pct is not None), None)
         if rep is not None:
             out.append(RecommendedStructure(
                 structure_id=item.structure_id,
@@ -221,7 +288,6 @@ def _price_recommended_fallback(
                 rank=item.rank,
                 rationale=item.rationale,
                 variant=rep,
-                major_risk=_major_risk(item.structure_id),
                 priced_structure=_priced_structure_for(
                     item.structure_id, rep.variant_label, ms, is_call, target, surface, None,
                 ),
@@ -243,6 +309,7 @@ def build_pack(
     kelly_lambda: float = 0.5,
     kelly_probs: tuple | None = None,
     kelly_bins: tuple | None = None,
+    tail_constraint: str = "none",
 ) -> StandardPack:
     """Run the full deterministic chain for a view. Pure orchestration.
 
@@ -260,6 +327,10 @@ def build_pack(
     from analytics.market_state import compute_market_state
     from knowledge_engine.structure_scorer import score_structures
     from knowledge_engine.sizing_engine import compute_sizing
+    from knowledge_engine.tail_policy import resolved_tail_constraint
+
+    resolved_tails = resolved_tail_constraint(tail_constraint, view.direction)
+    tail_exclusions = []
 
     T = view.horizon_years
     rate_ctx = rate_context_for_snapshot(ccy, T)
@@ -308,23 +379,31 @@ def build_pack(
         pass  # distributions are enrichment; never break the pack
 
     is_call = view.direction == "base_higher"
-    # Build the Kelly SizingSpec when the PM is in the Kelly regime with a distribution;
-    # else None → fixed-loss sizing (the default). The pack (recommendations, notionals,
-    # per-structure f*) is then sized under the regime the PM is actually operating.
+    # Kelly regime: size against the PM's stated distribution for THIS trade (the
+    # caller passes it only if it was stated for this pair + expiry). No stated
+    # distribution → FIXED-LOSS, flagged (kelly_fallback) so the PM is told — the tool
+    # never sizes on an edge the PM didn't give.
     sizing_spec = None
-    if sizing_method == "kelly" and kelly_probs and kelly_bins:
-        from analytics.sizing import SizingSpec
-        sizing_spec = SizingSpec(
-            method="kelly", target_rr=target_rr, kelly_lambda=kelly_lambda,
-            bankroll=linear_notional,
-            kelly_probs=tuple(kelly_probs), kelly_bins=tuple(kelly_bins),
-        )
+    kelly_fallback = False
+    if sizing_method == "kelly":
+        if kelly_probs and kelly_bins:
+            from analytics.sizing import SizingSpec
+            sizing_spec = SizingSpec(
+                method="kelly", target_rr=target_rr, kelly_lambda=kelly_lambda,
+                bankroll=linear_notional,
+                kelly_probs=tuple(kelly_probs), kelly_bins=tuple(kelly_bins),
+            )
+        else:
+            kelly_fallback = True
+    from analytics.sizing import expiry_for
+    expiry = expiry_for(ccy.as_of, view.horizon_days) if getattr(ccy, "as_of", None) else None
 
     recommended: list[RecommendedStructure] = []
     loss_budget: float | None = None
     active_context: str | None = None
     deciding_axis: str | None = None
     scenario_weights: dict | None = None
+    ranked_completed = False
     if target is not None:
         try:
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = _recommend_ranked(
@@ -332,12 +411,51 @@ def build_pack(
                 primary_objective, trade_management, structure_constraint, target_rr,
                 user_email=user_email, linear_notional=linear_notional,
                 sizing_spec=sizing_spec,
+                tail_constraint=resolved_tails, tail_exclusions=tail_exclusions,
             )
+            ranked_completed = True
         except Exception:
             recommended, loss_budget, active_context, deciding_axis, scenario_weights = [], None, None, None, None
-    if not recommended:
+    variants_ranked = ranked_completed
+    if not ranked_completed:
         recommended = _price_recommended_fallback(
-            market_state, selector_result, target, is_call, surface
+            market_state, selector_result, target, is_call, surface,
+            structure_constraint=structure_constraint,
+            tail_constraint=resolved_tails, tail_exclusions=tail_exclusions,
+        )
+
+    for recommendation in recommended:
+        trace = recommendation.variant.sizing_trace
+        if trace is not None:
+            recommendation.variant.sizing_trace = replace(
+                trace, requested_method=sizing_method,
+                fallback_reason="No stated Kelly distribution for this pair/expiry" if kelly_fallback else None,
+            )
+
+    from knowledge_engine.structure_scorer import get_scoring_detail, max_possible_score
+    ceiling = max_possible_score() or 1.0
+    affinity_shortlist = [
+        {"structure_id": row["structure_id"], "display_name": row["display_name"],
+         "fit_pct": max(0.0, min(100.0, 100.0 * (row["total_score"] or 0.0) / ceiling))}
+        for row in get_scoring_detail(market_state, structure_constraint=structure_constraint)
+        if not row["overlay_only"] and row["eligible"]
+        and ((resolved_tails == "none" and structure_constraint != "Avoid tail-risky structures")
+             or any(rec.structure_id == row["structure_id"] for rec in recommended))
+    ][:3]
+    market_quotes = {}
+    try:
+        from analytics.distributions import interpolate_vol
+        call_vol = interpolate_vol(ccy, view.horizon_days, "25DC")
+        put_vol = interpolate_vol(ccy, view.horizon_days, "25DP")
+        market_quotes = {"rr25": call_vol - put_vol, "fly25": 0.5 * (call_vol + put_vol) - market_state.vol}
+    except (ValueError, KeyError, TypeError):
+        pass
+
+    from knowledge_engine.payoff_risk import payoff_risk_note
+    for recommendation in recommended:
+        recommendation.major_risk = payoff_risk_note(
+            recommendation.structure_id, recommendation.variant,
+            recommendation.priced_structure, is_call,
         )
 
     return StandardPack(
@@ -357,4 +475,13 @@ def build_pack(
         sizing_method=("kelly" if sizing_spec is not None else "fixed_loss"),
         kelly_lambda=kelly_lambda,
         linear_notional=linear_notional,
+        kelly_fallback=kelly_fallback,
+        expiry=expiry,
+        sizing_spec=sizing_spec,
+        affinity_shortlist=affinity_shortlist,
+        market_quotes=market_quotes,
+        variants_ranked=variants_ranked,
+        tail_constraint=tail_constraint,
+        resolved_tail_constraint=resolved_tails,
+        tail_exclusions=tail_exclusions,
     )

@@ -29,6 +29,7 @@ import pandas as pd
 
 from conversation.flow import ConversationFlow, target_from_reference
 from interface.charts import build_distribution_fan, build_maturity_histogram
+from interface.look import apply_look_css
 from interface.security import can_see, current_user_email, is_admin_user, require_login, user_role
 from interface.llm_config import (
     get_llm_provider,
@@ -49,7 +50,8 @@ from interface.structure_eval import (
     render_structure_variants,
     render_structure_evaluation,
 )
-from interface.kelly_sizing_ui import build_sizing_spec, meaning_banner
+from interface.kelly_sizing_ui import KELLY_FALLBACK_MSG, build_sizing_spec, meaning_banner
+from analytics.sizing import expiry_for as _expiry_for
 from interface.prefs import (
     DEFAULT_MERGED_PREF,
     FIXED_PRIMARY_OBJECTIVE,
@@ -58,6 +60,7 @@ from interface.prefs import (
     merged_pref_label,
 )
 from interface.kelly_inline import render_kelly_elicitation
+from knowledge_engine import ui_labels as UL
 from knowledge_engine.structure_scorer import get_scoring_detail
 from knowledge_engine.models import TradeView
 from analytics.distributions import interpolate_vol
@@ -74,10 +77,11 @@ from interface.debug_log import (
 
 st.set_page_config(
     page_title="MacroTool",
-    page_icon="📈",
+    page_icon=":material/query_stats:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+apply_look_css()
 
 # ---------------------------------------------------------------------------
 # Secrets → os.environ — must run before session state so ConversationFlow
@@ -111,7 +115,12 @@ def _inject_secrets() -> None:
 _inject_secrets()
 require_login()
 USER_EMAIL = current_user_email()
-IS_ADMIN = is_admin_user()
+# "View as tester": an admin can drop to the tester surface for this browser session to
+# see exactly what testers see. It only ever removes rights (IS_ADMIN False), so it can't
+# expose anything; admin-only pages are then blocked by the routing guard below.
+REAL_ADMIN = is_admin_user()
+VIEW_AS_TESTER = REAL_ADMIN and bool(st.session_state.get("view_as_tester", False))
+IS_ADMIN = REAL_ADMIN and not VIEW_AS_TESTER
 
 # Per-visit session id — stitches chat / errors / reactions to the engine runs.
 if "session_id" not in st.session_state:
@@ -177,7 +186,8 @@ if "flow" not in st.session_state:
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 if "page" not in st.session_state:
-    st.session_state.page = "Trade view"
+    # A ?chat=<id> link opens straight into that saved conversation.
+    st.session_state.page = "Agent" if st.query_params.get("chat") or not IS_ADMIN else "Trade view"
 
 # "Admin test" (admin-only) shows the full admin surface; "Trade view" always
 # renders with tester visibility so both surfaces are live simultaneously.
@@ -192,8 +202,6 @@ if "sizing_capital_text" not in st.session_state:
     st.session_state.sizing_capital_text = f"{st.session_state.sizing_capital:,.0f}"
 if "kelly_lambda" not in st.session_state:
     st.session_state.kelly_lambda = 0.5
-if "kelly_conviction" not in st.session_state:
-    st.session_state.kelly_conviction = "medium"
 if "kelly_n_bins" not in st.session_state:
     st.session_state.kelly_n_bins = 41
 if "clarification" not in st.session_state:
@@ -224,21 +232,32 @@ with st.sidebar:
         st.caption("EM FX trade structuring")
     st.caption(f"Signed in as {USER_EMAIL}")
     st.button("Sign out", on_click=st.logout, use_container_width=True)
+    if REAL_ADMIN:
+        st.toggle("View as tester", key="view_as_tester",
+                  help="See the app exactly as a tester does. Admin pages are hidden "
+                       "until you switch this off.")
     st.divider()
 
-    # Admins get "Admin test" (full surface) + "Trade view" (tester surface) side by side.
-    # Testers see "Trade view" + "Agent".
-    if IS_ADMIN:
-        nav_labels = (
-            "Admin test", "Trade view", "Agent", "Kelly Sizing",
-            "Batch", "Market Data", "Structure Selection", "Scenario Weightings", "Query log",
-        )
-    else:
-        nav_labels = ("Trade view", "Agent")
+    from interface.navigation import available_pages
+    nav_labels = available_pages(IS_ADMIN)
+    from interface.conversations_ui import (
+        NEW as _WS_NEW,
+        is_new_chat_open as _ws_new_chat_open,
+        render_conversation_sidebar,
+    )
     for label in nav_labels:
-        active = st.session_state.page == label
+        if label == "Agent":
+            # "New Chat" always starts a fresh conversation; saved ones are
+            # reopened from the Conversations list below. Lit only while the open
+            # chat is that new, not-yet-saved one (a saved chat is lit in the list).
+            active = st.session_state.page == "Agent" and _ws_new_chat_open()
+            text = "New Chat"
+        else:
+            active = st.session_state.page == label
+            text = label
         if st.button(
-            label,
+            text,
+            key=f"nav_{label}",
             use_container_width=True,
             type="primary" if active else "secondary",
         ):
@@ -248,9 +267,15 @@ with st.sidebar:
                 st.session_state.submitted = False
                 st.session_state.last_prompt = ""
                 st.session_state.clarification = ""
+            if label == "Agent":
+                st.session_state.ws_open = _WS_NEW
             st.session_state.page = label
             st.rerun()
 
+    st.divider()
+
+    # Saved conversations are listed on every page; clicking one opens it on Agent.
+    render_conversation_sidebar(USER_EMAIL, on_agent_page=st.session_state.page == "Agent")
     st.divider()
 
     if st.session_state.page == "Kelly Sizing":
@@ -349,6 +374,7 @@ def _preview_market_numbers():
         rate_ctx = rate_context_for_snapshot(ccy, T)
         ms_like = SimpleNamespace(
             spot=ccy.spot, fwd=rate_ctx.forward, vol=interpolate_atm_vol(ccy, horizon_days), T=T,
+            pair=pair, expiry=_expiry_for(flow._snapshot.snapshot_date, int(horizon_days)),
         )
         return ms_like, float(target)
     except Exception:
@@ -371,7 +397,8 @@ def _render_sizing_section(ms_like, target, direction=None) -> None:
     st.subheader("Kelly edge distribution")
     with st.container(border=True):
         if ms_like is not None:
-            render_kelly_elicitation(ms_like, target, direction)
+            render_kelly_elicitation(ms_like, target, direction,
+                                     pair=ms_like.pair, expiry=ms_like.expiry)
         else:
             st.info("Pick a pair and horizon above to elicit your Kelly edge distribution.")
 
@@ -523,11 +550,11 @@ def _render_sizing_panel() -> None:
                     _loss_sb = _W * _stop_pct_sb
                     _stop_px_sb = (_fwd * (1 - _stop_pct_sb) if _is_call_sb
                                    else _fwd * (1 + _stop_pct_sb))
-                    st.markdown(f"Risk this trade: **{fmt_ccy(_loss_sb, _ccy)}** "
+                    st.markdown(f"Loss budget: **{fmt_ccy(_loss_sb, _ccy)}** "
                                 f"({_stop_pct_sb:.2%} of W)")
-                    st.markdown(f"Implied stop: **{_stop_pct_sb:.1%}** · {_stop_px_sb:.4f}")
-                    st.caption("Every variant is sized so its max loss equals this one figure "
-                               "(notional capped at 10·W — capped rows are flagged in the table).")
+                    st.markdown(f"Sizing reference: **{_stop_pct_sb:.1%}** · {_stop_px_sb:.4f}")
+                    st.caption("This budget is used for sizing, subject to notional caps and sizing policies. "
+                               "It is not a guaranteed maximum loss or an executable stop; actual losses can be larger.")
                 else:
                     st.caption("Enter a pair and target to see dollar equivalents.")
             else:
@@ -1017,22 +1044,32 @@ def _view_json(view) -> dict | None:
     }
 
 
-def _log_chat_exchange(surface: str, chat_id: str, session, prompt: str, reply: str, pre_len: int) -> None:
+def _reserve_chat_seq(chat_id: str) -> int:
+    """Claim the next two telemetry seq numbers for a chat (user + assistant turn)."""
+    seq_key = f"chatseq_{chat_id}"
+    seq = st.session_state.get(seq_key, 0)
+    st.session_state[seq_key] = seq + 2
+    return seq
+
+
+def _log_chat_exchange(surface: str, chat_id: str, session, prompt: str, reply: str,
+                       pre_len: int, seq: int | None = None) -> None:
     """Persist one chat exchange (user turn + assistant turn with its tool trace)
-    to Supabase. Fail-open — never breaks the chat."""
+    to Supabase. Fail-open — never breaks the chat. Pass a pre-reserved ``seq`` to
+    call this off the script thread (no session-state access)."""
     try:
         view = getattr(session, "view", None)
         pair = view.pair if view is not None else None
         vjson = _view_json(view)
-        tool_trace = _tool_trace_from_messages(session.messages[pre_len:]) or None
-        seq_key = f"chatseq_{chat_id}"
-        seq = st.session_state.get(seq_key, 0)
+        from agentic.telemetry import exchange_trace
+        tool_trace = exchange_trace(_tool_trace_from_messages(session.messages[pre_len:]), session, pre_len) or None
+        if seq is None:
+            seq = _reserve_chat_seq(chat_id)
         _log_chat_turn(session_id=SESSION_ID, chat_id=chat_id, seq=seq, surface=surface,
                        role="user", text=prompt, pair=pair, view_json=vjson, user_email=USER_EMAIL)
         _log_chat_turn(session_id=SESSION_ID, chat_id=chat_id, seq=seq + 1, surface=surface,
                        role="assistant", text=reply, tool_trace=tool_trace, pair=pair,
                        view_json=vjson, user_email=USER_EMAIL)
-        st.session_state[seq_key] = seq + 2
     except Exception:
         pass
 
@@ -1045,12 +1082,12 @@ def _render_reaction(
     pair: str | None = None, view_summary: str | None = None,
     chat_id: str | None = None, seq: int | None = None,
 ) -> None:
-    """Passive 👍/👎 (record-once per target) with one-tap reason chips on 👎. Writes
-    to the reactions table on click; never prompts or blocks."""
+    """Passive thumbs up/down (record-once per target) with one-tap reason chips on
+    thumbs-down. Writes to the reactions table on click; never prompts or blocks."""
     state_key = f"rx_{target_ref}"
     recorded = st.session_state.get(state_key)
     if recorded:
-        st.caption(f"✓ feedback recorded: {recorded}")
+        st.caption(f":material/check: Feedback recorded — {recorded}")
         return
     pending_key = f"rxpending_{target_ref}"
 
@@ -1065,11 +1102,11 @@ def _render_reaction(
             pass
 
     c = st.columns([1, 1, 8])
-    if c[0].button("👍", key=f"{state_key}_up", help="Helpful"):
+    if c[0].button(":material/thumb_up:", key=f"{state_key}_up", help="Helpful"):
         _write("up")
-        st.session_state[state_key] = "👍"
+        st.session_state[state_key] = "helpful"
         st.rerun()
-    if c[1].button("👎", key=f"{state_key}_down", help="Not helpful"):
+    if c[1].button(":material/thumb_down:", key=f"{state_key}_down", help="Not helpful"):
         st.session_state[pending_key] = True
         st.rerun()
 
@@ -1079,7 +1116,7 @@ def _render_reaction(
         for i, label in enumerate(_REASON_CHIPS):
             if chip_cols[i].button(label, key=f"{state_key}_chip_{i}"):
                 _write("down", label)
-                st.session_state[state_key] = f"👎 {label}"
+                st.session_state[state_key] = f"not helpful ({label})"
                 st.session_state.pop(pending_key, None)
                 st.rerun()
 
@@ -1101,7 +1138,7 @@ def _render_recommendation_reaction(surface: str, flow, target: float | None) ->
 
 def _render_agent_diagnostic(session) -> None:
     trace = _agent_tool_trace(session)
-    label = f"🔍 Engine trace — {len(trace)} tool call(s)"
+    label = f":material/manage_search: Engine trace — {len(trace)} tool call(s)"
     with st.expander(label, expanded=False):
         if session.pack is not None:
             st.caption(
@@ -1111,22 +1148,269 @@ def _render_agent_diagnostic(session) -> None:
             st.caption("No tool calls yet. A 'why/what' question should make zero calls.")
             return
         for i, t in enumerate(trace, 1):
-            flag = " ❌" if t["is_error"] else ""
+            flag = " (error)" if t["is_error"] else ""
             st.markdown(f"**{i}. `{t['name']}`{flag}**")
             st.code(json.dumps(t["args"], indent=2, default=str), language="json")
             st.text(t["result"] or "")
 
 
-def _render_agent() -> None:
-    from agentic.agent_flow import AgentFlow
-    from agentic.agent_llm import AnthropicToolLLM, DEFAULT_MODEL
+def _new_agent_session(conv=None):
+    """A fresh AgentSession on the current snapshot, configured from the CHAT's own
+    settings + stated distributions (``conv``; defaults for a brand-new chat come from
+    the last chat used). Only capital W is global."""
     from agentic.session import AgentSession
     from config.loader import load_config
+    from workspace.settings import ChatSettings, curves_from
+
+    settings = ChatSettings.from_dict(
+        conv.settings if conv is not None and conv.settings
+        else st.session_state.get("ws_last_settings"))
+    session = AgentSession(
+        snapshot=_get_effective_snapshot(),
+        cfg=load_config(),
+        linear_notional=sizing_capital(),
+        user_email=USER_EMAIL,
+        kelly_curves=curves_from(conv.distributions if conv is not None else None),
+    )
+    settings.apply_to(session)
+    return session
+
+
+def _agent_llm():
+    from agentic.agent_llm import AnthropicToolLLM, DEFAULT_MODEL
+
+    return AnthropicToolLLM(
+        api_key=get_provider_api_key("anthropic"),
+        model=get_provider_model("anthropic") or DEFAULT_MODEL,
+    )
+
+
+def _agent_start_new(svc) -> None:
+    from agentic.agent_flow import AgentFlow
+
+    from workspace.settings import ChatSettings
+
+    conv = svc.new_conversation()
+    conv.settings = ChatSettings.from_dict(st.session_state.get("ws_last_settings")).to_dict()
+    st.session_state.agent_flow = AgentFlow(_agent_llm(), _new_agent_session(conv))
+    st.session_state.agent_chat = []
+    st.session_state.agent_chat_id = conv.id
+    st.session_state.ws_conv = conv
+    st.session_state.ws_seq = 0
+    st.session_state.ws_stale = False
+    st.session_state.ws_note = None
+    st.session_state.ws_info = None
+    st.query_params.pop("chat", None)
+
+
+def _agent_open(svc, conversation_id: str) -> bool:
+    """Load a saved conversation into the Agent page. False if it can't be opened."""
+    from agentic.agent_flow import AgentFlow
+    from workspace.service import display_turns
+    from workspace.store import StoreError
+
+    try:
+        with st.spinner("Loading conversation…"):
+            res = svc.resume(conversation_id, _new_agent_session)
+    except StoreError as e:
+        log_error("workspace_resume", e)
+        res = None
+    if res is None:
+        return False
+    chat = display_turns(res.turns)
+    st.session_state.agent_flow = AgentFlow(_agent_llm(), res.session)
+    st.session_state.agent_chat = chat
+    st.session_state.agent_chat_id = res.conversation.id
+    st.session_state[f"chatseq_{res.conversation.id}"] = len(chat)   # telemetry seq continues
+    st.session_state.ws_conv = res.conversation
+    st.session_state.ws_seq = (res.turns[-1].seq + 1) if res.turns else 0
+    st.session_state.ws_stale = res.stale
+    st.session_state.ws_note = res.note
+    st.session_state.ws_info = None
+    st.query_params["chat"] = res.conversation.id
+    return True
+
+
+def _agent_refresh(svc, *, force_turn: bool = False) -> None:
+    """Re-run the active idea on the current snapshot (see ConversationService.refresh)."""
+    sess = st.session_state.agent_flow.session
+    try:
+        with st.spinner("Refreshing the trade…"):
+            out = svc.refresh(st.session_state.ws_conv, sess,
+                              seq=st.session_state.ws_seq, force_turn=force_turn)
+    except Exception as e:
+        log_error("workspace_refresh", e)
+        st.session_state.ws_info = f"Couldn't refresh the trade ({type(e).__name__})."
+        return
+    st.session_state.ws_conv = out.conversation
+    st.session_state.ws_stale = False
+    if out.changed:
+        st.session_state.agent_chat.append(("assistant", out.message))
+        st.session_state.ws_seq += 1
+        st.session_state.ws_info = None
+    else:
+        st.session_state.ws_info = out.message
+
+
+def _render_agent_header(svc, busy: bool = False) -> None:
+    """Chat title (= active idea), as-of date, Refresh, and rename/archive. ``busy``
+    (a turn is running) disables the actions that would race with it."""
+    from interface.conversations_ui import NEW, request_open
+    from workspace.store import StoreError
+
+    conv = st.session_state.ws_conv
+    cols = st.columns([6, 1.3, 0.6])
+    cols[0].markdown(f"**{conv.title}**")
+    if conv.last_snapshot_date:
+        cols[0].caption(f"Market data as of {conv.last_snapshot_date.strftime('%d %b %Y')}")
+    elif conv.active_idea_id is None:
+        cols[0].caption("No trade yet — describe your view to start.")
+    if cols[1].button("↻ Refresh", use_container_width=True,
+                      disabled=busy or conv.active_idea_id is None,
+                      help="Re-run the active trade on the latest market data"):
+        _agent_refresh(svc)
+        st.rerun()
+    with cols[2].popover("⋯", use_container_width=True):
+        if busy:
+            st.caption("Available once the current answer finishes.")
+        elif st.session_state.get("ws_seq", 0) == 0:   # nothing persisted yet
+            st.caption("Saved after your first message.")
+        else:
+            name = st.text_input("Rename", value=conv.title if conv.title_custom else "",
+                                 placeholder="Leave blank to follow the active trade",
+                                 key=f"ws_rename_{conv.id}")
+            if st.button("Save name", key=f"ws_rename_btn_{conv.id}"):
+                try:
+                    st.session_state.ws_conv = svc.rename(conv, name)
+                except StoreError as e:
+                    log_error("workspace_rename", e)
+                st.rerun()
+            if st.button("Archive conversation", key=f"ws_archive_{conv.id}"):
+                try:
+                    svc.archive(conv)
+                except StoreError as e:
+                    log_error("workspace_archive", e)
+                request_open(NEW)
+
+    if st.session_state.get("ws_note"):
+        st.warning(st.session_state.ws_note)
+    if st.session_state.get("ws_stale"):
+        st.info("Market data has changed since this conversation was last evaluated. "
+                "Figures above are from the earlier evaluation; your next question "
+                "refreshes the trade first (or press ↻ Refresh).")
+    if st.session_state.get("ws_info"):
+        st.caption(st.session_state.ws_info)
+
+
+def _start_agent_turn(svc, prompt: str, chat_id: str):
+    """Kick off one agent turn in the background (see interface/agent_job.py)."""
+    from interface.agent_job import start_agent_job
+
+    flow = st.session_state.agent_flow
+    seq = st.session_state.ws_seq
+    st.session_state.ws_seq += 1                  # reserved now; the thread saves it
+    tseq = _reserve_chat_seq(chat_id)             # telemetry seq, reserved likewise
+
+    def _telemetry(job) -> None:                  # runs in the thread — no st calls
+        _log_chat_exchange("agent_tab", chat_id, flow.session, prompt, job.reply,
+                           job.pre_len, seq=tseq)
+
+    return start_agent_job(flow, prompt, conversation=st.session_state.ws_conv,
+                           seq=seq, service=svc, after=_telemetry)
+
+
+def _finalize_agent_jobs(svc, jobs: dict) -> None:
+    """Apply finished background turns. A turn for the open conversation appends its
+    reply; one whose conversation was reloaded meanwhile triggers a reload (the turn
+    is already saved); one for a conversation no longer open is simply dropped."""
+    current = st.session_state.ws_conv
+    rerun = False
+    for conv_id, job in list(jobs.items()):
+        if not job.done.is_set():
+            continue
+        del jobs[conv_id]
+        if job.error is not None:
+            log_error("agent_advance", job.error)
+        if job.store_error is not None:
+            log_error("workspace_record", job.store_error)
+        if conv_id != current.id:
+            continue
+        if st.session_state.agent_flow is not job.flow:
+            if job.store_error is None:
+                _agent_open(svc, conv_id)
+            rerun = True
+            continue
+        st.session_state.agent_chat.append(("assistant", job.reply))
+        if job.store_error is not None:
+            st.session_state.ws_info = "The last exchange couldn't be saved."
+        elif job.conversation is not None:
+            first = job.seq == 0
+            renamed = job.conversation.title != current.title
+            st.session_state.ws_conv = job.conversation
+            st.query_params["chat"] = job.conversation.id
+            rerun = rerun or first or renamed   # sidebar/header need the new title
+    if rerun:
+        st.rerun()
+
+
+def _freeze_agent_header_css() -> None:
+    """Make the ``agent_sticky`` container (chat header + sizing strip) stick to the top
+    of the page while the transcript scrolls. Streamlit has no sticky container, but a
+    keyed container gets a stable ``st-key-<key>`` class. The background must be opaque
+    and match the active light/dark theme; a tall open editor scrolls within itself."""
+    try:
+        dark = getattr(st.context.theme, "type", None) == "dark"
+    except Exception:
+        dark = False
+    bg = "#0e1117" if dark else "#ffffff"
+    st.markdown(
+        # Streamlit wraps every element in a div exactly its own height, and a sticky
+        # element can't leave its parent — so the WRAPPER (the child of the page's tall
+        # vertical block) is made sticky, selected via :has().
+        f"""<style>
+        div:has(> .st-key-agent_sticky) {{
+            position: sticky; top: 3.75rem; z-index: 990;
+        }}
+        .st-key-agent_sticky {{
+            background-color: {bg};
+            padding: 0.5rem 0 0.6rem 0;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+            max-height: 75vh; overflow-y: auto;
+        }}
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
+
+# Agent-page chat avatars: a plain person for the PM, and the chart glyph that is also the
+# browser-tab icon for the assistant (replaces Streamlit's default face / robot).
+_AGENT_AVATARS = {"user": ":material/person:", "assistant": ":material/query_stats:"}
+
+
+def _render_agent() -> None:
+    from interface.conversations_ui import NEW, get_workspace
 
     st.subheader("Conversational structuring")
     st.caption(
         "Describe your view in plain English. The agent routes to the deterministic "
         "engine — every number is computed in Python; the LLM only narrates."
+    )
+    st.markdown(
+        "Below are the currency pairs and indicative spot levels the tool is currently loaded with.\n\n"
+        "**Currency pairs & indicative spot** — data snapshot dated 2026-09-16\n\n"
+        "**USDBRL** · 5.1528  \n"
+        "**USDCNH** · 6.7125  \n"
+        "**USDZAR** · 16.3924  \n"
+        "**EURHUF** · 365.39  \n"
+        "**USDTRY** · 48.652  \n"
+        "**USDMXN** · 17.2468  \n"
+        "**USDKRW** · 1376.1  \n"
+        "**EURPLN** · 4.3615  \n"
+        "**USDJPY** · 156.26  \n"
+        "**USDSGD** · 1.2776  \n"
+        "**EURUSD** · 1.1465  \n"
+        "**GBPUSD** · 1.3381  \n"
+        "**USDINR** · 95.9588"
     )
 
     provider = get_llm_provider()
@@ -1136,85 +1420,85 @@ def _render_agent() -> None:
             f"{provider_label(provider)}). Set LLM_PROVIDER=anthropic to use it."
         )
 
-    if "agent_flow" not in st.session_state:
-        llm = AnthropicToolLLM(
-            api_key=get_provider_api_key("anthropic"),
-            model=get_provider_model("anthropic") or DEFAULT_MODEL,
-        )
-        session = AgentSession(
-            snapshot=_get_effective_snapshot(),
-            cfg=load_config(),
-            structure_constraint=st.session_state.pref_structure_constraint,
-            primary_objective=st.session_state.pref_primary_objective,
-            trade_management=st.session_state.pref_trade_management,
-            target_rr=st.session_state.target_rr,
-            linear_notional=sizing_capital(),
-            sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
-            kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
-            kelly_probs=st.session_state.get("kelly_probs"),
-            kelly_bins=st.session_state.get("kelly_bins"),
-        )
-        st.session_state.agent_flow = AgentFlow(llm, session)
-        st.session_state.agent_chat = []
-        st.session_state.agent_chat_id = str(uuid.uuid4())
+    svc, ws_warning = get_workspace(USER_EMAIL)
+    if ws_warning:
+        st.caption(f":material/warning: {ws_warning}")
 
-    # Keep the agent's R:R, sizing regime, and PM preferences live with the session
-    # controls. PM preferences used to be captured only once at session creation
-    # (above) and never refreshed, so changing a sidebar dropdown mid-conversation
-    # silently left the agent scoring on stale preferences while Trade View moved on.
-    _asess = st.session_state.agent_flow.session
-    _asess.target_rr = st.session_state.target_rr
-    _asess.linear_notional = sizing_capital()
-    _asess.sizing_method = st.session_state.get("sizing_method", "fixed_loss")
-    _asess.kelly_lambda = st.session_state.get("kelly_lambda", 0.5)
-    _asess.kelly_probs = st.session_state.get("kelly_probs")
-    _asess.kelly_bins = st.session_state.get("kelly_bins")
-    _asess.structure_constraint = st.session_state.pref_structure_constraint
-    _asess.primary_objective = st.session_state.pref_primary_objective
-    _asess.trade_management = st.session_state.pref_trade_management
+    # Open requests: sidebar click / "New conversation" / a ?chat=<id> link.
+    request = st.session_state.pop("ws_open", None)
+    current = st.session_state.get("ws_conv")
+    qp_chat = st.query_params.get("chat")
+    if (request is None and qp_chat and (current is None or current.id != qp_chat)
+            and st.session_state.get("ws_qp_failed") != qp_chat):
+        request = qp_chat
+    if request == NEW or (request is None and "agent_flow" not in st.session_state):
+        _agent_start_new(svc)
+    elif request is not None and (current is None or request != current.id):
+        if not _agent_open(svc, request):
+            st.session_state.ws_qp_failed = request
+            st.warning("That conversation couldn't be opened — starting a new one.")
+            _agent_start_new(svc)
+    elif "ws_conv" not in st.session_state:   # agent_flow from before this feature
+        _agent_start_new(svc)
 
-    cols = st.columns([1, 4])
-    if cols[0].button("New conversation", use_container_width=True):
-        st.session_state.pop("agent_flow", None)
-        st.session_state.agent_chat = []
-        st.session_state.pop("agent_chat_id", None)
-        st.rerun()
-    sess = st.session_state.agent_flow.session
-    if sess.view is not None:
-        cols[1].caption(
-            f"Live view: {sess.view.pair} · {sess.view.direction} · {sess.view.horizon_days}d"
-            + (f" · target {sess.pack.target:.4f}" if sess.pack and sess.pack.target else "")
+    # Capital W is the only global sizing input; everything else is the chat's own.
+    st.session_state.agent_flow.session.linear_notional = sizing_capital()
+    if st.session_state.ws_conv.settings:
+        st.session_state.ws_last_settings = st.session_state.ws_conv.settings
+
+    jobs = st.session_state.setdefault("agent_jobs", {})
+    _finalize_agent_jobs(svc, jobs)
+    conv_id = st.session_state.ws_conv.id
+    pending = jobs.get(conv_id)
+
+    # Header + sizing strip are frozen at the top while the chat scrolls beneath.
+    _freeze_agent_header_css()
+    with st.container(key="agent_sticky"):
+        _render_agent_header(svc, busy=pending is not None)
+        from interface.agent_settings_ui import render_agent_settings
+        _aview = st.session_state.agent_flow.session.view
+        render_agent_settings(
+            svc, busy=pending is not None, capital=sizing_capital(), set_capital=_set_w,
+            capital_ccy=_aview.pair[:3] if _aview is not None else "base ccy",
+            on_error=log_error,
         )
 
     _chat_id = st.session_state.get("agent_chat_id", "unknown")
     _view = getattr(st.session_state.agent_flow.session, "view", None)
     for idx, (role, text) in enumerate(st.session_state.agent_chat):
-        with st.chat_message(role):
+        with st.chat_message(role, avatar=_AGENT_AVATARS.get(role)):
             st.markdown(text)
             if role == "assistant" and idx > 0:   # skip the canned/first opener
                 _render_reply_reaction("agent_tab", _chat_id, idx, _view)
 
+    if pending is not None:
+        # Wait for the background turn. Each placeholder update is a Streamlit call,
+        # so navigating away interrupts only this wait — the turn itself carries on
+        # and is saved; its reply is picked up the next time this page renders.
+        with st.chat_message("assistant", avatar=_AGENT_AVATARS["assistant"]):
+            ph = st.empty()
+            while not pending.done.wait(0.25):
+                ph.markdown(f"_Thinking… {pending.elapsed()}s_")
+        st.rerun()
+
     if prompt := st.chat_input("e.g. long USDBRL 3m, target +6% — what should I trade?"):
+        st.session_state.ws_info = None
+        if st.session_state.get("ws_stale"):
+            # Resumed on changed data: put the refreshed pack in front of the model
+            # before it answers anything.
+            _agent_refresh(svc)
         st.session_state.agent_chat.append(("user", prompt))
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking…"):
-                _pre = len(st.session_state.agent_flow.session.messages)
-                try:
-                    reply = st.session_state.agent_flow.advance(prompt)
-                except Exception as e:
-                    log_error("agent_advance", e)
-                    reply = f"⚠️ {type(e).__name__}: {e}"
-            st.markdown(reply)
-            _idx = len(st.session_state.agent_chat)
-            _render_reply_reaction("agent_tab", _chat_id, _idx,
-                                   getattr(st.session_state.agent_flow.session, "view", None))
-        st.session_state.agent_chat.append(("assistant", reply))
-        _log_chat_exchange("agent_tab", _chat_id,
-                           st.session_state.agent_flow.session, prompt, reply, _pre)
+        jobs[conv_id] = _start_agent_turn(svc, prompt, _chat_id)
+        st.rerun()
 
     _render_agent_diagnostic(st.session_state.agent_flow.session)
+
+
+def _trade_view_curves() -> dict:
+    """Trade View's stated distribution as a ``{curve_key: (probs, bins)}`` map."""
+    key = st.session_state.get("kelly_curve_key")
+    probs, bins = st.session_state.get("kelly_probs"), st.session_state.get("kelly_bins")
+    return {key: (probs, bins)} if key and probs and bins else {}
 
 
 def _trade_chat_signature(flow) -> tuple:
@@ -1236,6 +1520,20 @@ def _trade_chat_signature(flow) -> tuple:
         round(float(st.session_state.get("kelly_lambda", 0.5)), 3),
         hash(tuple(st.session_state.get("kelly_probs") or ())),
     )
+
+
+_TRADE_CHAT_QUICK_QUESTIONS = (
+    ("Why this ranking?",
+     "Why is the top structure ranked first, and what separates it from the others? "
+     "Keep it short and in plain terms."),
+    ("What's the main risk?",
+     "What is the main risk in the top-ranked structure?"),
+    ("How is this sized?",
+     "How were these structures sized? Explain briefly in plain terms."),
+    ("What do the terms mean?",
+     "In one line each, what do these terms mean: skew, smile curvature, carry vs vol, "
+     "and target distance from forward?"),
+)
 
 
 def _render_trade_chat(flow) -> None:
@@ -1266,19 +1564,6 @@ def _render_trade_chat(flow) -> None:
     if st.session_state.get("tv_chat_sig") != sig:
         try:
             ccy = flow._snapshot.get(view.pair)
-            pack = build_pack(
-                view, ccy, load_config(),
-                structure_constraint=st.session_state.pref_structure_constraint,
-                primary_objective=st.session_state.pref_primary_objective,
-                trade_management=st.session_state.pref_trade_management,
-                target_rr=flow.target_rr,
-                user_email=USER_EMAIL,
-                linear_notional=sizing_capital(),
-                sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
-                kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
-                kelly_probs=st.session_state.get("kelly_probs"),
-                kelly_bins=st.session_state.get("kelly_bins"),
-            )
             session = AgentSession(
                 snapshot=flow._snapshot,
                 cfg=load_config(),
@@ -1289,8 +1574,22 @@ def _render_trade_chat(flow) -> None:
                 linear_notional=sizing_capital(),
                 sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
                 kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
-                kelly_probs=st.session_state.get("kelly_probs"),
-                kelly_bins=st.session_state.get("kelly_bins"),
+                kelly_curves=_trade_view_curves(),
+                user_email=USER_EMAIL,
+            )
+            _curve = session.stated_curve_for(view)   # this trade's stated curve only
+            pack = build_pack(
+                view, ccy, load_config(),
+                structure_constraint=st.session_state.pref_structure_constraint,
+                primary_objective=st.session_state.pref_primary_objective,
+                trade_management=st.session_state.pref_trade_management,
+                target_rr=flow.target_rr,
+                user_email=USER_EMAIL,
+                linear_notional=sizing_capital(),
+                sizing_method=st.session_state.get("sizing_method", "fixed_loss"),
+                kelly_lambda=st.session_state.get("kelly_lambda", 0.5),
+                kelly_probs=_curve[0] if _curve else None,
+                kelly_bins=_curve[1] if _curve else None,
             )
             seed_session_from_pack(session, view, pack)
             llm = AnthropicToolLLM(
@@ -1306,6 +1605,14 @@ def _render_trade_chat(flow) -> None:
             st.caption(f"Chat unavailable — {type(e).__name__}.")
             return
 
+    # One-click questions: explanation on demand rather than up front. They go through the
+    # same agent as typed questions, so answers use the same plain vocabulary.
+    _quick_prompt = None
+    _chips = st.columns(len(_TRADE_CHAT_QUICK_QUESTIONS))
+    for _ci, (_chip_label, _chip_question) in enumerate(_TRADE_CHAT_QUICK_QUESTIONS):
+        if _chips[_ci].button(_chip_label, key=f"tv_quick_{_ci}", use_container_width=True):
+            _quick_prompt = _chip_question
+
     _tv_chat_id = st.session_state.get("tv_chat_id", "unknown")
     _tv_view = getattr(st.session_state.tv_chat_flow.session, "view", None)
     for idx, (role, text) in enumerate(st.session_state.tv_chat):
@@ -1314,10 +1621,11 @@ def _render_trade_chat(flow) -> None:
             if role == "assistant" and idx > 0:   # skip the canned opener
                 _render_reply_reaction("trade_view", _tv_chat_id, idx, _tv_view)
 
-    if prompt := st.chat_input(
+    _typed_prompt = st.chat_input(
         "Ask about this trade — e.g. why the 1x1.5? what's the risk?",
         key="trade_chat_input",
-    ):
+    )
+    if prompt := (_quick_prompt or _typed_prompt):
         st.session_state.tv_chat.append(("user", prompt))
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -1328,7 +1636,8 @@ def _render_trade_chat(flow) -> None:
                     reply = st.session_state.tv_chat_flow.advance(prompt)
                 except Exception as e:
                     log_error("trade_chat_advance", e)
-                    reply = f"⚠️ {type(e).__name__}: {e}"
+                    reply = ("Error: the assistant couldn't complete that request. "
+                             "Please try again in a moment.")
             st.markdown(reply)
             _render_reply_reaction("trade_view", _tv_chat_id,
                                    len(st.session_state.tv_chat), _tv_view)
@@ -1341,15 +1650,24 @@ def _render_trade_chat(flow) -> None:
 # Page routing
 # ---------------------------------------------------------------------------
 
-if not IS_ADMIN and st.session_state.page not in ("Trade view", "Agent"):
-    st.session_state.page = "Trade view"
+from interface.navigation import allowed_page
+if allowed_page(st.session_state.page, IS_ADMIN) != st.session_state.page:
+    st.session_state.page = "Agent"
     st.rerun()
+
+if VIEW_AS_TESTER:
+    st.info("Viewing as tester — switch off **View as tester** in the sidebar to "
+            "return to admin.", icon=":material/visibility:")
 
 if st.session_state.page == "Market Data":
     _render_market_data()
 
 elif st.session_state.page == "Agent":
     _render_agent()
+
+elif st.session_state.page == "About":
+    from interface.about import render_about
+    render_about(user_email=USER_EMAIL)
 
 elif st.session_state.page == "Query log":
     _render_query_log()
@@ -1405,6 +1723,16 @@ else:
     # it renders here at the top for post-run resizing. A revised W sticks for the session.
     if flow.view:
         _render_sizing_panel()
+        # Kelly curve for the LIVE trade — the pre-trade form (where it otherwise lives)
+        # is gone, and Kelly never sizes on an edge the PM didn't state for this trade.
+        if flow.market_state is not None:
+            from types import SimpleNamespace as _NS
+            _ms = flow.market_state
+            _render_sizing_section(
+                _NS(spot=_ms.spot, fwd=_ms.fwd, vol=_ms.vol, T=_ms.T, pair=flow.view.pair,
+                    expiry=_expiry_for(flow._snapshot.snapshot_date, int(flow.view.horizon_days))),
+                target_price(flow), flow.view.direction,
+            )
 
     if flow.view and "last_prompt" in st.session_state and st.session_state.last_prompt:
         st.info(f"**View:** {st.session_state.last_prompt}")
@@ -1451,42 +1779,6 @@ else:
         _target = target_price(flow)
         _show_market_state = can_see("market_state", ROLE)
 
-        if _show_market_state:
-            st.subheader("Market state")
-
-            c1, c2, c3, c4 = st.columns(4)
-            _ms_cell(c1, "Spot", f"{ms.spot:.4f}")
-            _ms_cell(c2, "Forward", f"{ms.fwd:.4f}")
-            _ms_cell(c3, "ATM Vol", f"{ms.vol:.1%}")
-            _ms_cell(c4, "Horizon", f"{h}d")
-
-            c1, c2, c3, c4, c5 = st.columns(5)
-            regime_label = {0: "0 — noisy", 1: "1 — potential", 2: "2 — high carry"}
-            _ms_cell(c1, "Carry c", f"{ms.c:+.3f}")
-            _ms_cell(c2, "Carry regime", regime_label[ms.carry_regime])
-            _ms_cell(c3, "Target z (vs spot)",
-                     f"{ms.target_z_spot:+.2f}σ  ({ms.put_call})" if ms.target_z_spot is not None else "—")
-            _ms_cell(c4, "Target z (vs fwd)",
-                     f"{ms.target_z:+.2f}σ  ({ms.put_call})" if ms.target_z is not None else "—")
-            _ms_cell(c5, "ATM fwd ratio",
-                     f"{ms.atmfsratio:.2f}x" if ms.atmfsratio is not None else "—")
-
-            _pair = flow.view.pair
-            _base, _quote = _pair[:3], _pair[3:]
-            c1, c2, c3, c4 = st.columns(4)
-            _ms_cell(c1, f"r {_base}", f"{ms.r_f:.2%}")
-            _ms_cell(c2, f"r {_quote} (implied)", f"{ms.r_d:.2%}")
-            try:
-                v25dc = interpolate_vol(flow.ccy, h, "25DC")
-                v25dp = interpolate_vol(flow.ccy, h, "25DP")
-                rr  = v25dc - v25dp
-                fly = 0.5 * (v25dc + v25dp) - ms.vol
-                _ms_cell(c3, "25d RR", f"{rr:+.2%}", tip=f"25DC {v25dc:.2%} / ATM {ms.vol:.2%} / 25DP {v25dp:.2%}")
-                _ms_cell(c4, "25d Fly", f"{fly:+.2%}", tip="0.5×(25DC+25DP) − ATM  |  synthetic data")
-            except Exception:
-                _ms_cell(c3, "25d RR", "—")
-                _ms_cell(c4, "25d Fly", "—")
-
         _move_pct = _stop_pct = _stop_price = _loss_budget = None
         _base_ccy_top = flow.view.pair[:3]
         # Build the sizing spec (Kelly vs fixed loss) and stash on the flow so the
@@ -1496,14 +1788,14 @@ else:
                 "sizing_method": st.session_state.get("sizing_method", "fixed_loss"),
                 "target_rr": flow.target_rr or st.session_state.target_rr,
                 "kelly_lambda": st.session_state.get("kelly_lambda", 0.5),
-                "conviction": st.session_state.get("kelly_conviction", "medium"),
-                "kelly_n_bins": st.session_state.get("kelly_n_bins", 41),
                 "kelly_probs": st.session_state.get("kelly_probs"),
                 "kelly_bins": st.session_state.get("kelly_bins"),
+                "kelly_curve_key": st.session_state.get("kelly_curve_key"),
                 "bankroll": sizing_capital(),
             },
             ms=ms,
-            target=_target,
+            trade_key=(flow.view.pair,
+                       _expiry_for(flow._snapshot.snapshot_date, int(flow.view.horizon_days))),
         )
         _kelly_mode = flow.sizing_spec is not None and flow.sizing_spec.method == "kelly"
         if _target is not None:
@@ -1513,22 +1805,68 @@ else:
             _stop_pct = _move_pct / flow.target_rr
             _stop_price = ms.fwd * (1 - _stop_pct) if _is_call else ms.fwd * (1 + _stop_pct)
             _loss_budget = sizing_capital() * _stop_pct
-            if _show_market_state:
-                if _kelly_mode:
-                    c1, c2 = st.columns(2)
-                    _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
-                    _ms_cell(c2, "Bankroll (W)", fmt_ccy(sizing_capital(), _base_ccy_top),
-                             tip="Kelly notionals are λ·f*·W. The per-structure full-Kelly "
-                                 "fraction f* is in the Kelly f* column of the variants table.")
-                else:
-                    c1, c2, c3, c4 = st.columns(4)
-                    _ms_cell(c1, "Move to target", f"{_move_pct:+.1%}", tip="(target − fwd) / fwd")
-                    _ms_cell(c2, f"Implied stop ({flow.target_rr:.1f}× R:R)", f"{_stop_pct:.1%}",
-                             tip="move_to_target / R:R — acceptable reversal from fwd before stopping out")
-                    _ms_cell(c3, "Stop price", f"{_stop_price:.4f}", tip="fwd level implying the stop loss")
-                    _ms_cell(c4, "Loss budget", fmt_ccy(_loss_budget, _base_ccy_top),
-                             tip=f"Capital W {fmt_ccy(sizing_capital(), _base_ccy_top)} × stop %. "
-                                 "Each structure variant is sized so its max loss equals this.")
+
+        if _show_market_state:
+            st.subheader("Market state")
+
+            # Headline row: the few numbers a PM reads first. Everything else is one
+            # click away under "More market detail".
+            _tz = (f"{ms.target_z:+.2f}σ ({ms.put_call})" if ms.target_z is not None else "—")
+            _mh = st.container(key="market_headline")     # keyed so look.css can centre it
+            h1, h2, h3, h4, h5 = _mh.columns(5)
+            h1.metric(UL.label("spot"), f"{ms.spot:.4f}", help=UL.tip("spot"))
+            h2.metric(UL.label("forward"), f"{ms.fwd:.4f}", help=UL.tip("forward"))
+            h3.metric(UL.label("implied_vol"), f"{ms.vol:.1%}", help=UL.tip("implied_vol"))
+            h4.metric(UL.label("target_distance_fwd"), _tz, help=UL.tip("target_distance_fwd"))
+            if _kelly_mode:
+                h5.metric(UL.label("bankroll"), fmt_ccy(sizing_capital(), _base_ccy_top),
+                          help=UL.tip("bankroll"))
+            elif _loss_budget is not None:
+                h5.metric(UL.label("loss_budget"), fmt_ccy(_loss_budget, _base_ccy_top),
+                          help=f"{UL.tip('loss_budget')} Capital W is "
+                               f"{fmt_ccy(sizing_capital(), _base_ccy_top)}.")
+
+            with st.expander("More market detail", expanded=False):
+                _pair = flow.view.pair
+                _base, _quote = _pair[:3], _pair[3:]
+                _md = st.container(key="market_detail")   # keyed so look.css can centre it
+
+                c1, c2, c3, c4 = _md.columns(4)
+                _ms_cell(c1, UL.label("horizon"), f"{h}d", tip=UL.tip("horizon"))
+                _ms_cell(c2, UL.label("carry"), f"{ms.c:+.3f}", tip=UL.tip("carry"))
+                _ms_cell(c3, UL.label("carry_vs_vol"), UL.carry_vs_vol_label(ms.carry_regime),
+                         tip=UL.tip("carry_vs_vol"))
+                _ms_cell(c4, UL.label("carry_payout_ratio"),
+                         f"{ms.atmfsratio:.2f}x" if ms.atmfsratio is not None else "—",
+                         tip=UL.tip("carry_payout_ratio"))
+
+                c1, c2, c3, c4 = _md.columns(4)
+                _ms_cell(c1, UL.label("rate_base", ccy=_base), f"{ms.r_f:.2%}", tip=UL.tip("rate_base"))
+                _ms_cell(c2, UL.label("rate_quote", ccy=_quote), f"{ms.r_d:.2%}", tip=UL.tip("rate_quote"))
+                try:
+                    v25dc = interpolate_vol(flow.ccy, h, "25DC")
+                    v25dp = interpolate_vol(flow.ccy, h, "25DP")
+                    rr = v25dc - v25dp
+                    fly = 0.5 * (v25dc + v25dp) - ms.vol
+                    _ms_cell(c3, UL.label("skew"), f"{rr:+.2%}",
+                             tip=f"{UL.tip('skew')} Now: 25Δ call {v25dc:.2%}, ATM {ms.vol:.2%}, "
+                                 f"25Δ put {v25dp:.2%}.")
+                    _ms_cell(c4, UL.label("smile_curvature"), f"{fly:+.2%}",
+                             tip=f"{UL.tip('smile_curvature')} (Synthetic data.)")
+                except Exception:
+                    _ms_cell(c3, UL.label("skew"), "—", tip=UL.tip("skew"))
+                    _ms_cell(c4, UL.label("smile_curvature"), "—", tip=UL.tip("smile_curvature"))
+
+                c1, c2, c3, c4 = _md.columns(4)
+                _ms_cell(c1, UL.label("target_distance_spot"),
+                         f"{ms.target_z_spot:+.2f}σ ({ms.put_call})" if ms.target_z_spot is not None else "—",
+                         tip=UL.tip("target_distance_spot"))
+                if _move_pct is not None:
+                    _ms_cell(c2, UL.label("move_to_target"), f"{_move_pct:+.1%}", tip=UL.tip("move_to_target"))
+                    if not _kelly_mode:
+                        _ms_cell(c3, UL.label("stop_distance", rr=flow.target_rr), f"{_stop_pct:.1%}",
+                                 tip=UL.tip("stop_distance"))
+                        _ms_cell(c4, UL.label("stop_level"), f"{_stop_price:.4f}", tip=UL.tip("stop_level"))
 
         if can_see("scores_table", ROLE):
             st.subheader("Structure scores")
@@ -1600,6 +1938,8 @@ else:
                 log_error("compute_structure_evaluation", _e)
 
         if can_see("recommended_variants", ROLE):
+            if flow.sizing_spec is not None and flow.sizing_spec.kelly_fallback:
+                st.warning(KELLY_FALLBACK_MSG)
             if ROLE == "tester":
                 from interface.tester_view import render_tester_recommendations
                 render_tester_recommendations(flow, _is_call, _target)

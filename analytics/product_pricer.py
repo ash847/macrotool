@@ -198,6 +198,8 @@ def _price_wrapped(structure, ms, target, smile, stop_price) -> PricedStructure 
         rr_at_target=pv.rr_at_target,
         max_loss_pct=pv.max_loss_pct,
         breakeven=pv.breakeven,
+        breakevens=pv.breakevens,
+        breakeven_has_zero_region=pv.breakeven_has_zero_region,
         is_zero_cost=pv.is_zero_cost,
         barrier=pv.barrier,
         strikes_override=list(pv.strikes),
@@ -259,17 +261,10 @@ def price(
 
     payoff_pct = rr = None
     if target is not None:
-        if fam in _RATIO_FAMILIES:
-            # Legacy quirk (preserved for behavior-parity): ratio payoff-at-target counts
-            # the LONG leg intrinsic only (correct when the short sits at the target;
-            # overstates for a deep delta-pair target). Faithful leg-sum is a deliberate
-            # later correctness fix — see PRODUCT_MODEL_PLAN.
-            raw = _intrinsic(long_leg.strike, target, long_is_call)
-        else:
-            raw = sum(
-                pl.notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
-                for pl in priced_legs
-            )
+        raw = sum(
+            pl.notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
+            for pl in priced_legs
+        )
         payoff_pct = raw / target
         rr = (
             (payoff_pct / prem_pct)
@@ -277,10 +272,12 @@ def price(
             else None
         )
 
-    # Breakeven: long strike ± net premium (debit only; not for a zero-cost package).
-    breakeven = None
-    if long_leg is not None and not is_zero_cost and net_prem > 0:
-        breakeven = long_leg.strike + (net_prem if long_is_call else -net_prem)
+    from analytics.expiry_breakeven import expiry_breakevens
+
+    roots, zero_region = expiry_breakevens(
+        [(leg.notional, leg.strike, leg.leg.right == Right.CALL) for leg in priced_legs], prem_pct,
+    )
+    breakeven = roots[0] if roots is not None and len(roots) == 1 and not zero_region else None
 
     # Max loss = net premium for vanilla / 1x1 / ratio spreads (the open tail beyond the
     # short strike is not capitalised into the sizing max-loss). Seagull is zero-cost, so
@@ -312,6 +309,8 @@ def price(
         rr_at_target=rr,
         max_loss_pct=max_loss_pct,
         breakeven=breakeven,
+        breakevens=roots,
+        breakeven_has_zero_region=zero_region,
         is_zero_cost=is_zero_cost,
-        wing_ratio=round(wing_ratio, 2) if wing_ratio is not None else None,
+        wing_ratio=wing_ratio,
     )

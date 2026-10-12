@@ -6,62 +6,56 @@ the widget layer is verified manually (see KELLY_SIZING_PLAN §8).
 """
 from __future__ import annotations
 
-from analytics.sizing import SizingSpec, view_implied_distribution
+from analytics.sizing import SizingSpec, curve_for_trade
 
 _FIXED, _KELLY = "fixed_loss", "kelly"
-_RESEED_KEYS = ("pair", "horizon", "target", "conviction")
 
 
-def build_sizing_spec(state: dict, ms=None, target: float | None = None) -> SizingSpec:
+def build_sizing_spec(state: dict, ms=None, trade_key: tuple | None = None) -> SizingSpec:
     """Assemble a SizingSpec from session-state-like values.
 
-    Fixed-loss carries the R:R. Kelly carries the elicited distribution; if none is
-    present yet, it falls back to the view-implied seed (so the table renders before
-    the PM elicits). Missing seed inputs (no target) → fixed-loss fallback."""
+    Fixed-loss carries the R:R. Kelly sizes against the PM's stated distribution **for
+    this trade** — ``state["kelly_curve_key"]`` must equal ``curve_key(*trade_key)``,
+    trade_key = (pair, expiry). With no stated distribution the trade is sized
+    FIXED-LOSS and flagged (``kelly_fallback``) so the UI says so: the tool never
+    sizes on an edge the PM didn't give."""
     method = state.get("sizing_method", _FIXED)
+    rr = float(state.get("target_rr", 3.0))
     if method != _KELLY:
-        return SizingSpec(method=_FIXED, target_rr=float(state.get("target_rr", 3.0)))
+        return SizingSpec(method=_FIXED, target_rr=rr)
 
-    probs = state.get("kelly_probs")
-    bins = state.get("kelly_bins")
-    if (probs is None or bins is None) and ms is not None and target:
-        probs, bins = view_implied_distribution(
-            ms.spot, ms.fwd, ms.vol, ms.T, target, state.get("conviction", "medium"),
-            n_bins=int(state.get("kelly_n_bins", 41)),
-        )
-    if probs is None or bins is None:
-        # Kelly requested but no distribution and nothing to seed from → fixed-loss.
-        return SizingSpec(method=_FIXED, target_rr=float(state.get("target_rr", 3.0)))
+    curve = None
+    stated_key = state.get("kelly_curve_key")
+    if trade_key is not None and stated_key and state.get("kelly_probs") and state.get("kelly_bins"):
+        curve = curve_for_trade({stated_key: (state["kelly_probs"], state["kelly_bins"])},
+                                *trade_key)
+    if curve is None:
+        return SizingSpec(method=_FIXED, target_rr=rr, kelly_fallback=True)
 
+    probs, bins = curve
     return SizingSpec(
         method=_KELLY,
         kelly_lambda=float(state.get("kelly_lambda", 0.5)),
         bankroll=float(state.get("bankroll", 100.0)),
-        kelly_probs=tuple(probs),
-        kelly_bins=tuple(bins),
+        kelly_probs=probs,
+        kelly_bins=bins,
     )
 
 
-def should_reseed(prev_ctx: dict | None, new_ctx: dict) -> bool:
-    """Re-seed the view-implied distribution only on real context changes — pair /
-    horizon / target / conviction change, or switching *into* Kelly mode. Not on λ
-    moves or plain reruns (which would wipe an elicited curve)."""
-    if prev_ctx is None:
-        return True
-    if new_ctx.get("sizing_method") == _KELLY and prev_ctx.get("sizing_method") != _KELLY:
-        return True
-    return any(prev_ctx.get(k) != new_ctx.get(k) for k in _RESEED_KEYS)
-
-
 def notional_column_label(method: str) -> str:
-    return "Notional (Kelly)" if method == _KELLY else "Notional (max-loss)"
+    return "Notional (Kelly)" if method == _KELLY else "Notional (fixed-loss sizing)"
+
+
+KELLY_FALLBACK_MSG = ("Kelly is selected, but you haven't set up a distribution for this "
+                      "trade (pair + expiry), so it is sized **FIXED-LOSS**. Set up your "
+                      "distribution to size under Kelly.")
 
 
 def meaning_banner(method: str) -> str:
     if method == _KELLY:
         return ("Sized to each variant's growth-optimal bet under your distribution — "
                 "a bigger notional means better edge/odds, not just bigger risk.")
-    return "Sized to equal max loss (R:R-derived) — same risk per variant, compare the reward."
+    return "Sized using a common R:R-derived loss budget, subject to caps and sizing policies. This does not equalise or guarantee maximum losses."
 
 
 def kelly_row_flag(structure_notional: float | None, cap: float) -> str:

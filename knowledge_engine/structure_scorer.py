@@ -34,10 +34,6 @@ _CONSTRAINT_GATED_STRUCTURES = {
         "european_digital_rko",
         "1x2x1_spread",
     },
-    "Avoid tail-risky structures": {
-        "seagull",
-        "1x2_spread",
-    },
 }
 
 
@@ -192,6 +188,8 @@ def _passes_gates(
     buckets: dict,
 ) -> bool:
     structure_constraint = buckets.get("structure_constraint", "No restriction")
+    if structure_constraint == "Avoid capped structures" and struct_id != "vanilla":
+        return False
     if struct_id in _CONSTRAINT_GATED_STRUCTURES.get(structure_constraint, set()):
         return False
     # Structural gate from structure_profiles.json — structure needs a target level to be built

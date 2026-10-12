@@ -1,0 +1,45 @@
+# LOOK B — "Graphite Dark": terminal-style, dense, sharp corners. Near-black blue-grey,
+# steel-blue accent, IBM Plex (a "technical" typeface), slightly smaller type.
+
+[theme]
+base = "dark"
+
+primaryColor = "#5B8DEF"
+backgroundColor = "#0E1319"
+secondaryBackgroundColor = "#171E27"
+textColor = "#E4E9F0"
+linkColor = "#7FA8F0"
+linkUnderline = false
+
+borderColor = "#2A3441"
+dataframeBorderColor = "#2A3441"
+dataframeHeaderBackgroundColor = "#1C2531"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "0.125rem"
+buttonRadius = "0.125rem"
+
+greenColor = "#3FB27F"
+redColor = "#E0605A"
+orangeColor = "#D9A441"
+yellowColor = "#D9A441"
+blueColor = "#5B8DEF"
+violetColor = "#9B8AE0"
+grayColor = "#8A96A8"
+
+font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+baseFontSize = 14
+headingFontSizes = ["1.7rem", "1.35rem", "1.15rem", "1rem", "0.95rem", "0.85rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+metricValueFontSize = "1.5rem"
+metricValueFontWeight = 600
+codeFontSize = "0.82rem"
+
+chartCategoricalColors = ["#5B8DEF", "#D9A441", "#3FB27F", "#E0605A", "#9B8AE0", "#4FB3BF", "#C98F5A", "#8A96A8"]
+chartSequentialColors = ["#1B2B45", "#23406B", "#2D568F", "#3A6DB3", "#5588D0", "#79A3E3", "#A3C1F0", "#CFE0F9"]
+chartDivergingColors = ["#E0605A", "#C9514C", "#A5433F", "#7A3A38", "#2A3441", "#34527F", "#4A6FA8", "#5B8DEF", "#8DB2F5"]
+
+[theme.sidebar]
+backgroundColor = "#0A0F14"
+secondaryBackgroundColor = "#141B24"

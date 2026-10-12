@@ -72,6 +72,32 @@ def test_magnitude_requires_direction():
     assert "direction" in content.lower()
 
 
+@pytest.mark.parametrize("direction,sign", [("base_higher", 1), ("base_lower", -1)])
+def test_percentage_move_defaults_to_spot(direction, sign):
+    s = _session()
+    _, error = dispatch(s, "run_standard_pack", {**_VIEW, "direction": direction})
+    assert not error
+    assert s.pack.target == pytest.approx(s.snapshot.get("USDBRL").spot * (1 + sign * .06))
+    from agentic.shortlist import render_market_state
+    assert f"{sign * .06:+.2%}" in render_market_state(s.pack, s.view)
+
+
+def test_explicit_forward_percentage():
+    s = _session()
+    _, error = dispatch(s, "run_standard_pack", {**_VIEW, "move_reference": "forward"})
+    assert not error
+    assert s.pack.target == pytest.approx(_usdbrl_forward(60) * 1.06)
+
+
+def test_percentage_target_preserved_when_tail_preference_changes():
+    s = _session()
+    dispatch(s, "run_standard_pack", dict(_VIEW))
+    target = s.pack.target
+    from agentic.tools import _set_tail_constraint
+    _set_tail_constraint(s, {"tail_constraint": "none"})
+    assert s.pack.target == pytest.approx(target)
+
+
 def test_cache_reuse_no_recompute():
     s = _session()
     dispatch(s, "run_standard_pack", dict(_VIEW))

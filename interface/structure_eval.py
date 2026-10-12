@@ -14,6 +14,8 @@ import pandas as pd
 import streamlit as st
 
 from conversation.flow import ConversationFlow, target_from_reference
+from analytics.expiry_breakeven import breakeven_text
+from knowledge_engine import ui_labels as UL
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +279,9 @@ def _show_df(df, *, key=None, height=None, column_config=None) -> None:
 # Header tooltip for the Kelly capital-at-risk column (st.dataframe supports a header
 # help tooltip, not per-cell hover; the per-row sized notional is the Notional column).
 _KELLY_RISK_HELP = (
-    "Full-Kelly capital at risk = f* × max loss, as a share of W, BEFORE the λ haircut "
+    "Full-Kelly sizing-reference exposure = f* × sizing loss reference, as a share of W, BEFORE the λ haircut "
     "(the Notional column already applies λ). f* is the growth-optimal notional as a "
-    "multiple of W, so the full-Kelly notional is f*×W."
+    "multiple of W, so the full-Kelly notional is f*×W. This is not a maximum-loss bound."
 )
 
 # Header tooltip / caption line for the PnL score column — the fixed, reused explanation
@@ -319,6 +321,7 @@ def render_structure_variants(
     # digital legs hit a smile arbitrage (dropped rather than mis-marked).
     _priced: list = []          # (item, pvs)
     _unpriced: list[str] = []   # display names with one or more dropped variants
+    _failed: list[str] = []     # display names whose pricing raised (details go to the error log)
     for _item in _primary_items:
         _warns: list[str] = []
         try:
@@ -327,9 +330,12 @@ def render_structure_variants(
                 stop_price=stop_price, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=_smile, warnings=_warns,
+                structure_constraint=getattr(flow, "structure_constraint", "No restriction"),
             )
         except Exception as _e:
-            st.caption(f"DEBUG {_item.structure_id}: error — {_e}")
+            from interface.debug_log import log_error
+            log_error(f"price_variants:{_item.structure_id}", _e)
+            _failed.append(_item.display_name)
             continue
         if _warns:
             _unpriced.append(_item.display_name)
@@ -344,18 +350,21 @@ def render_structure_variants(
         ("Indicative pricing — interpolated smile vol per strike. " if _smile is not None
          else "Indicative pricing — flat ATM vol for all strikes. ")
         + "Premium and payoff as % of spot. "
-        "**R/R**: gross payoff at target per unit of max loss (zero-cost seagull: "
+        "**R/R**: gross payoff at target per unit of sizing loss reference (zero-cost seagull: "
         "loss on short wing at stop price, expiry basis — understates MtM risk before expiry). "
-        "**% of W**: the variant's max loss as a share of the sizing capital. "
-        "**Kelly risk**: full-Kelly capital at risk (f*×max loss, pre-λ) as a share of W; "
+        "**% of W**: the sized loss reference as a share of the sizing capital, not a maximum-loss bound. "
+        f"**{UL.label('kelly_risk')}**: full-Kelly sizing-reference exposure (f*×sizing loss reference, pre-λ) as a share of W; "
         "shown under Kelly sizing (hover the header for the notional relationship). "
         "**(cap)**: the 10·W notional cap bound before the loss budget was reached — "
-        "the shown max loss is the achieved one, below budget."
+        "the shown sizing amount is below the input budget. Actual losses can exceed the sizing reference."
     )
+
+    if _failed:
+        st.caption("Could not price: " + ", ".join(_failed) + ".")
 
     if _unpriced:
         st.warning(
-            "⚠️ **Not priced: " + ", ".join(_unpriced) + ".** "
+            "**Not priced: " + ", ".join(_unpriced) + ".** "
             "One or more variants fall in a region where the interpolated vol smile implies "
             "a local arbitrage (negative risk-neutral density — typically far-OTM spline "
             "overshoot), so no reliable digital price is available. These are omitted rather "
@@ -394,15 +403,15 @@ def render_structure_variants(
                     "Strikes":    " / ".join(f"{K:.4f}" for K in pv.strikes),
                     "Notional":   _notional_cell,
                     "Premium":    _prem_cell,
-                    "Break-even": f"{pv.breakeven:.4f}" if pv.breakeven is not None else "—",
+                    "Break-even": breakeven_text(pv),
                     "Payout at target": _payoff_cell,
-                    "Max loss":   f"{pv.max_loss_pct:.1%}  ({fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
+                    UL.label("sizing_loss_reference"): f"{pv.max_loss_pct:.1%}  ({fmt_ccy(pv.max_loss_ccy, _base_ccy)})",
                     "R/R":        _payout_per_1,
                     "% of W":     _pct_of_w,
                 }
                 if getattr(pv, "kelly_fraction", None) is not None:
                     _car = pv.kelly_fraction * (pv.max_loss_pct or 0.0)
-                    r["Kelly risk"] = f"{_car:.0%}"
+                    r[UL.label("kelly_risk")] = f"{_car:.0%}"
                 if scenario_pnl is not None:
                     _spnl = scenario_pnl.get((_item.structure_id, pv.variant_label))
                     r["PnL score"] = fmt_ccy(_spnl, _base_ccy) if _spnl is not None else "—"
@@ -412,8 +421,8 @@ def render_structure_variants(
                     r["Wing ×"] = f"{pv.wing_ratio:.2f}" if pv.wing_ratio is not None else "—"
                 _rows.append(r)
             _kelly_cfg = {}
-            if any("Kelly risk" in _r for _r in _rows):
-                _kelly_cfg["Kelly risk"] = st.column_config.Column(help=_KELLY_RISK_HELP)
+            if any(UL.label("kelly_risk") in _r for _r in _rows):
+                _kelly_cfg[UL.label("kelly_risk")] = st.column_config.Column(help=_KELLY_RISK_HELP)
             if any("PnL score" in _r for _r in _rows):
                 _kelly_cfg["PnL score"] = st.column_config.Column(help=_PNL_SCORE_HELP)
             _show_df(
@@ -457,21 +466,27 @@ def _render_cell_drivers(eval_result, structure_id: str, base_ccy: str) -> None:
         return
 
     def _line(c) -> str:
+        from knowledge_engine.loader import load_contribution_display
+        from knowledge_engine.scenario_scorer import contribution_share
+
+        share = contribution_share(c.contrib_pct, ev.score.absolute_contribution_total_pct,
+                                   load_contribution_display()["minimum_absolute_total_pct"])
+        normalized = f"{share:+.1%}" if share is not None else "N/A (absolute contribution total unavailable or near zero)"
         amt = f" ({fmt_ccy(c.contrib_ccy, base_ccy)})" if c.contrib_ccy is not None else ""
-        return f"`{c.contrib_pct:+.2%}`{amt} — {_cell_label(c)}"
+        return f"`{normalized}` share of total absolute contribution — {_cell_label(c)}; original contribution `{c.contrib_pct:+.2%}` of trade notional{amt}"
 
     st.markdown(f"**Key P&L drivers** — {ev.variant_label} (weighted contribution)")
     col_pos, col_neg = st.columns(2)
     with col_pos:
-        st.caption("Top contributors")
+        st.caption(":green[Top contributors]")
         for c in pos:
-            st.markdown(f"🟢 {_line(c)}")
+            st.markdown(f"- {_line(c)}")
         if not pos:
             st.caption("none positive")
     with col_neg:
-        st.caption("Top detractors")
+        st.caption(":red[Top detractors]")
         for c in neg:
-            st.markdown(f"🔴 {_line(c)}")
+            st.markdown(f"- {_line(c)}")
         if not neg:
             st.caption("none negative")
 
@@ -608,6 +623,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
                 stop_price=stop, loss_budget=loss_budget, linear_notional=_W,
                 sizing_spec=getattr(flow, "sizing_spec", None),
                 smile=smile,
+                structure_constraint=getattr(flow, "structure_constraint", "No restriction"),
             )
         except Exception:
             continue
@@ -629,7 +645,7 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
     # Linear benchmark (delta-1, max-loss capped) — mirrors Trade View.
     linear_item = SimpleNamespace(structure_id="linear", display_name="Linear")
     linear_pv = _PricedVariant(
-        variant_label="Delta 1 (max-loss capped)",
+        variant_label="Delta 1 (scenario loss capped; not contractual)",
         strikes=[], barrier=None, net_premium_pct=0.0, breakeven=None,
         payoff_at_target_pct=None, rr_at_target=None, max_loss_pct=stop_pct,
         wing_ratio=None, is_zero_cost=True, structure_notional=_W,
@@ -646,6 +662,13 @@ def compute_structure_evaluation(flow: ConversationFlow, target: float | None) -
         "label": linear_item.display_name,
     })
 
+    from knowledge_engine.preference_policy import preference_exclusion_reason
+
+    constraint = getattr(flow, "structure_constraint", "No restriction")
+    for entry in structs:
+        entry["variants"] = [value for value in entry["variants"]
+                             if preference_exclusion_reason(entry["item"].structure_id, value["pv"], constraint) is None]
+    structs = [entry for entry in structs if entry["variants"]]
     if not structs:
         return None
 
@@ -733,9 +756,9 @@ def render_structure_evaluation(
     except Exception:
         _wsrc = ""
     if _wsrc.startswith("supabase (personal"):
-        st.caption(f"⚙️ Weights profile: **personal** — {_ue}")
+        st.caption(f"Weights profile: **personal** — {_ue}")
     else:
-        st.caption("⚙️ Weights profile: **global**")
+        st.caption("Weights profile: **global**")
 
     # Verbal spec of the active context's scoring philosophy + driver glossary, from
     # the GLOBAL commentary store. Both omitted gracefully if absent.

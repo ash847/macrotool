@@ -91,12 +91,11 @@ class TestGating:
         assert "european_rko" not in ids
         assert "european_digital_rko" not in ids
 
-    def test_avoid_tail_risky_structures_gates_tail_risk_names(self):
+    def test_avoid_capped_structures_is_vanilla_only(self):
         ms = _ms(c=0.60, target_z=1.5)
-        result = score_structures(ms, structure_constraint="Avoid tail-risky structures")
+        result = score_structures(ms, structure_constraint="Avoid capped structures")
         ids = [s.structure_id for s in result.shortlist]
-        assert "seagull" not in ids
-        assert "1x2_spread" not in ids
+        assert ids == ["vanilla"]
 
 
 # ---------------------------------------------------------------------------

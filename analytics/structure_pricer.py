@@ -34,11 +34,14 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from analytics.market_state import MarketState
+from analytics.construction_risk import declared_additional_loss, passes_no_tails
+from analytics.trade_economics import TradeEconomics, compute_trade_economics
+from analytics.sizing_trace import SizingTrace, distribution_fingerprint
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
 from pricing.black_scholes import black76_call, black76_put, call_mtm, call_value, put_mtm, put_value
 from pricing.digital import SmileArbitrageError, digital_call, digital_put
@@ -103,6 +106,13 @@ class PricedVariant:
     max_loss_pct: float           # fraction of spot
     wing_ratio: float | None      # seagull only: units of wing sold per unit of spread
     is_zero_cost: bool
+    breakevens: list[float] | None = field(default=None, kw_only=True)
+    breakeven_has_zero_region: bool = field(default=False, kw_only=True)
+    economics: TradeEconomics | None = field(default=None, kw_only=True)
+    can_lose_beyond_premium: bool | None = field(default=None, kw_only=True)
+    lower_spot_tail: bool | None = field(default=None, kw_only=True)
+    higher_spot_tail: bool | None = field(default=None, kw_only=True)
+    sizing_trace: SizingTrace | None = field(default=None, kw_only=True)
     # Sizing — populated when loss_budget passed to price_variants(), else None.
     # All amounts in BASE currency units (e.g. USD for USDBRL, EUR for EURPLN).
     structure_notional: float | None = None    # base ccy notional sized so max loss = loss_budget
@@ -128,12 +138,15 @@ def price_variants(
     smile: "SmileInterpolator | None" = None,
     warnings: list[str] | None = None,
     variants_override: list[dict] | None = None,
+    evaluation_days: int | None = None,
+    exclude_loss_beyond_premium: bool = False,
+    structure_constraint: str = "No restriction",
 ) -> list[PricedVariant]:
     """
     Price all defined variants for a structure. Returns [] if no variants defined.
 
-    If loss_budget is provided (in base ccy units), each variant is sized so its
-    max loss equals the loss budget. The dollar-equivalent fields on PricedVariant
+    If loss_budget is provided (in base ccy units), sizing uses the legacy loss
+    proxy subject to caps, not a contractual maximum loss. The fields on PricedVariant
     (structure_notional, net_premium_ccy, payoff_at_target_ccy, max_loss_ccy) are
     populated. If loss_budget is None, those fields remain None.
 
@@ -152,6 +165,14 @@ def price_variants(
     PM request. Each override dict must carry the same keys the curated menu uses
     for that ``structure_id``. When None (default), the curated menu is loaded, so
     every existing caller is unchanged.
+
+    A catalog entry marked ``"ranked": false`` is kept out of that curated menu but
+    stays in the catalog, because the catalog is also what *classifies* a PM-named
+    construction. Deleting an entry to shorten the menu therefore makes that
+    construction unknown rather than unavailable, and unknown is refused under a
+    no-tails constraint — which is how a 25Δ vanilla came to be unpriceable. The
+    flag is read here and nowhere else: every lookup that matches a construction
+    against the catalog must still see the full list.
     """
     if variants_override is not None:
         variants = variants_override
@@ -159,7 +180,18 @@ def price_variants(
         cfg = _load_variants()
         if structure_id not in cfg:
             return []
-        variants = cfg[structure_id]
+        variants = [v for v in cfg[structure_id] if v.get("ranked", True)]
+    if exclude_loss_beyond_premium:
+        variants = [variant for variant in variants if passes_no_tails(variant)]
+    if not variants:
+        return []
+    declarations = {}
+    for construction in variants:
+        label = construction["label"]
+        risk = declared_additional_loss(construction)
+        if label in declarations and declarations[label] is not risk:
+            raise ValueError(f"Conflicting construction risk declarations for {label}")
+        declarations[label] = risk
     F, vol, T, r_d, r_f, spot = ms.fwd, ms.vol, ms.T, ms.r_d, ms.r_f, ms.spot
     DF = math.exp(-r_d * T)
     vol_sqrtT = vol * math.sqrt(T)
@@ -190,13 +222,54 @@ def price_variants(
     # growth-optimal bet under the PM's distribution; otherwise the fixed-loss path (today's
     # behaviour) sizes to the loss budget. Default sizing_spec=None ⇒ fixed-loss, so every
     # existing caller is byte-for-byte unchanged.
+    from analytics.expiry_breakeven import expiry_breakevens, variant_terms
+
+    for variant in result:
+        terms = variant_terms(structure_id, variant.strikes, is_call, variant.wing_ratio)
+        variant.breakevens, variant.breakeven_has_zero_region = expiry_breakevens(
+            terms, variant.net_premium_pct,
+            barrier=variant.barrier if structure_id == "european_rko" else None,
+            is_call=is_call, digital=structure_id == "european_digital",
+        )
+        roots = variant.breakevens
+        variant.breakeven = roots[0] if roots is not None and len(roots) == 1 and not variant.breakeven_has_zero_region else None
+
     if sizing_spec is not None and sizing_spec.method == "kelly" and sizing_spec.has_distribution():
         _size_variants_kelly(result, structure_id, is_call, spot, r_f, T, sizing_spec, linear_notional)
     elif loss_budget is not None and loss_budget > 0:
         for pv in result:
             _size_variant(pv, loss_budget, linear_notional)
 
-    return result
+    for variant in result:
+        if variant.sizing_trace is None:
+            variant.sizing_trace = SizingTrace(
+                status="unavailable", effective_method=None,
+                reason="No positive sizing budget or usable Kelly distribution supplied",
+                reference_capital=linear_notional, notional_cap=10.0 * linear_notional,
+                requested_method=sizing_spec.method if sizing_spec is not None else "fixed_loss",
+                loss_budget=loss_budget,
+            )
+        if sizing_spec is not None and sizing_spec.method == "kelly" and not sizing_spec.has_distribution():
+            variant.sizing_trace = replace(
+                variant.sizing_trace, requested_method="kelly",
+                fallback_reason="No stated Kelly distribution supplied",
+            )
+        variant.can_lose_beyond_premium = declarations.get(variant.variant_label)
+        variant.economics = compute_trade_economics(
+            variant, structure_id, ms, target=target, is_call=is_call,
+            loss_budget=loss_budget, stop_price=stop_price, surface=smile,
+            evaluation_days=evaluation_days,
+        )
+    from knowledge_engine.preference_policy import preference_exclusion_reason
+
+    eligible = []
+    for variant in result:
+        reason = preference_exclusion_reason(structure_id, variant, structure_constraint)
+        if reason is None:
+            eligible.append(variant)
+        elif warnings is not None:
+            warnings.append(f"{variant.variant_label}: {reason}")
+    return eligible
 
 
 def _apply_notional(pv: PricedVariant, notional: float) -> None:
@@ -243,7 +316,31 @@ def _size_variants_kelly(
             n = min(sizing_spec.kelly_lambda * x_star * sizing_spec.bankroll, cap)
             pv.capped = n >= cap * (1.0 - 1e-12)
             _apply_notional(pv, n)
-        except (ValueError, ZeroDivisionError):
+            valid_distribution = probs.size > 0 and probs.size == bins.size
+            reason = "Fractional Kelly applied to the full-Kelly notional fraction"
+            if n == 0:
+                reason = "Kelly returned zero allocation; no positive allocation under the supplied inputs"
+            if not valid_distribution:
+                reason = "Empty or mismatched Kelly distribution; legacy calculation returned zero"
+            pv.sizing_trace = SizingTrace(
+                status=("unavailable" if not valid_distribution else "zero" if n == 0 else "sized"),
+                effective_method="kelly", requested_method="kelly", reason=reason,
+                reference_capital=linear_notional, notional_cap=cap, final_notional=n,
+                bankroll=sizing_spec.bankroll, kelly_lambda=sizing_spec.kelly_lambda,
+                full_kelly_fraction=x_star,
+                full_kelly_proxy_exposure=x_star * (pv.max_loss_pct or 0.0),
+                uncapped_notional=sizing_spec.kelly_lambda * x_star * sizing_spec.bankroll,
+                binding_constraint="notional_cap" if pv.capped else "fractional_kelly",
+                distribution_id=distribution_fingerprint(probs, bins),
+                distribution_points=int(probs.size),
+            )
+        except (ValueError, ZeroDivisionError) as error:
+            pv.sizing_trace = SizingTrace(
+                status="error", effective_method="kelly", requested_method="kelly",
+                reason=f"Kelly sizing unavailable ({type(error).__name__}); no fixed-loss fallback applied for this pricing error",
+                reference_capital=linear_notional, notional_cap=cap,
+                bankroll=sizing_spec.bankroll, kelly_lambda=sizing_spec.kelly_lambda,
+            )
             continue  # unsupported family / degenerate — leave unsized
 
 
@@ -264,17 +361,31 @@ def _size_variant(pv: PricedVariant, loss_budget: float, linear_notional: float 
     All other dollar amounts are derived linearly from the resulting notional.
     """
     cap = 10.0 * linear_notional
+    wanted = None
     if pv.net_premium_pct < 0:
         notional = cap
         pv.capped = True
+        reason = "Net-credit policy fixes notional at 10 times reference capital; budget division is not used"
+        constraint = "net_credit_policy"
     elif pv.max_loss_pct is None or pv.max_loss_pct < 1e-9:
         notional = cap
         pv.capped = True
+        reason = "Missing or near-zero sizing denominator uses the legacy 10-times-capital cap; not a claim of no risk"
+        constraint = "missing_or_near_zero_proxy"
     else:
         wanted = loss_budget / pv.max_loss_pct
         notional = min(wanted, cap)
         pv.capped = wanted > cap
+        reason = "Loss budget divided by per-unit sizing loss proxy, subject to the notional cap"
+        constraint = "notional_cap" if pv.capped else "loss_budget"
     _apply_notional(pv, notional)
+    pv.sizing_trace = SizingTrace(
+        status="zero" if notional == 0 else "sized", effective_method="fixed_loss",
+        requested_method="fixed_loss", reason=reason, reference_capital=linear_notional,
+        notional_cap=cap, final_notional=notional, loss_budget=loss_budget,
+        per_unit_loss_proxy=pv.max_loss_pct, uncapped_notional=wanted,
+        binding_constraint=constraint,
+    )
 
 
 def _spot_for_forward_today(fwd_today: float, T: float, r_d: float, r_f: float) -> float:
@@ -430,11 +541,9 @@ def _vanilla(
         if is_call:
             K = otm_call_strike(F, leg_vol, T, delta)
             prem = black76_call(F, K, T, leg_vol, DF)
-            be = K + prem
         else:
             K = otm_put_strike(F, leg_vol, T, delta)
             prem = black76_put(F, K, T, leg_vol, DF)
-            be = K - prem
 
         prem_pct = prem / spot
         payoff_pct, rr = None, None
@@ -448,7 +557,7 @@ def _vanilla(
             strikes=[K],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=be,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -482,10 +591,8 @@ def _spread(
 
         if is_call:
             max_payoff = K_short - K_long   # capped upside
-            be = K_long + net_prem
         else:
             max_payoff = K_long - K_short
-            be = K_long - net_prem
 
         payoff_pct, rr = None, None
         if target is not None:
@@ -501,7 +608,7 @@ def _spread(
             strikes=[K_long, K_short],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=be,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -539,13 +646,10 @@ def _1x1p5(
         prem_pct = net_prem / spot
         is_zero_cost = abs(net_prem) < 0.0001 * spot
 
-        breakeven = None
-        if not is_zero_cost and net_prem > 0:
-            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
-
         payoff_pct = None
         if target is not None:
-            gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
+            gross_at_target = ((max(target - K1, 0.0) - 1.5 * max(target - K2, 0.0)) if is_call
+                               else (max(K1 - target, 0.0) - 1.5 * max(K2 - target, 0.0)))
             payoff_pct = gross_at_target / target
         rr = (
             payoff_pct / prem_pct
@@ -562,7 +666,7 @@ def _1x1p5(
             strikes=[K1, K2],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=max_loss_pct,
@@ -598,13 +702,10 @@ def _1x2(
         prem_pct = net_prem / spot
         is_zero_cost = abs(net_prem) < 0.0001 * spot
 
-        breakeven = None
-        if not is_zero_cost and net_prem > 0:
-            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
-
         payoff_pct = None
         if target is not None:
-            gross_at_target = max(target - K1, 0.0) if is_call else max(K1 - target, 0.0)
+            gross_at_target = ((max(target - K1, 0.0) - 2.0 * max(target - K2, 0.0)) if is_call
+                               else (max(K1 - target, 0.0) - 2.0 * max(K2 - target, 0.0)))
             payoff_pct = gross_at_target / target
         rr = (
             payoff_pct / prem_pct
@@ -620,7 +721,7 @@ def _1x2(
             strikes=[K1, K2],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=max_loss_pct,
@@ -671,10 +772,6 @@ def _1x2x1(
         prem_pct = net_prem / spot
         is_zero_cost = abs(net_prem) < 0.0001 * spot
 
-        breakeven = None
-        if not is_zero_cost and net_prem > 0:
-            breakeven = (K1 + net_prem) if is_call else (K1 - net_prem)
-
         payoff_pct = None
         if target is not None:
             if is_call:
@@ -699,7 +796,7 @@ def _1x2x1(
             strikes=[K1, K2, K3],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=max_loss_pct,
@@ -782,7 +879,7 @@ def _seagull(
             payoff_at_target_pct=payoff_pct,
             rr_at_target=None,
             max_loss_pct=max_loss,
-            wing_ratio=round(wing_ratio, 2),
+            wing_ratio=wing_ratio,
             is_zero_cost=True,
         ))
     return result
@@ -861,7 +958,7 @@ def _digital(
             strikes=[K],
             barrier=None,
             net_premium_pct=prem_pct,
-            breakeven=K,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -917,7 +1014,7 @@ def _digital_rko(
             strikes=[K],
             barrier=barrier,
             net_premium_pct=prem_pct,
-            breakeven=K,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,
@@ -964,10 +1061,6 @@ def _european_rko(
             continue
         prem_pct = prem / spot
 
-        breakeven = None
-        if prem > 1e-8:
-            breakeven = (K + prem) if is_call else (K - prem)
-
         payoff_pct, rr = None, None
         raw = max(target - K, 0.0) if is_call else max(K - target, 0.0)
         not_ko = (target < barrier) if is_call else (target > barrier)
@@ -983,7 +1076,7 @@ def _european_rko(
             strikes=[K, barrier],
             barrier=barrier,
             net_premium_pct=prem_pct,
-            breakeven=breakeven,
+            breakeven=None,
             payoff_at_target_pct=payoff_pct,
             rr_at_target=rr,
             max_loss_pct=prem_pct,

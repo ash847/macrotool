@@ -1,0 +1,48 @@
+# LOOK C — "Editorial": research-note / private-bank feel. Warm paper background, deep
+# green accent, serif headings over a clean sans body, square corners, more air.
+
+[theme]
+base = "light"
+
+primaryColor = "#1F4D3A"
+backgroundColor = "#FBF9F5"
+secondaryBackgroundColor = "#F1EDE6"
+textColor = "#22201C"
+linkColor = "#1F4D3A"
+linkUnderline = true
+
+borderColor = "#DDD6CA"
+dataframeBorderColor = "#DDD6CA"
+dataframeHeaderBackgroundColor = "#EDE8DF"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "none"
+buttonRadius = "none"
+
+greenColor = "#2F6B4F"
+redColor = "#9E3B35"
+orangeColor = "#A9741F"
+yellowColor = "#A9741F"
+blueColor = "#33597F"
+violetColor = "#6A4C82"
+grayColor = "#7A746A"
+
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+# Plain "serif" = Streamlit's bundled Source Serif. (The "<name>:<url>" form is silently
+# ignored for headingFont in this Streamlit version; it only works for font/codeFont.)
+headingFont = "serif"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+baseFontSize = 16
+headingFontSizes = ["2.2rem", "1.7rem", "1.35rem", "1.15rem", "1.05rem", "0.95rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+metricValueFontSize = "1.8rem"
+metricValueFontWeight = 600
+codeFontSize = "0.88rem"
+
+chartCategoricalColors = ["#1F4D3A", "#A9741F", "#33597F", "#9E3B35", "#6A4C82", "#4F8A8B", "#8A6D3B", "#7A746A"]
+chartSequentialColors = ["#EEF3EF", "#CFE0D5", "#A8C7B4", "#7FAA92", "#568C70", "#3A7155", "#1F4D3A", "#133326"]
+chartDivergingColors = ["#9E3B35", "#B8645E", "#D09792", "#E6C7C3", "#F1EDE6", "#C2D0DE", "#92AAC4", "#5F82A8", "#33597F"]
+
+[theme.sidebar]
+backgroundColor = "#F1EDE6"
+secondaryBackgroundColor = "#E6E0D5"

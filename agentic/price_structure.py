@@ -68,6 +68,8 @@ def price_structure(
     loss_budget: float | None = None,
     linear_notional: float = 100.0,
     smile: object = _UNSET,
+    sizing_spec: object = None,
+    structure_constraint: str = "No restriction",
 ) -> PriceStructureResult:
     """Price a single PM-requested structure against the current market state.
 
@@ -85,12 +87,23 @@ def price_structure(
                       value regardless of loss_budget.
         smile:        VolSurface; defaults to ``ms.surface`` so entry pricing uses
                       the same surface the pack was built against.
+        sizing_spec:  the pack's SizingSpec (Kelly) so a PM-named structure is sized
+                      under the same regime as the recommendations; None → fixed-loss.
     """
     parsed = parse_structure_request(request_text)
     if isinstance(parsed, ClarificationNeeded):
         return parsed
 
     variant_dict = to_variant_dict(parsed)
+    from knowledge_engine.construction_policy import configured_additional_loss
+
+    classification = configured_additional_loss(parsed.family, variant_dict)
+    variant_dict["can_lose_beyond_premium"] = classification
+    if structure_constraint == "Avoid capped structures" and parsed.family != "vanilla":
+        return PricingUnavailable(
+            request=parsed,
+            detail="Excluded by the active vanilla-only preference.",
+        )
     surface = getattr(ms, "surface", None) if smile is _UNSET else smile
 
     warnings: list[str] = []
@@ -105,6 +118,8 @@ def price_structure(
         smile=surface,
         warnings=warnings,
         variants_override=[variant_dict],
+        sizing_spec=sizing_spec,
+        structure_constraint=structure_constraint,
     )
 
     if not priced:

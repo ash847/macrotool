@@ -58,6 +58,26 @@ def load_structure_defaults() -> dict:
 
 
 @lru_cache(maxsize=None)
+def load_agent_vocabulary() -> dict:
+    return _load(_DEFAULTS_DIR / "agent_vocabulary.json")
+
+
+@lru_cache(maxsize=None)
+def load_ui_labels() -> dict:
+    return _load(_DEFAULTS_DIR / "ui_labels.json")
+
+
+@lru_cache(maxsize=None)
+def load_contribution_display() -> dict:
+    return _load(_DEFAULTS_DIR / "contribution_display.json")
+
+
+@lru_cache(maxsize=None)
+def load_directional_tail_risk() -> dict:
+    return _load(_DEFAULTS_DIR / "directional_tail_risk.json")
+
+
+@lru_cache(maxsize=None)
 def load_sizing_defaults() -> dict:
     return _load(_DEFAULTS_DIR / "sizing_defaults.json")
 

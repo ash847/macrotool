@@ -256,7 +256,7 @@ def _render_context_weights(cfg: dict, save_key: str = "scenario_definitions") -
         load_context_commentary, clear_context_commentary_cache,
     )
     st.markdown("**Commentary** — verbal spec of this weighting's philosophy. Keep it in sync with the grid above.")
-    st.caption("⚠️ Commentary is **global** — shared across all profiles, **not** per-account.")
+    st.caption(":material/warning: Commentary is **global** — shared across all profiles, **not** per-account.")
     _all_comm = copy.deepcopy(load_context_commentary())
     _ctx_comm = (_all_comm.get("contexts") or {}).get(ctx["id"], {})
     _mb = st.text_area(
@@ -544,10 +544,10 @@ def _render_base_priority_conditions(
             )
             new_conds, parse_errs = _df_to_conditions(edited_df, _BASE_COND_FIELDS)
             for err in parse_errs:
-                st.caption(f"⚠️ {err}")
+                st.caption(f":material/warning: {err}")
             ctx["when"] = new_conds
 
-    if st.button("➕ Add weighting", key="add_ctx_btn"):
+    if st.button(":material/add: Add weighting", key="add_ctx_btn"):
         contexts.append({
             "_uid": str(uuid.uuid4()),
             "_original_id": "",

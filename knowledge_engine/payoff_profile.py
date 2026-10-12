@@ -210,9 +210,11 @@ def payoff_profile(
     # --- European reverse knock-out: vanilla payoff between strike and barrier, zero
     #     beyond it, tested at EXPIRY ONLY (not path-dependent) ---
     if structure_id == "european_rko" and barrier is not None:
+        endpoints = sorted(((k, "strike"), (barrier, "knock-out")))
         return PayoffProfile(
             value_region=(
-                f"between the {_fmt(k)} strike and the {_fmt(barrier)} knock-out "
+                f"between the {_fmt(endpoints[0][0])} {endpoints[0][1]} "
+                f"and the {_fmt(endpoints[1][0])} {endpoints[1][1]} "
                 f"(pays nothing if spot finishes beyond {_fmt(barrier)})"
             ),
             breakevens=(),

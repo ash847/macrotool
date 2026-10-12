@@ -608,6 +608,7 @@ def build_comparator_inputs(
                 linear_notional=linear_notional,
                 sizing_spec=sizing_spec,
                 smile=smile,
+                structure_constraint=prefs.structure_constraint,
             )
         except Exception:
             variants = []

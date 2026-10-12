@@ -25,7 +25,9 @@ def _flow(script, max_rounds=6):
 def test_pack_then_narrate():
     flow = _flow([_tool("run_standard_pack", dict(_VIEW)), _text("Here's the recommendation.")])
     out = flow.advance("I'm long USDBRL, 60d, target +6%")
-    assert out == "Here's the recommendation."
+    assert "Here's the recommendation." in out
+    assert "| Rank | Structure | Variant |" in out
+    assert flow.session.messages[-1]["content"] == out
     assert flow.session.pack is not None
 
 

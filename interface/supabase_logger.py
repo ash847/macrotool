@@ -333,3 +333,9 @@ def fetch_queries(*, _admin: bool) -> list[dict]:
 
 def reinit() -> None:
     _init()
+
+
+def get_service_client():
+    """The service-key client (or None) — for stores that own their own queries,
+    e.g. ``workspace.store.SupabaseStore``."""
+    return _service_client

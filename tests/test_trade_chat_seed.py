@@ -47,6 +47,7 @@ def test_view_to_pack_args_roundtrips_the_view():
     assert args == {
         "pair": "USDTRY", "horizon_days": 60, "direction": "base_lower",
         "mode": "recommend", "magnitude_pct": 8.0,
+        "move_reference": "forward",
     }
 
 

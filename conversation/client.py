@@ -18,7 +18,7 @@ import time
 from typing import Any, Generator, Protocol
 
 DEFAULT_PROVIDER = "anthropic"
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 MAX_TOKENS = 2048  # Conversational responses; not long-form generation
 _MAX_RETRIES = 3

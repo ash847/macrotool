@@ -1,0 +1,25 @@
+{
+  "_definition": "Tail means unprotected terminal losses beyond entry premium as spot moves further in that direction; it does not assert mathematically unlimited loss. Modelled stops do not constitute protection.",
+  "families": {
+    "vanilla": {"call": {"lower_spot_tail": false, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": false}},
+    "1x1_spread": {"call": {"lower_spot_tail": false, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": false}},
+    "1x1.5_spread": {"call": {"lower_spot_tail": false, "higher_spot_tail": true}, "put": {"lower_spot_tail": true, "higher_spot_tail": false}},
+    "1x2_spread": {"call": {"lower_spot_tail": false, "higher_spot_tail": true}, "put": {"lower_spot_tail": true, "higher_spot_tail": false}},
+    "1x2x1_spread": {"call": {"lower_spot_tail": false, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": false}},
+    "seagull": {"call": {"lower_spot_tail": true, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": true}},
+    "european_rko": {"call": {"lower_spot_tail": false, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": false}},
+    "european_digital": {"call": {"lower_spot_tail": false, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": false}},
+    "european_digital_rko": {"call": {"lower_spot_tail": false, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": false}},
+    "rko": {"call": {"lower_spot_tail": false, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": false}},
+    "linear": {"call": {"lower_spot_tail": true, "higher_spot_tail": false}, "put": {"lower_spot_tail": false, "higher_spot_tail": true}}
+  },
+  "_scope": "Rules apply only to matched catalog constructions; unmatched custom terms are unknown. Linear uses the actual position direction, not its modelled stop.",
+  "preferences": {
+    "none": "No directional tail restriction",
+    "lower_spot": "Exclude lower-spot tails",
+    "higher_spot": "Exclude higher-spot tails",
+    "both": "Exclude tails on either side",
+    "against_view": "Exclude tails against the view",
+    "with_view": "Exclude tails in the direction of the view"
+  }
+}

@@ -22,6 +22,7 @@ class AgentSession:
     snapshot: MarketSnapshot
     cfg: Any                                    # ResolvedConfig
     structure_constraint: str = "No restriction"
+    tail_constraint: str = "none"
     primary_objective: str = "Balanced"
     trade_management: str = "Standard hold"
     target_rr: float = 3.0          # R:R slider — drives the loss budget on the fly
@@ -29,13 +30,16 @@ class AgentSession:
     # Active sizing regime the PM is operating under — the agent is locked to it.
     sizing_method: str = "fixed_loss"       # "fixed_loss" | "kelly"
     kelly_lambda: float = 0.5
-    kelly_probs: tuple[float, ...] | None = None   # elicited edge distribution (Kelly only)
-    kelly_bins: tuple[float, ...] | None = None
+    # The PM's stated distributions, {curve_key("PAIR|YYYY-MM-DD"): (probs, bins)}. Only
+    # the one for the active trade's pair + expiry is ever used; none → fixed-loss.
+    kelly_curves: dict = field(default_factory=dict)
+    user_email: str | None = None           # personal scenario-weights profile (None → global)
 
     view: TradeView | None = None
     pack: StandardPack | None = None
 
     messages: list[dict] = field(default_factory=list)
+    llm_calls: list[dict] = field(default_factory=list)
     priced: list[PricedStructure] = field(default_factory=list)
     _cache: dict[tuple, StandardPack] = field(default_factory=dict)
 
@@ -48,15 +52,25 @@ class AgentSession:
             view.magnitude_pct,
             view.mode,
             self.structure_constraint,
+            self.tail_constraint,
             self.primary_objective,
             self.trade_management,
             self.target_rr,
             self.linear_notional,
             self.sizing_method,
             self.kelly_lambda,
-            self.kelly_probs,
-            self.kelly_bins,
+            self.stated_curve_for(view),
+            self.user_email,
         )
+
+    def expiry_for(self, view: TradeView):
+        from analytics.sizing import expiry_for
+        return expiry_for(self.snapshot.snapshot_date, view.horizon_days)
+
+    def stated_curve_for(self, view: TradeView):
+        """The PM's stated distribution for this view's pair + expiry, else None."""
+        from analytics.sizing import curve_for_trade
+        return curve_for_trade(self.kelly_curves, view.pair, self.expiry_for(view))
 
     def get_cached(self, view: TradeView) -> StandardPack | None:
         return self._cache.get(self.cache_key(view))

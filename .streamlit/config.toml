@@ -1,0 +1,66 @@
+# MacroTool theme — "Soft Light": calm navy on a pale page, rounded corners, flat filled
+# inputs, a friendly humanist sans (Figtree). Warmth comes from shape and spacing, not
+# from a tinted background or a serif. Spacing / card styling that Streamlit's theme
+# config can't express lives in interface/look.css (applied by interface/look.py).
+#
+# Deliberately SELF-CONTAINED: no `base = "<file>"` pointer. A missing theme file stops
+# Streamlit from starting at all, so the live look is written inline here.
+# Alternative looks for side-by-side comparison live in themes/ and are previewed with
+# design_looks.sh — they are not read by the app.
+#
+# Fonts load from Google Fonts. If that is blocked the app falls back to a system sans
+# and still works; self-hosting (theme.fontFaces) is the follow-up if that matters.
+#
+# Secrets stay in .streamlit/secrets.toml (gitignored); this file is safe to commit.
+
+[client]
+# Hide the Deploy button / dev menu items for viewers.
+toolbarMode = "minimal"
+
+[theme]
+base = "light"
+
+# Surfaces and text
+primaryColor = "#2E4D7B"
+backgroundColor = "#FAFBFD"
+secondaryBackgroundColor = "#F0F3F8"
+textColor = "#2A3342"
+linkColor = "#3B6BB0"
+linkUnderline = false
+
+# Borders and shape
+borderColor = "#E3E8F0"
+dataframeBorderColor = "#E3E8F0"
+dataframeHeaderBackgroundColor = "#EEF2F8"
+showWidgetBorder = false
+showSidebarBorder = false
+baseRadius = "0.75rem"
+buttonRadius = "0.75rem"
+
+# Muted status palette (st.success / st.warning / st.error / :green[] / :red[])
+greenColor = "#2F8F6B"
+redColor = "#C45B52"
+orangeColor = "#D08A2E"
+yellowColor = "#D08A2E"
+blueColor = "#3B6BB0"
+violetColor = "#7561B0"
+grayColor = "#7B889B"
+
+# Typography
+font = "Figtree:https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&display=swap"
+codeFont = "JetBrains Mono:https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+baseFontSize = 16
+headingFontSizes = ["2rem", "1.55rem", "1.25rem", "1.1rem", "1rem", "0.92rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+metricValueFontSize = "1.75rem"
+metricValueFontWeight = 600
+codeFontSize = "0.88rem"
+
+# Charts — muted, distinguishable categorical set.
+chartCategoricalColors = ["#2E4D7B", "#D69E3C", "#2F8F6B", "#C45B52", "#7561B0", "#3A9AAD", "#A98B5A", "#7B889B"]
+chartSequentialColors = ["#EEF2F8", "#CCD8EA", "#A8BDDC", "#83A1CB", "#5F83B8", "#43669E", "#2E4D7B", "#1E3557"]
+chartDivergingColors = ["#C45B52", "#D3817A", "#E2A7A2", "#F0CDCA", "#F0F3F8", "#C9D8EC", "#9DBBDD", "#6F9ACB", "#3B6BB0"]
+
+[theme.sidebar]
+backgroundColor = "#F2F5FA"
+secondaryBackgroundColor = "#E7ECF4"

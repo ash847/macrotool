@@ -14,17 +14,19 @@ import streamlit as st
 
 from interface.structure_eval import (
     LINEAR_NOTIONAL,
-    _KELLY_RISK_HELP,
     _PNL_SCORE_HELP,
     compute_structure_evaluation,
     fmt_ccy,
 )
+from knowledge_engine import ui_labels as UL
 
 _SYSTEM = (
     "You are a concise EM FX options strategist writing for a fund PM. "
     "Write exactly 2–3 sentences. No bullet points, no headers, no markdown "
     "formatting, no invented numbers. Every claim must follow directly from "
-    "the inputs provided."
+    "the inputs provided. The reader is a quantitative PM who is new to FX "
+    "options: use plain terms and avoid market shorthand (no '25d RR', 'fly', "
+    "'z-score' or regime numbers)."
 )
 
 _INSTR = (
@@ -60,7 +62,7 @@ def _build_prompt(ev, ms, flow) -> str:
     pair = flow.view.pair
     base_ccy, quote_ccy = pair[:3], pair[3:]
     dir_label = f"{base_ccy} higher vs {quote_ccy}" if ev.is_call else f"{base_ccy} lower vs {quote_ccy}"
-    carry_lbl = {0: "noisy (regime 0)", 1: "moderate carry (regime 1)", 2: "high carry (regime 2)"}[ms.carry_regime]
+    carry_lbl = f"carry vs vol: {UL.carry_vs_vol_label(ms.carry_regime).lower()}"
     with_carry_lbl = "with-carry" if ms.with_carry else "counter-carry"
     target_lbl = f"{abs(ms.target_z_spot):.1f}σ from spot" if ms.target_z_spot is not None else "no target"
 
@@ -85,7 +87,7 @@ def _build_prompt(ev, ms, flow) -> str:
     if comm.get("trade_guidance"):
         parts.append(f"GUIDANCE: {comm['trade_guidance']}")
     parts += [
-        f"CARRY: c = {ms.c:+.3f} | {carry_lbl} | VOL: {ms.vol:.0%} ATM | TARGET: {target_lbl}",
+        f"CARRY (in vols): {ms.c:+.3f} | {carry_lbl} | IMPLIED VOL (ATM): {ms.vol:.0%} | TARGET: {target_lbl}",
         "",
         f"TOP {len(top5)} STRUCTURES (PnL score, highest first):",
         *struct_lines,
@@ -111,10 +113,18 @@ def _render_regime_summary(ev, ms, flow, target: float) -> None:
     prompt = _build_prompt(ev, ms, flow)
     chunks: list[str] = []
     container = st.empty()
-    with st.spinner("Reading the regime…"):
-        for chunk in _stream_commentary(api_key, prompt):
-            chunks.append(chunk)
-            container.markdown("".join(chunks))
+    try:
+        with st.spinner("Reading the regime…"):
+            for chunk in _stream_commentary(api_key, prompt):
+                chunks.append(chunk)
+                container.markdown("".join(chunks))
+    except Exception as e:
+        # The commentary is a nicety. A bad key or an API outage must not take the tables
+        # and chat below it down with a stack trace — log it and carry on without it.
+        from interface.debug_log import log_error
+        log_error("tester_regime_summary", e)
+        container.empty()
+        return
     if chunks:
         st.session_state[cache_key] = "".join(chunks)
 
@@ -133,39 +143,47 @@ def _render_shortlist(ms, flow) -> None:
         return
     ceiling = max_possible_score() or 1.0
 
+    fit = UL.label("fit_score")
     st.subheader("Shortlisted structures")
-    st.caption("Ranked by structure-fit score (affinity), shown as a % of the maximum "
-               "possible score. Family-level — strikes are in the table below.")
+    st.caption("Ranked by how well each type of structure fits your view, as a % of the "
+               "maximum possible. Strikes are in the table below.")
     rows = []
     for i, r in enumerate(primaries, 1):
         pct = max(0.0, min(100.0, 100.0 * (r["total_score"] or 0.0) / ceiling))
-        rows.append({"#": i, "Structure": r["display_name"], "Fit score": f"{pct:.0f}%"})
-    st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True)
+        rows.append({"#": i, "Structure": r["display_name"], fit: f"{pct:.0f}%"})
+    st.dataframe(
+        pd.DataFrame(rows).set_index("#"), use_container_width=True,
+        column_config={fit: st.column_config.Column(help=UL.tip("fit_score"))},
+    )
 
 
 def _render_priced_table(ev) -> None:
     """The priced 'Top structures' table (with strikes), PnL score order."""
     base_ccy = ev.base_ccy
+    L = UL.label
+    kelly_col = L("kelly_risk")
     rows = []
     for i, ve in enumerate(ev.variants[:5], 1):
         pv = ve.pv
         row = {
             "#": i,
             "Structure": ve.struct_label,
-            "Variant": ve.variant_label,
-            "Strikes": " / ".join(f"{k:.4f}" for k in pv.strikes) if pv.strikes else "—",
-            "Notional": fmt_ccy(pv.structure_notional, base_ccy),
-            "Premium": f"{pv.net_premium_pct:+.2%}",
+            L("variant"): ve.variant_label,
+            L("strikes"): " / ".join(f"{k:.4f}" for k in pv.strikes) if pv.strikes else "—",
+            L("notional"): fmt_ccy(pv.structure_notional, base_ccy),
+            L("premium"): f"{pv.net_premium_pct:+.2%}",
         }
         if getattr(pv, "kelly_fraction", None) is not None:
-            row["Kelly risk"] = f"{pv.kelly_fraction * (pv.max_loss_pct or 0.0):.0%}"
+            row[kelly_col] = f"{pv.kelly_fraction * (pv.max_loss_pct or 0.0):.0%}"
         rows.append(row)
     st.subheader("Top structures")
-    st.caption("Priced variants with strikes, ordered by PnL score. "
-               "Kelly risk (when shown) is full-Kelly capital at risk (pre-λ) as a share of W")
+    st.caption("Priced variants with strikes, ordered by PnL score. Hover a column header "
+               "for what it means.")
     st.caption(_PNL_SCORE_HELP)
-    _cfg = ({"Kelly risk": st.column_config.Column(help=_KELLY_RISK_HELP)}
-            if any("Kelly risk" in r for r in rows) else None)
+    _cfg = {L(k): st.column_config.Column(help=UL.tip(k))
+            for k in ("variant", "strikes", "notional", "premium")}
+    if any(kelly_col in r for r in rows):
+        _cfg[kelly_col] = st.column_config.Column(help=UL.tip("kelly_risk"))
     st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True, column_config=_cfg)
 
 

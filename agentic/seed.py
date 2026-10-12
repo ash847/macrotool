@@ -46,6 +46,7 @@ def view_to_pack_args(view: TradeView) -> dict:
     }
     if view.magnitude_pct is not None:
         args["magnitude_pct"] = view.magnitude_pct
+        args["move_reference"] = "forward"
     return args
 
 
