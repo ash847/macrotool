@@ -1395,6 +1395,23 @@ def _render_agent() -> None:
         "Describe your view in plain English. The agent routes to the deterministic "
         "engine — every number is computed in Python; the LLM only narrates."
     )
+    st.markdown(
+        "Below are the currency pairs and indicative spot levels the tool is currently loaded with.\n\n"
+        "**Currency pairs & indicative spot** — data snapshot dated 2026-09-16\n\n"
+        "**USDBRL** · 5.1528  \n"
+        "**USDCNH** · 6.7125  \n"
+        "**USDZAR** · 16.3924  \n"
+        "**EURHUF** · 365.39  \n"
+        "**USDTRY** · 48.652  \n"
+        "**USDMXN** · 17.2468  \n"
+        "**USDKRW** · 1376.1  \n"
+        "**EURPLN** · 4.3615  \n"
+        "**USDJPY** · 156.26  \n"
+        "**USDSGD** · 1.2776  \n"
+        "**EURUSD** · 1.1465  \n"
+        "**GBPUSD** · 1.3381  \n"
+        "**USDINR** · 95.9588"
+    )
 
     provider = get_llm_provider()
     if provider != "anthropic":
