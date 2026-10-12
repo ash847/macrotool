@@ -12,3 +12,4 @@ logs/*.log
 
 # Retired codex worktrees (local only)
 .codex-worktrees/
+mcp_server/reports/
