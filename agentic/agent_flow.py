@@ -241,6 +241,8 @@ Distinguishing a TARGET LEVEL from a MAGNITUDE (critical):
   or down — the engine infers direction from the forward. Never guess direction from a level.
 - A percentage move is a MAGNITUDE: "6% higher", "down 4%", "a 5% move up" → pass
   magnitude_pct with an explicit direction the PM actually stated (higher/lower/up/down).
+  Percentage moves default to SPOT. Set move_reference="forward" only when the PM
+  explicitly says the move is from forward. Python calculates the target level.
 - If the PM gives neither (just "I'm long USDBRL"), pass direction only (pure directional).
 
 The standard pack ALREADY contains specific, priced recommended structures (real strikes,
