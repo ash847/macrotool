@@ -11,7 +11,7 @@ Launch a **controlled, invite-only research beta for professional users**, then 
 Separate two tracks:
 
 - **Launch readiness:** access controls, isolation, spend limits, licensed and clearly dated data, reliable releases, correct outputs, privacy/legal terms, onboarding and feedback.
-- **Product expansion:** live feeds, AUD/CAD, BTC/ETH, public APIs, referral rewards and richer analytics. These should not delay a safe FX beta, and should not be used to distract from launch blockers.
+- **Product expansion:** live feeds, AUD/CAD, XAU (gold), BTC and ETH, public APIs, referral rewards and richer analytics. XAU/BTC/ETH were explicitly added to the planned work on 13 October 2026; this is scope approval, not production-readiness sign-off. These should not delay a safe FX beta, and should not be used to distract from launch blockers.
 
 Suggested rollout, subject to founder approval: 20–30 invited users first, then approximately 100 after two weeks of satisfactory operating evidence. These are experiment sizes, not claims about hosting capacity. Measure peak simultaneous usage separately.
 
@@ -48,7 +48,7 @@ Roles below are responsibilities to assign, not assumed staffing. Engineering in
 | C — product readiness | Risk/narration acceptance suite, quick-start/user guide, score presentation, durable feedback, monitoring dashboard | Quant + product + engineering | Users can complete core tasks without guidance; material numerical defects closed |
 | D — controlled pilot | Small invited cohort, daily issue/cost review, weekly product interviews, initial research report | Founders + support owner | Two weeks meeting agreed service/cost/quality gates |
 | E — wider beta | Larger capped cohort, approved invite referrals, capacity adjustments | Founders + engineering | Capacity and cost evidence support the next cohort; no unresolved P0/P1 incident |
-| F — expansion | Automated/live data, AUD/CAD, then separately assessed crypto and external API | Data + quant + engineering + counsel | Separate readiness and licensing review for each expansion |
+| F — expansion | Automated/live data, AUD/CAD, explicit XAU/BTC/ETH workstreams, and separately assessed external API | Data + quant + engineering + counsel | Separate readiness and licensing review for each asset and expansion |
 
 Start legal/data-rights work and engineering audits in parallel. Do not wait for new assets or a positive backtest before improving security. Do not publish promotional performance claims before the methodology and claims have been reviewed.
 
@@ -187,11 +187,30 @@ Start legal/data-rights work and engineering audits in parallel. Do not wait for
 - For each chosen pair, add conventions, calendars, settlement, delta/premium conventions, forward units, rates/curves and smile inputs through the existing data/pricing interfaces. A supported-pair label is not sufficient.
 - Validate calls and puts across tenors, carry/CIP interpretation, premium currency, sizing, bounds, scenario valuations and missing-data handling against independent references. Add deterministic regression fixtures and only then expose the pair to the agent and guide.
 
+### XAU (gold)
+
+- Confirm the initial product and quote basis: XAUUSD spot/forward options are a proposed starting scope, not an assumption that exchange futures options or physical delivery are supported.
+- Specify troy-ounce contract units, notional and premium currencies, settlement, calendars, expiries and delta conventions. Source licensed spot, forwards and option smile data with component timestamps; validate the forward/discounting model rather than applying FX carry rules mechanically.
+- Implement asset metadata and data/pricing adapters without pretending XAU is a conventional currency with an existing base-currency discount curve. Review structure eligibility, scenario weights, commentary, payoff normalization and both Spot Equivalent and Kelly sizing.
+- Benchmark vanilla calls/puts and approved packages against independent references, including both directions, multiple tenors, settlement conversions, stress losses and notional caps. Expose XAU only after those tests and data-rights checks pass.
+
 ### BTC and ETH
 
 - Treat crypto as a separate product stream, not two more FX symbols. Decide venue, instrument, settlement/collateral currency, linear versus inverse payoff, expiry conventions, underlying/index, market-data rights, funding/forward model and scenario assumptions before designing adapters.
 - Do not reuse FX carry commentary, rates, loss normalization or Kelly distributions without validation. Consider exchange/collateral/liquidity risks and jurisdiction restrictions; consult counsel again before offering crypto-related recommendations.
 - Start with a clearly scoped research prototype and benchmark pricing/risk independently. Release separately after FX beta evidence and sign-off.
+
+### Staged delivery for XAU, BTC and ETH
+
+1. **Specification and data:** name an owner for each asset; agree products, venues, quote/settlement basis, conventions, licensed sources and refresh policy. Record unresolved choices before implementation.
+2. **Deterministic prototype:** ingest versioned snapshots and build the required adapters, vanilla pricing and payoff/unit tests. Keep unsupported packages disabled; no public recommendations yet.
+3. **Structuring and sizing:** validate approved packages, asset-appropriate contexts/scenarios, stress budgets, notional caps and Kelly inputs. Do not copy tuned FX matrices or language without review.
+4. **Agent and UI:** add supported-asset discovery, target handling, clear units and freshness/risk disclosures. Add golden conversations for both directions, percentage and absolute targets, and preference changes.
+5. **Gated pilot:** enable each asset separately for invited users after quant, data-rights and legal sign-off; monitor errors and feedback with an asset-level disable/rollback mechanism.
+
+Track XAU, BTC and ETH separately through these gates. Inclusion in this roadmap
+does not mean implementation is complete or make all three prerequisites for the
+core FX beta. Final venue/product choices and release ordering remain open.
 
 ### Sharing and incentives
 
@@ -241,7 +260,7 @@ Suggested pilot service targets, to agree rather than claim as current: at least
 4. Legal/entity owner, counsel and desired confidentiality/retention commitments.
 5. Hosting/support service expectations and who owns incidents and release approval.
 6. Whether the proposed score-plus-absolute-gap display is acceptable, and the permitted IP detail.
-7. Exact AUD/CAD crosses; whether crypto and an external customer API are genuine near-term demand or later discovery.
+7. Exact AUD/CAD crosses; product/venue choices, owners, data budgets and release ordering for the planned XAU/BTC/ETH workstreams; whether an external customer API is near-term demand or later discovery.
 8. Whether to start with no rewards, priority access, or a tightly capped future-usage incentive after the pilot.
 
 Recommended next work package: **read-only production admission/RLS/deployment audit plus a short measured usage/cost baseline**, while founders obtain legal and data-rights advice. Then implement containment before onboarding a larger cohort.
