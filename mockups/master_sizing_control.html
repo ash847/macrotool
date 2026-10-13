@@ -1,0 +1,422 @@
+<title>Master sizing control — mockup</title>
+<style>
+  :root {
+    --ground: #f5f6f8;
+    --panel: #ffffff;
+    --panel-2: #eceef2;
+    --ink: #1c2330;
+    --ink-2: #5a6474;
+    --ink-3: #8b93a3;
+    --hair: #dde1e8;
+    --accent: #2f5a9e;
+    --accent-ink: #ffffff;
+    --accent-soft: #e7edf7;
+    --risk: #b23a3a;
+    --gain: #1e7a4c;
+    --chip: #eef0f4;
+    --shadow: 0 1px 2px rgba(28,35,48,.06), 0 8px 24px rgba(28,35,48,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #151920;
+      --panel: #1d232d;
+      --panel-2: #171c25;
+      --ink: #e6e9ee;
+      --ink-2: #9aa4b5;
+      --ink-3: #6b7484;
+      --hair: #2a313c;
+      --accent: #8aabe4;
+      --accent-ink: #131a26;
+      --accent-soft: #24304a;
+      --risk: #e08585;
+      --gain: #6fc79a;
+      --chip: #242b37;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #151920; --panel: #1d232d; --panel-2: #171c25; --ink: #e6e9ee;
+    --ink-2: #9aa4b5; --ink-3: #6b7484; --hair: #2a313c; --accent: #8aabe4;
+    --accent-ink: #131a26; --accent-soft: #24304a; --risk: #e08585; --gain: #6fc79a;
+    --chip: #242b37; --shadow: 0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"] {
+    --ground: #f5f6f8; --panel: #ffffff; --panel-2: #eceef2; --ink: #1c2330;
+    --ink-2: #5a6474; --ink-3: #8b93a3; --hair: #dde1e8; --accent: #2f5a9e;
+    --accent-ink: #ffffff; --accent-soft: #e7edf7; --risk: #b23a3a; --gain: #1e7a4c;
+    --chip: #eef0f4; --shadow: 0 1px 2px rgba(28,35,48,.06), 0 8px 24px rgba(28,35,48,.07);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "Avenir Next", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.5;
+  }
+  .num { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+         font-variant-numeric: tabular-nums; }
+
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 40px 24px 72px; }
+
+  /* ---------- header ---------- */
+  .eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+             color: var(--ink-3); font-weight: 600; }
+  h1 { font-size: 27px; font-weight: 650; letter-spacing: -.015em; margin: 6px 0 8px;
+       text-wrap: balance; }
+  .lede { color: var(--ink-2); max-width: 62ch; margin: 0 0 28px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- flow strip ---------- */
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 28px; }
+  .step { background: var(--panel); border: 1px solid var(--hair); border-radius: 8px;
+          padding: 12px 14px; }
+  .step b { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; }
+  .step .n { width: 18px; height: 18px; border-radius: 50%; background: var(--accent);
+             color: var(--accent-ink); font-size: 11px; display: inline-flex;
+             align-items: center; justify-content: center; flex: none; }
+  .step p { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+  @media (max-width: 800px) { .flow { grid-template-columns: 1fr 1fr; } }
+
+  /* ---------- app frame ---------- */
+  .frame { background: var(--panel); border: 1px solid var(--hair); border-radius: 12px;
+           box-shadow: var(--shadow); overflow: hidden; }
+  .titlebar { display: flex; align-items: center; gap: 8px; padding: 9px 14px;
+              border-bottom: 1px solid var(--hair); background: var(--panel-2);
+              font-size: 12px; color: var(--ink-3); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--hair); }
+  .app { display: grid; grid-template-columns: 300px 1fr; min-height: 540px; }
+  @media (max-width: 800px) { .app { grid-template-columns: 1fr; } }
+
+  /* sidebar */
+  .side { background: var(--panel-2); border-right: 1px solid var(--hair); padding: 18px 16px;
+          display: flex; flex-direction: column; gap: 18px; }
+  .side h3 { margin: 0; font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+             color: var(--ink-3); font-weight: 650; display: flex; align-items: center; gap: 7px; }
+  .side h3 .n { width: 16px; height: 16px; border-radius: 50%; background: var(--accent);
+                color: var(--accent-ink); font-size: 10px; display: inline-flex;
+                align-items: center; justify-content: center; letter-spacing: 0; }
+  label.fld { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 5px; }
+  input[type="text"] {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--hair); border-radius: 7px;
+    background: var(--panel); color: var(--ink); font-size: 14px;
+  }
+  input[type="text"]:focus, .seg button:focus-visible, input[type="range"]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .hint { font-size: 11.5px; color: var(--ink-3); margin-top: 5px; line-height: 1.4; }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--hair);
+         border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .seg button { padding: 8px 4px; border: 0; background: transparent; color: var(--ink-2);
+                font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); }
+
+  .dial { border-top: 1px dashed var(--hair); padding-top: 14px; }
+  .dial .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .dial .val { font-weight: 650; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); margin: 8px 0 2px; }
+
+  .orisk { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .orisk input { flex: 1; }
+  .orisk span { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+
+  /* equivalents card */
+  .equiv { background: var(--accent-soft); border: 1px solid var(--hair); border-radius: 9px;
+           padding: 12px 13px; }
+  .equiv h4 { margin: 0 0 8px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+              color: var(--accent); font-weight: 700; }
+  .equiv dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+              font-size: 12.5px; }
+  .equiv dt { color: var(--ink-2); }
+  .equiv dd { margin: 0; text-align: right; font-weight: 600; }
+  .equiv dd.risk { color: var(--risk); }
+  .equiv .foot { margin: 9px 0 0; font-size: 11.5px; color: var(--ink-2); line-height: 1.45;
+                 border-top: 1px dashed var(--hair); padding-top: 8px; }
+
+  /* main panel */
+  .main { padding: 20px 22px; min-width: 0; }
+  .tradebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+              font-size: 13px; color: var(--ink-2); margin-bottom: 16px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 3px 11px; font-weight: 600;
+          color: var(--ink); font-size: 12.5px; }
+  .main h2 { font-size: 16px; margin: 0 0 4px; font-weight: 650; }
+  .mode-note { font-size: 12.5px; color: var(--ink-2); margin: 0 0 12px; }
+  .mode-note em { font-style: normal; font-weight: 650; color: var(--accent); }
+
+  .tblwrap { overflow-x: auto; border: 1px solid var(--hair); border-radius: 9px; }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 13px; }
+  th { text-align: right; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+       color: var(--ink-3); font-weight: 650; padding: 9px 12px; border-bottom: 1px solid var(--hair);
+       background: var(--panel-2); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--hair); text-align: right; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.name { font-weight: 600; }
+  td .sub { display: block; font-size: 11px; color: var(--ink-3); font-weight: 400; }
+  .loss { color: var(--risk); font-weight: 600; }
+  .pay  { color: var(--gain); font-weight: 600; }
+  .capped { font-size: 10px; color: var(--accent); border: 1px solid var(--accent);
+            border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px; }
+  .tbl-foot { font-size: 11.5px; color: var(--ink-3); margin: 10px 2px 0; line-height: 1.5; }
+
+  /* ---------- mechanics ---------- */
+  .mech { margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 800px) { .mech { grid-template-columns: 1fr; } }
+  .mcard { background: var(--panel); border: 1px solid var(--hair); border-radius: 10px;
+           padding: 16px 18px; }
+  .mcard h3 { margin: 0 0 8px; font-size: 13.5px; font-weight: 650; }
+  .mcard p, .mcard li { font-size: 13px; color: var(--ink-2); }
+  .mcard code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+                background: var(--chip); border-radius: 4px; padding: 1px 5px; color: var(--ink); }
+  .mcard ul { margin: 8px 0 0; padding-left: 18px; }
+  .mcard li { margin-bottom: 6px; }
+  .mcard li:last-child { margin-bottom: 0; }
+  .full { grid-column: 1 / -1; }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">MacroTool · UI mockup · Option D</div>
+  <h1>Master sizing control — one capital dial, per-method intensity</h1>
+  <p class="lede">The sidebar asks for <strong>one currency number that never changes meaning</strong>:
+  the capital behind the book, <span class="num">W</span>. Each sizing method adds only a
+  <strong>dimensionless dial</strong> — R:R for fixed loss, λ for Kelly — and a live readout
+  translates every choice back into dollars-at-risk as a % of W. Flip the method below and
+  watch what changes (and what doesn't).</p>
+
+  <div class="flow">
+    <div class="step"><b><span class="n">1</span>Set capital once</b>
+      <p>W lives in the sidebar, persists across trades and methods. Replaces the hard-coded <span class="num">LINEAR_NOTIONAL</span>.</p></div>
+    <div class="step"><b><span class="n">2</span>Pick the method</b>
+      <p>Fixed loss or Kelly. The currency input doesn't move or change meaning — only the dial below it swaps.</p></div>
+    <div class="step"><b><span class="n">3</span>Tune the dial</b>
+      <p>A unitless knob per method: required R:R (or type dollar risk — R:R back-solves), fractional-Kelly λ.</p></div>
+    <div class="step"><b><span class="n">4</span>Read the equivalents</b>
+      <p>Dollars-at-risk and % of W, stated the same way in both modes. Variants inherit the sizing automatically.</p></div>
+  </div>
+
+  <div class="frame">
+    <div class="titlebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      &nbsp;MacroTool — Trade View</div>
+    <div class="app">
+
+      <!-- ============ sidebar ============ -->
+      <aside class="side">
+        <div>
+          <h3><span class="n">1</span>Sizing capital</h3>
+          <div style="margin-top:10px">
+            <label class="fld" for="w">Capital behind this book (W)</label>
+            <input class="num" type="text" id="w" value="10,000,000" inputmode="numeric" aria-label="Capital W in USD">
+            <div class="hint">USD · set once, shared by every trade and both sizing methods.</div>
+          </div>
+        </div>
+
+        <div>
+          <h3><span class="n">2</span>Sizing method</h3>
+          <div class="seg" style="margin-top:10px" role="tablist">
+            <button id="btnFixed" class="on" role="tab" aria-selected="true">Fixed loss</button>
+            <button id="btnKelly" role="tab" aria-selected="false">Kelly</button>
+          </div>
+        </div>
+
+        <!-- fixed-loss dial -->
+        <div class="dial" id="dialFixed">
+          <h3><span class="n">3</span>Intensity — fixed loss</h3>
+          <div style="margin-top:10px">
+            <div class="row"><label class="fld" for="rr" style="margin:0">Required reward-to-risk</label>
+              <span class="val num" id="rrVal">3.0×</span></div>
+            <input type="range" id="rr" min="1.5" max="6" step="0.1" value="3">
+            <div class="hint">Stop = move&thinsp;÷&thinsp;R:R on a linear-equivalent W. Unitless — dollars come from W.</div>
+            <div class="orisk">
+              <span>or type risk&nbsp;$</span>
+              <input class="num" type="text" id="riskDollar" inputmode="numeric" aria-label="Dollar risk override">
+            </div>
+            <div class="hint">Typing dollars back-solves R:R, so either mental model works.</div>
+          </div>
+        </div>
+
+        <!-- kelly dial -->
+        <div class="dial" id="dialKelly" hidden>
+          <h3><span class="n">3</span>Intensity — Kelly</h3>
+          <div style="margin-top:10px">
+            <div class="row"><label class="fld" for="lam" style="margin:0">Fractional Kelly (λ)</label>
+              <span class="val num" id="lamVal">0.50</span></div>
+            <input type="range" id="lam" min="0.1" max="1" step="0.05" value="0.5">
+            <div class="hint">Scales every variant equally; ranking unchanged. Unitless — dollars come from W.</div>
+            <div style="margin-top:10px">
+              <label class="fld">Edge distribution</label>
+              <input type="text" value="View-implied · medium conviction" readonly aria-label="Edge distribution source">
+              <div class="hint">Elicit your own on the Kelly screen — x* per variant comes from it.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="equiv">
+          <h4><span aria-hidden="true">4 · </span>What this sizing means</h4>
+          <dl id="equivList"></dl>
+          <p class="foot" id="equivFoot"></p>
+        </div>
+      </aside>
+
+      <!-- ============ main panel ============ -->
+      <section class="main">
+        <div class="tradebar">
+          <span class="chip">USDBRL</span><span class="chip num">90d</span>
+          <span class="chip num">target 5.8930</span>
+          <span>+6.0% vs the 90d forward <span class="num">5.5595</span> · base higher</span>
+        </div>
+
+        <h2>Structure variants</h2>
+        <p class="mode-note" id="modeNote"></p>
+
+        <div class="tblwrap">
+          <table id="varTable" aria-label="Structure variants sized under the selected method">
+            <thead>
+              <tr>
+                <th>Structure</th><th>Notional</th><th>Premium</th>
+                <th>Max loss (modeled)</th><th>Payoff @ target</th><th>% of W at risk</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="tbl-foot" id="tblFoot"></p>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============ mechanics ============ -->
+  <div class="mech">
+    <div class="mcard">
+      <h3>Fixed loss — mechanics</h3>
+      <p><code>stop% = move ÷ R:R</code> &nbsp;→&nbsp; <code>loss $ = W × stop%</code> &nbsp;→&nbsp;
+      <code>Nᵢ = min(loss$ ÷ max_lossᵢ, 10·W)</code></p>
+      <ul>
+        <li>W acts as a <b>linear-equivalent notional</b>: risk what a delta-1 position of W would lose at its R:R-implied stop.</li>
+        <li>Every variant carries the <b>same dollar max loss</b> — the equaliser.</li>
+        <li>Risk scales with trade geometry (wider target → wider stop → more dollars). Conviction has no channel here; the dollar-risk override is the manual escape hatch.</li>
+      </ul>
+    </div>
+    <div class="mcard">
+      <h3>Kelly — mechanics</h3>
+      <p><code>x*ᵢ = argmax Σ p·ln(1 + x·πᵢ)</code> &nbsp;→&nbsp; <code>Nᵢ = min(λ·x*ᵢ·W, 10·W)</code></p>
+      <ul>
+        <li>W is the <b>whole bankroll for this trade</b>, myopically; the log barrier caps worst modeled loss below 100% of W.</li>
+        <li>Each variant gets its <b>own</b> optimal size — nothing is equalised; conviction enters through the elicited distribution.</li>
+        <li>Worst case is evaluated on the distribution's ±4σ bins — tail beyond that is censored (same caveat as the scenario-grid loss fix).</li>
+      </ul>
+    </div>
+    <div class="mcard full">
+      <h3>What changes vs today</h3>
+      <ul>
+        <li><b>New:</b> the W input (promotes the hard-coded <code>LINEAR_NOTIONAL = 100</code> to a PM-set sidebar value — both methods already scale linearly off it, so the engine needs no re-plumbing).</li>
+        <li><b>New:</b> the equivalents readout, and the dollar-risk ⇄ R:R back-solve in fixed-loss mode.</li>
+        <li><b>Moved:</b> the R:R slider and λ already exist — they relocate under the method toggle as the "intensity" dials.</li>
+        <li><b>Unchanged:</b> sizing math, caps (10·W notional; net-credit fixed at 10·W), variant ranking.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- fixed mock trade + variants (representative numbers, not live) ----
+  const MOVE = 0.06;                    // +6% to target vs forward
+  const FWD = 5.5595;
+  const VARIANTS = [
+    { name: "1×1.5 call spread", sub: "ATMF vs 25Δ · legs 1×1.5", prem: 0.0062, maxloss: 0.0062, pay: 0.0360, xstar: 0.88 },
+    { name: "1×2×1 butterfly",   sub: "ATMF / 25Δ / wing",        prem: 0.0048, maxloss: 0.0048, pay: 0.0295, xstar: 0.65 },
+    { name: "Vanilla call",      sub: "25Δ",                      prem: 0.0155, maxloss: 0.0155, pay: 0.0445, xstar: 0.42 },
+    { name: "European digital",  sub: "pays 100% · ~20% premium", prem: 0.20,   maxloss: 0.20,   pay: 1.00,   xstar: 0.08 },
+  ];
+
+  const $ = id => document.getElementById(id);
+  const fmt$ = v => "$" + Math.round(v).toLocaleString("en-US");
+  const fmtPct = (v, d=2) => (v*100).toFixed(d) + "%";
+
+  let mode = "fixed";
+  let W = 10_000_000;
+  let RR = 3.0;
+  let LAM = 0.5;
+
+  function parseMoney(s){ const n = parseFloat(String(s).replace(/[^0-9.]/g,"")); return isFinite(n) && n>0 ? n : null; }
+
+  function render(){
+    const capN = 10*W;
+    const stop = MOVE/RR, loss = W*stop, stopPx = FWD*(1-stop);
+    const dl = $("equivList"), foot = $("equivFoot"), tb = $("varTable").tBodies[0];
+    let rows = "", equiv = "", footTxt = "";
+
+    if (mode === "fixed"){
+      $("rrVal").textContent = RR.toFixed(1)+"×";
+      if (document.activeElement !== $("riskDollar")) $("riskDollar").value = Math.round(loss).toLocaleString("en-US");
+      equiv =
+        `<dt>Risk this trade</dt><dd class="risk num">${fmt$(loss)}</dd>` +
+        `<dt>… as % of W</dt><dd class="risk num">${fmtPct(loss/W)}</dd>` +
+        `<dt>Implied stop</dt><dd class="num">${fmtPct(stop,1)} · ${stopPx.toFixed(4)}</dd>` +
+        `<dt>Kelly lens</dt><dd class="num">≈ risking as if λ·x*·W lost ${fmtPct(loss/W)}</dd>`;
+      footTxt = "Every structure below is sized so its max loss equals this one dollar figure.";
+      $("modeNote").innerHTML = `Sized by <em>fixed loss</em> — all variants equalised to the same max loss (${fmt$(loss)}).`;
+      for (const v of VARIANTS){
+        const N = Math.min(loss/v.maxloss, capN), capped = N >= capN - 1;
+        rows += `<tr><td class="name">${v.name}<span class="sub">${v.sub}</span></td>` +
+          `<td class="num">${fmt$(N)}${capped?'<span class="capped">CAP 10·W</span>':''}</td>` +
+          `<td class="num">${fmt$(N*v.prem)}</td>` +
+          `<td class="num loss">${fmt$(N*v.maxloss)}</td>` +
+          `<td class="num pay">${fmt$(N*v.pay)}</td>` +
+          `<td class="num">${fmtPct(N*v.maxloss/W)}</td></tr>`;
+      }
+      $("tblFoot").textContent = "Fixed loss equalises the red column; notional is whatever achieves it (capped at 10·W). Premium equals max loss here by construction — these are all net-debit structures, where the premium paid is the worst case.";
+    } else {
+      $("lamVal").textContent = LAM.toFixed(2);
+      const top = VARIANTS.reduce((a,b)=> (LAM*a.xstar*W*a.maxloss > LAM*b.xstar*W*b.maxloss ? a : b));
+      let worstTop = 0, premTop = 0;
+      const sized = VARIANTS.map(v=>{
+        const N = Math.min(LAM*v.xstar*W, capN);
+        return {...v, N, worst: N*v.maxloss};
+      });
+      const lead = sized[0];
+      equiv =
+        `<dt>Top pick worst loss</dt><dd class="risk num">${fmt$(lead.worst)}</dd>` +
+        `<dt>… as % of W</dt><dd class="risk num">${fmtPct(lead.worst/W)}</dd>` +
+        `<dt>Premium spend (top)</dt><dd class="num">${fmt$(lead.N*lead.prem)}</dd>` +
+        `<dt>Fixed-loss lens</dt><dd class="num">≈ R:R dial of ${(MOVE/(lead.worst/W)).toFixed(1)}×</dd>`;
+      footTxt = "Worst modeled loss on the distribution's ±4σ bins; the log barrier keeps it below 100% of W, then λ and the 10·W cap haircut it.";
+      $("modeNote").innerHTML = `Sized by <em>Kelly</em> — each variant at its own λ·x*·W. Nothing is equalised; size follows edge.`;
+      for (const v of sized){
+        const capped = v.N >= capN - 1;
+        rows += `<tr><td class="name">${v.name}<span class="sub">${v.sub} · x* ${v.xstar.toFixed(2)}</span></td>` +
+          `<td class="num">${fmt$(v.N)}${capped?'<span class="capped">CAP 10·W</span>':''}</td>` +
+          `<td class="num">${fmt$(v.N*v.prem)}</td>` +
+          `<td class="num loss">${fmt$(v.worst)}</td>` +
+          `<td class="num pay">${fmt$(v.N*v.pay)}</td>` +
+          `<td class="num">${fmtPct(v.worst/W)}</td></tr>`;
+      }
+      $("tblFoot").textContent = "Kelly gives every variant its own notional (λ · x* · W) from the same W. Note the digital: small x*, but its 20% max-loss makes it the biggest % of W at risk — the readout is what keeps that visible.";
+    }
+    dl.innerHTML = equiv; foot.textContent = footTxt; tb.innerHTML = rows;
+  }
+
+  // ---- wiring ----
+  $("btnFixed").addEventListener("click", ()=>{ mode="fixed"; swap(); });
+  $("btnKelly").addEventListener("click", ()=>{ mode="kelly"; swap(); });
+  function swap(){
+    $("btnFixed").classList.toggle("on", mode==="fixed");
+    $("btnKelly").classList.toggle("on", mode==="kelly");
+    $("btnFixed").setAttribute("aria-selected", mode==="fixed");
+    $("btnKelly").setAttribute("aria-selected", mode==="kelly");
+    $("dialFixed").hidden = mode!=="fixed";
+    $("dialKelly").hidden = mode!=="kelly";
+    render();
+  }
+  $("w").addEventListener("input", e=>{ const v=parseMoney(e.target.value); if(v){ W=v; render(); }});
+  $("w").addEventListener("blur", e=>{ e.target.value = W.toLocaleString("en-US"); });
+  $("rr").addEventListener("input", e=>{ RR=parseFloat(e.target.value); render(); });
+  $("lam").addEventListener("input", e=>{ LAM=parseFloat(e.target.value); render(); });
+  $("riskDollar").addEventListener("input", e=>{
+    const v=parseMoney(e.target.value);
+    if(v && v>0 && v < W*MOVE/1.0){          // keep RR within a sane floor of 1.0
+      RR = Math.min(6, Math.max(1.5, MOVE/(v/W)));
+      $("rr").value = RR; render();
+    }
+  });
+  render();
+</script>

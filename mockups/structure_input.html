@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Structure Input — design mock</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b22; --panel2:#1c2330; --line:#2b3340;
+    --text:#e6edf3; --muted:#8b949e; --accent:#2dd4bf; --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding:28px}
+  h1{font-size:18px;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:22px;max-width:900px}
+  .wrap{display:grid;grid-template-columns:1.1fr 0.9fr;gap:20px;max-width:1040px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px}
+  .panel h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;font-weight:600}
+  label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px}
+  .row{display:flex;gap:12px;margin-bottom:14px}
+  .row > div{flex:1}
+  select,input[type=text],input[type=number]{width:100%;background:var(--panel2);border:1px solid var(--line);
+    color:var(--text);border-radius:7px;padding:8px 10px;font-size:13px;outline:none}
+  textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;
+    padding:9px 10px;font-size:13px;resize:vertical;outline:none}
+  select:focus,input:focus,textarea:focus{border-color:var(--accent)}
+
+  .dial{margin-bottom:24px}
+  .dial .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+  .dial .nm{font-size:13px;color:var(--text);font-weight:600}
+  .dial .nm small{color:var(--muted);font-weight:400;font-size:11px;margin-left:6px}
+  .dial .val{font-size:12px;color:var(--accent);font-variant-numeric:tabular-nums}
+  .sliderwrap{position:relative;padding-top:4px}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:6px 0 0;position:relative;z-index:2}
+  .tick{position:absolute;top:9px;bottom:-2px;left:50%;width:1px;background:var(--muted);opacity:.6;z-index:1}
+  .ends{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:7px;gap:10px}
+  .ends span{max-width:48%}
+  .ends .r{text-align:right}
+  .defnote{font-size:10.5px;color:var(--muted);text-align:center;margin-top:4px;opacity:.8}
+  .uband{border-left:2px solid rgba(45,212,191,.35);padding-left:14px;margin:4px 0 0}
+  .uhdr{font-size:11px;color:var(--accent);letter-spacing:.04em;margin:0 0 12px}
+
+  .metric{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .metric:last-child{border-bottom:none}
+  .metric .v{font-variant-numeric:tabular-nums;color:var(--text);font-weight:600}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted);margin-left:6px}
+  .interp{margin-top:14px;padding:13px 14px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;font-size:13px}
+  .interp b{color:var(--accent)}
+  .leans{margin-top:14px}
+  .leans .fam{display:inline-block;margin:4px 6px 0 0;padding:5px 11px;border-radius:7px;
+    background:rgba(45,212,191,.10);border:1px solid rgba(45,212,191,.35);color:var(--accent);font-size:12px}
+  .note{color:var(--muted);font-size:11.5px;margin-top:16px;line-height:1.5}
+  .reset{margin-top:6px;background:transparent;border:1px solid var(--line);color:var(--muted);
+    border-radius:7px;padding:7px 12px;font-size:12px;cursor:pointer}
+  .reset:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+  <h1>Structure Input <span class="pill">design mock — v3</span></h1>
+  <div class="sub">The view is the given. <b>Conviction</b> shapes the distribution (P). <b>U</b> is two independent
+  appetites &mdash; <b>downside protection</b> (loss aversion) and <b>upside participation</b> (convexity) &mdash;
+  kept separate because they buy optionality on opposite sides of the strike. Each dial&rsquo;s centre is the regime
+  house default; you set the deviation.</div>
+
+  <div class="wrap">
+    <!-- LEFT -->
+    <div class="panel">
+      <h2>The view (given)</h2>
+      <div class="row">
+        <div><label>Pair</label>
+          <select id="pair"><option>USDBRL</option><option>USDTRY</option><option>EURPLN</option><option>GBPUSD</option></select>
+        </div>
+        <div><label>Direction (base ccy)</label>
+          <select id="dir"><option>Higher</option><option selected>Lower</option></select>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>Target level</label><input type="text" id="target" value="5.40" /></div>
+        <div><label>Horizon (days)</label><input type="number" id="horizon" value="90" /></div>
+      </div>
+      <label>View, in your words (optional &mdash; seeds elicitation)</label>
+      <textarea id="words" rows="2" placeholder="e.g. BRL grinds stronger on carry, but I&rsquo;m wary of a risk-off gap..."></textarea>
+
+      <div style="height:20px"></div>
+      <h2>Belief</h2>
+      <div class="dial">
+        <div class="top"><span class="nm">Conviction <small>P &mdash; how peaked is your view</small></span>
+          <span class="val" id="vConv">0.50</span></div>
+        <div class="sliderwrap"><input type="range" id="conv" min="0" max="100" value="50" /><div class="tick"></div></div>
+        <div class="ends"><span>Low &mdash; diffuse</span><span class="r">High &mdash; peaked on the move</span></div>
+        <div class="defnote">house default &middot; centre</div>
+      </div>
+
+      <h2>Preference (U) &mdash; two appetites</h2>
+      <div class="uband">
+        <div class="dial">
+          <div class="top"><span class="nm">Downside protection <small>loss aversion if wrong</small></span>
+            <span class="val" id="vProt">0.50</span></div>
+          <div class="sliderwrap"><input type="range" id="prot" min="0" max="100" value="50" /><div class="tick"></div></div>
+          <div class="ends"><span>None &mdash; wear the loss</span><span class="r">High &mdash; bound the loss (buy the wing)</span></div>
+        </div>
+        <div class="dial" style="margin-bottom:6px">
+          <div class="top"><span class="nm">Upside participation <small>convexity if right</small></span>
+            <span class="val" id="vPart">0.50</span></div>
+          <div class="sliderwrap"><input type="range" id="part" min="0" max="100" value="50" /><div class="tick"></div></div>
+          <div class="ends"><span>None &mdash; target is enough</span><span class="r">High &mdash; maximise / stay convex</span></div>
+        </div>
+      </div>
+
+      <button class="reset" id="reset">Reset to house default</button>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="panel">
+      <h2>What you&rsquo;re telling the engine</h2>
+      <div class="metric"><span>Conviction (P)</span><span class="v" id="rConv">0.50 &middot; medium</span></div>
+      <div class="metric"><span>Downside protection (U)</span><span class="v" id="rProt">0.50 &middot; moderate</span></div>
+      <div class="metric"><span>Upside participation (U)</span><span class="v" id="rPart">0.50 &middot; moderate</span></div>
+
+      <div class="interp" id="interp"></div>
+
+      <div class="leans">
+        <label style="margin-bottom:2px">Leans toward (illustrative mapping)</label>
+        <div id="fams"></div>
+      </div>
+
+      <div class="note">
+        Mock of the <b>tuning layer</b> only. The three dials become a multiplier over the scenario grid &mdash;
+        conviction reshapes the probability mass; protection over-weights the adverse (wrong) cells so the engine
+        pays to bound them; participation over-weights the favourable tail so it pays for convex upside. Premium /
+        feasibility is resolved downstream by the engine, not here. Family hints are illustrative, not the real engine.
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const conv=document.getElementById('conv'), prot=document.getElementById('prot'), part=document.getElementById('part');
+  const lvl=(v,lo,mid,hi)=>v<0.34?lo:(v>0.66?hi:mid);
+  const hi=v=>v>0.6, lo=v=>v<0.4;
+
+  function render(){
+    const c=conv.value/100, p=prot.value/100, u=part.value/100;
+    document.getElementById('vConv').textContent=c.toFixed(2);
+    document.getElementById('vProt').textContent=p.toFixed(2);
+    document.getElementById('vPart').textContent=u.toFixed(2);
+    document.getElementById('rConv').textContent=c.toFixed(2)+' · '+lvl(c,'low','medium','high');
+    document.getElementById('rProt').textContent=p.toFixed(2)+' · '+lvl(p,'low','moderate','high');
+    document.getElementById('rPart').textContent=u.toFixed(2)+' · '+lvl(u,'low','moderate','high');
+
+    const convW=c<0.34?'a diffuse view':c>0.66?'a high-conviction, peaked view':'a moderate view';
+    const protW=lvl(p,'you&rsquo;ll wear the loss if wrong','you want some downside cushion','you want the loss firmly bounded');
+    const partW=lvl(u,'reaching target is enough','you&rsquo;d like some extra upside','you want to maximise / stay convex if right');
+    document.getElementById('interp').innerHTML=
+      'You&rsquo;re expressing <b>'+convW+'</b>. If wrong, <b>'+protW+'</b>. If right, <b>'+partW+'</b>.';
+
+    // illustrative family lean (NOT the real engine)
+    const fams=[];
+    if(hi(u)&&lo(p)) fams.push(c>0.6?'Vanilla / digital (leveraged convex upside)':'Long vanilla / call-spread top (convex upside)');
+    if(hi(p)&&hi(u)) fams.push('Seagull (protected downside + kept upside)');
+    if(hi(p)&&lo(u)) fams.push('Collar / put-spread (protect, capped upside)');
+    if(lo(p)&&lo(u)) fams.push(c<0.5?'Cheap carry / 1x2 (collect premium, short tail)':'1x1.5 / 1x2 (carry, press the move)');
+    if(!fams.length) fams.push('1x1 spread (defined, capped both ways)');
+    if(c<0.34) fams.push('Wide strikes / low-premium (diffuse view)');
+    document.getElementById('fams').innerHTML=[...new Set(fams)].map(f=>'<span class="fam">'+f+'</span>').join('');
+  }
+
+  [conv,prot,part].forEach(s=>s.addEventListener('input',render));
+  document.getElementById('reset').addEventListener('click',()=>{conv.value=50;prot.value=50;part.value=50;render();});
+  render();
+})();
+</script>
+</body>
+</html>
