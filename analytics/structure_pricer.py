@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from analytics.market_state import MarketState
-from analytics.product_model import ResolvedContract
+from analytics.product_model import PricedStructure as ProductPrice, ResolvedContract
 from analytics.construction_risk import declared_additional_loss, passes_no_tails
 from analytics.trade_economics import TradeEconomics, compute_trade_economics
 from analytics.sizing_trace import SizingTrace, distribution_fingerprint
@@ -122,6 +122,7 @@ class PricedVariant:
     higher_spot_tail: bool | None = field(default=None, kw_only=True)
     sizing_trace: SizingTrace | None = field(default=None, kw_only=True)
     resolved_contract: ResolvedContract | None = field(default=None, kw_only=True)
+    product_price: ProductPrice | None = field(default=None, kw_only=True, repr=False)
     # Sizing — populated when loss_budget passed to price_variants(), else None.
     # All amounts in BASE currency units (e.g. USD for USDBRL, EUR for EURPLN).
     structure_notional: float | None = None    # base ccy notional sized so max loss = loss_budget
@@ -206,14 +207,9 @@ def price_variants(
     vol_sqrtT = vol * math.sqrt(T)
     vm = _VolModel(vol, smile=smile, F=F, horizon_days=round(T * 365))
 
-    if structure_id == "vanilla":
-        result = _vanilla(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
-    elif structure_id == "1x1_spread":
-        result = _spread(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
-    elif structure_id == "1x1.5_spread":
-        result = _1x1p5(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
-    elif structure_id == "1x2_spread":
-        result = _1x2(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
+    from analytics.product_pricer import RESOLVED_FAMILIES
+    if structure_id in RESOLVED_FAMILIES:
+        result = _product_variants(ms, structure_id, variants, target, is_call, smile)
     elif structure_id == "1x2x1_spread":
         result = _1x2x1(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
     elif structure_id == "european_rko":
@@ -232,13 +228,6 @@ def price_variants(
     # behaviour) sizes to the loss budget. Default sizing_spec=None ⇒ fixed-loss, so every
     # existing caller is byte-for-byte unchanged.
     from analytics.expiry_breakeven import expiry_breakevens, variant_terms
-    from analytics.product_pricer import RESOLVED_FAMILIES, build_structure, freeze_contract
-
-    if structure_id in RESOLVED_FAMILIES:
-        definitions = {v["label"]: v for v in variants}
-        for variant in result:
-            structure = build_structure(structure_id, definitions[variant.variant_label], is_call)
-            variant.resolved_contract = freeze_contract(structure, variant.strikes, T)
 
     for variant in result:
         terms = (variant.resolved_contract.expiry_terms if variant.resolved_contract is not None
@@ -287,6 +276,37 @@ def price_variants(
         elif warnings is not None:
             warnings.append(f"{variant.variant_label}: {reason}")
     return eligible
+
+
+def _product_variants(ms, family, definitions, target, is_call, smile):
+    """Compatibility envelope around the one authoritative product entry price."""
+    from analytics.product_pricer import build_structure, price
+
+    result = []
+    for definition in definitions:
+        if family in ("1x1.5_spread", "1x2_spread") and not (
+            "long_delta" in definition and "short_delta" in definition
+        ):
+            if target is None:
+                continue
+            vol_sqrt_t = ms.vol * math.sqrt(ms.T)
+            target_z = abs(math.log(target / ms.fwd) / vol_sqrt_t) if vol_sqrt_t > 0 else 0.0
+            if target_z < definition.get("min_target_z", 0.0):
+                continue
+        structure = build_structure(family, definition, is_call)
+        if structure is None:
+            raise ValueError(f"Unsupported construction for migrated family {family}")
+        product = price(structure, ms, target=target, smile=smile)
+        result.append(PricedVariant(
+            variant_label=product.variant_label, strikes=product.strikes,
+            barrier=product.barrier, net_premium_pct=product.net_premium_pct,
+            breakeven=product.breakeven, payoff_at_target_pct=product.payoff_at_target_pct,
+            rr_at_target=product.rr_at_target, max_loss_pct=product.max_loss_pct,
+            wing_ratio=product.wing_ratio, is_zero_cost=product.is_zero_cost,
+            breakevens=product.breakevens, breakeven_has_zero_region=product.breakeven_has_zero_region,
+            resolved_contract=product.resolved_contract, product_price=product,
+        ))
+    return result
 
 
 def _apply_notional(pv: PricedVariant, notional: float) -> None:

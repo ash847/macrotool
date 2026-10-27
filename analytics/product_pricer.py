@@ -298,7 +298,8 @@ def price(
     # Linear aggregation: net premium = Σ notional × unit (using solved notionals).
     net_prem = sum(pl.notional * pl.unit_premium for pl in priced_legs)
     prem_pct = net_prem / spot
-    is_zero_cost = abs(net_prem) < _ZERO_COST_EPS * spot
+    # Legacy vanilla/1x1 entries never apply the ratio-family near-zero label.
+    is_zero_cost = fam not in ("vanilla", "1x1_spread") and abs(net_prem) < _ZERO_COST_EPS * spot
 
     long_leg = next((pl for pl in priced_legs if pl.notional > 0), None)
     long_is_call = long_leg.leg.right == Right.CALL if long_leg else True
@@ -309,6 +310,12 @@ def price(
             pl.notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
             for pl in priced_legs
         )
+        if fam == "1x1_spread":
+            # Retain the entry table's capped-payoff convention even for reversed
+            # input legs; changing that legacy policy is not part of migration.
+            k1, k2 = (leg.strike for leg in priced_legs)
+            width = k2 - k1 if long_is_call else k1 - k2
+            raw = min(_intrinsic(k1, target, long_is_call), width)
         payoff_pct = raw / target
         rr = (
             (payoff_pct / prem_pct)
@@ -343,7 +350,7 @@ def price(
         else:
             max_loss_pct = 0.0
     else:
-        max_loss_pct = abs(prem_pct)
+        max_loss_pct = prem_pct if fam in ("vanilla", "1x1_spread") else abs(prem_pct)
 
     return PricedStructure(
         structure=structure,

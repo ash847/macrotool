@@ -129,15 +129,15 @@ def price_structure(
             warnings=tuple(warnings),
         )
 
-    # Product-model structure for the explicit per-leg breakdown (legs first-class).
-    # Best-effort; metrics/ccy still come from `variant`. stop_price omitted — only the
-    # legs are consumed here, not the product-model max-loss.
-    legs_struct = None
+    # Migrated families retain the exact entry product; no second pricing pass.
+    # Unmigrated families keep the best-effort leg-display bridge for now.
+    legs_struct = getattr(priced[0], "product_price", None)
     try:
-        from analytics.product_pricer import build_structure, price as _price_product
-        st = build_structure(parsed.family, variant_dict, is_call)
-        if st is not None:
-            legs_struct = _price_product(st, ms, target=target, smile=surface)
+        if legs_struct is None:
+            from analytics.product_pricer import build_structure, price as _price_product
+            st = build_structure(parsed.family, variant_dict, is_call)
+            if st is not None:
+                legs_struct = _price_product(st, ms, target=target, smile=surface)
     except Exception:
         legs_struct = None
 

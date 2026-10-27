@@ -734,6 +734,39 @@ failures remain the two login-provider expectations, missing GBPUSD 1W fixture
 and scorer expectation recorded above. No new failures. Changes remain local
 and uncommitted; no deployment or push was performed.
 
+### Unified entry-pricing slice - Codex
+
+Checkpointed the preceding work locally: 0a3acb2 contains the consolidated
+documents; bed493e contains the tested resolved-contract and pricing correction.
+The engine changes were checkpointed together because their shared files and
+tests formed one verified baseline. Neither checkpoint was pushed.
+
+Vanilla, 1x1, 1x1.5 and 1x2 entry pricing now goes through product_pricer once.
+The PricedVariant compatibility/sizing envelope retains the resulting
+`product_price` and its exact `resolved_contract`. Recommendation and custom
+request displays reuse that product instead of rebuilding from family/label
+and repricing. Existing scenario, break-even, economics and Kelly consumers
+continue to use the retained contract. Package version is 0.2.53.
+
+The old four entry functions are no longer selected by production dispatch;
+they remain temporarily as independent test references. The broad parity test
+uses those references rather than comparing the product pricer with itself.
+Unmigrated families and older objects retain their existing display fallback.
+No default menu, financial convention, eligibility policy or sizing policy was
+changed in this slice. Legacy small-premium labels and reversed-input table
+semantics are explicitly preserved, not endorsed as a new product specification.
+
+New migration tests cover entry metrics, retained object identity, one pricing
+call per custom request, target/minimum-distance gates, small premiums and
+reversed inputs. Complete recommendation packs in both directions match the
+old path's ranks, scores and notionals under fixed-loss and Kelly sizing.
+The focused entry/parity/pricing suite passed 193 tests; the expanded migration
+file then passed all 34 tests, including the four end-to-end pack comparisons.
+Final full-suite command: `.venv/bin/python -m pytest tests -q -p no:cacheprovider --tb=short`.
+Result: 1,282 passed, four previously recorded failures and six skipped in
+167.03 seconds. No new failures; `git diff --check` passed. This slice is
+checkpointed locally without pushing or deploying.
+
 All items are open. Fill this table as work is assigned and completed.
 
 | ID | Owner | Commit / test / live-check evidence |

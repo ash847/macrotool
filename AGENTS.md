@@ -144,6 +144,14 @@ flat by design; do not infer entry/scenario smile parity for those families.
 `analytics/structure_pricer.py: price_variants()` prices every structure variant
 in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
 
+For vanilla, 1x1, 1x1.5 and 1x2 spreads, `price_variants()` delegates entry
+construction/pricing to `analytics.product_pricer`. Its compatibility result
+retains `product_price` and the same immutable `resolved_contract`; sizing stays
+on the compatibility envelope. Recommendation/custom-trade leg displays must
+reuse `product_price`, not rebuild by label or run a second price calculation.
+Old entry functions remain only as independent migration-test references.
+Unmigrated families retain their existing entry/display paths.
+
 **Premium basis (load-bearing invariant):** `black76(F,K,T,σ,DF_d) / spot == DF_f × (forward_value / forward)`. Black-76 returns a premium in *quote* ccy discounted at the *quote* rate `r_d`; dividing by **spot** (not forward) collapses that into the *base* rate `r_f`, so the displayed `net_premium_pct` is base-ccy-notional %, effectively USD-discounted. This is correct and intended. `tests/test_premium_basis.py` pins this — do not "fix" the `/spot` to `/fwd`.
 
 **Pluggable vol surface (`analytics/vol_surface.py`):** vanilla pricing depends on a `VolSurface` Protocol (`vol_at_strike`, `vol_at_delta`). `SmileInterpolator` is the cubic-spline build method (resolution/interpolation are constructor params, legacy values as defaults); `FlatSurface(atm_vol)` is the degenerate flat surface (byte-identical to legacy scalar vol); `build_vol_surface(ccy, method="cubic_spline", **params)` is the sole construction site (add `"sabr"` etc. behind it without touching call sites).

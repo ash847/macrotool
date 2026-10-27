@@ -32,11 +32,15 @@ def target_from_reference(
     return reference * (1 + sign * magnitude_pct / 100)
 
 
-def _priced_structure_for(family, label, ms, is_call, target, surface, stop_price):
-    """The product-model PricedStructure (legs first-class) for a recommended variant,
-    looked up by family+label. Used so the renderer can show explicit legs (deltas /
-    notionals / call-put) instead of a flat strike list — killing the fabrication class.
-    Best-effort: None if it can't be built."""
+def _priced_structure_for(family, label, ms, is_call, target, surface, stop_price, *, variant=None):
+    """Reuse the exact entry result for migrated families, including custom labels.
+
+    Unmigrated/older objects retain the best-effort family+label lookup so their
+    leg displays keep working until their own consumer migration.
+    """
+    retained = getattr(variant, "product_price", None)
+    if retained is not None:
+        return retained
     try:
         from analytics.product_pricer import build_structure, price
         from analytics.structure_pricer import _load_variants
@@ -176,7 +180,7 @@ def _recommend_ranked(
                 absolute_contribution_total_pct=best.pm_score.absolute_contribution_total_pct,
                 priced_structure=_priced_structure_for(
                     item.structure_id, best.variant.variant_label, ms, is_call,
-                    target, surface, stop_price,
+                    target, surface, stop_price, variant=best.variant,
                 ),
                 drivers=driver_contribs(best.pm_score),
                 attributes=_attributes(item.structure_id, best.pm_score, best.aggregates),
@@ -289,7 +293,7 @@ def _price_recommended_fallback(
                 rationale=item.rationale,
                 variant=rep,
                 priced_structure=_priced_structure_for(
-                    item.structure_id, rep.variant_label, ms, is_call, target, surface, None,
+                    item.structure_id, rep.variant_label, ms, is_call, target, surface, None, variant=rep,
                 ),
             ))
     return out
