@@ -561,3 +561,92 @@ class TestChatSettings:
         store.save_conversation(conv)
         assert store.settings_persist is False
         assert store.get_conversation(ME, conv.id) is not None
+
+
+# ---------------------------------------------------------------------------
+# Overlapping saves (double-click Apply): both runs read version N, both write N+1
+# ---------------------------------------------------------------------------
+
+class _RacingStore(InMemoryStore):
+    """On the first add_version, another run's version with the same version_no lands
+    first — reproducing two overlapping Streamlit runs that both read the same latest."""
+
+    _competitor = None   # (version) -> IdeaVersion saved by the other run; armed per test
+
+    def add_version(self, version):
+        if self._competitor is not None:
+            other, self._competitor = self._competitor(version), None
+            super().add_version(other)
+        super().add_version(version)
+
+
+class TestVersionRace:
+    def _apply_rr(self, competitor, rr):
+        from workspace.settings import ChatSettings
+        store = _RacingStore()
+        svc = ConversationService(store, ME)
+        conv, session = _chat(svc, [("BRL", BRL)])
+        store._competitor = competitor      # the race starts at Apply, not the first save
+        out = svc.apply_settings(conv, session, ChatSettings(target_rr=rr), {},
+                                 seq=1, persist=True)
+        return svc, store, out
+
+    def test_store_rejects_duplicate_version_no(self):
+        from workspace.store import VersionConflict
+        store = InMemoryStore()
+        store.save_idea(TradeIdea(id="i1", user_email=ME, pair="USDBRL", direction="base_lower"))
+        store.add_version(_version(_spec()))
+        with pytest.raises(VersionConflict):
+            store.add_version(_version(_spec()))
+
+    def test_identical_overlapping_save_is_reused(self):
+        from dataclasses import replace
+        svc, store, out = self._apply_rr(lambda v: replace(v, id="other-run"), 4.0)  # same evaluation
+        active = svc.active_version(out.conversation)
+        assert active.version_no == 2 and active.id == "other-run"
+        assert out.turn.idea_version_id == "other-run"
+        assert [v.version_no for v in store._versions] == [1, 2]
+
+    def test_different_overlapping_save_retries_on_top(self):
+        from dataclasses import replace
+        svc, store, out = self._apply_rr(
+            lambda v: replace(v, id="other-run", prefs={**v.prefs, "target_rr": 5.0}), 4.0)
+        active = svc.active_version(out.conversation)
+        assert active.version_no == 3 and active.prefs["target_rr"] == 4.0
+        assert [v.version_no for v in store._versions] == [1, 2, 3]
+
+    def test_supabase_unique_violation_is_a_version_conflict(self):
+        from workspace.store import StoreError, SupabaseStore, VersionConflict
+
+        class _APIError(Exception):
+            def __init__(self, code):
+                super().__init__({"code": code, "message": "boom"})
+                self.code = code
+
+        class _Failing:
+            def __init__(self, code):
+                self.code = code
+
+            def table(self, _):
+                return self
+
+            def insert(self, _):
+                return self
+
+            def execute(self):
+                raise _APIError(self.code)
+
+        with pytest.raises(VersionConflict):
+            SupabaseStore(_Failing("23505")).add_version(_version(_spec()))
+        with pytest.raises(StoreError) as e:
+            SupabaseStore(_Failing("42P01")).add_version(_version(_spec()))
+        assert not isinstance(e.value, VersionConflict)
+
+
+def test_apply_guard_blocks_second_click_until_done_or_stale():
+    from interface.agent_settings_ui import _APPLY_STALE_S, apply_in_flight
+    state = {}
+    assert not apply_in_flight(state, "f", now=100.0)
+    state["f"] = 100.0
+    assert apply_in_flight(state, "f", now=101.0)
+    assert not apply_in_flight(state, "f", now=100.0 + _APPLY_STALE_S)

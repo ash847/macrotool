@@ -9,6 +9,7 @@ so the model never quotes figures sized under the previous settings.
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from typing import Callable
 
@@ -19,6 +20,15 @@ from interface.prefs import MERGED_PREF_OPTIONS, merged_pref_fields, merged_pref
 from workspace.settings import ChatSettings, curves_from, with_distribution
 
 _METHODS = {"Fixed loss": "fixed_loss", "Kelly": "kelly"}
+_APPLY_STALE_S = 120.0
+
+
+def apply_in_flight(state, flag: str, now: float | None = None) -> bool:
+    """An Apply started by an earlier, still-running script run. Goes stale after
+    ``_APPLY_STALE_S`` so a run killed before cleanup can't lock the button."""
+    started = state.get(flag)
+    now = time.monotonic() if now is None else now
+    return started is not None and now - started < _APPLY_STALE_S
 
 
 def _trade_tag(session) -> str | None:
@@ -128,32 +138,43 @@ def render_agent_settings(
                 if probs is not None:
                     dist_change = (key, probs if edited else None, bins if edited else None)
 
-        if st.button("Apply", type="primary", key=k + "apply", disabled=busy,
-                     help="Re-runs the chat's active trade under these settings."):
-            sc, tm = merged_pref_fields(pref)
-            new = ChatSettings(sizing_method=method, kelly_lambda=float(lam),
-                               target_rr=float(rr), structure_constraint=sc,
-                               tail_constraint=settings.tail_constraint,
-                               trade_management=tm)
-            if dist_change is not None:
-                distributions = with_distribution(distributions, *dist_change)
-            if abs(float(new_w) - float(capital)) > 0.5:
-                set_capital(float(new_w))
-                session.linear_notional = float(new_w)
+        flag = k + "applying"
+        in_flight = apply_in_flight(st.session_state, flag)
+        clicked = st.button("Apply", type="primary", key=k + "apply", disabled=busy or in_flight,
+                            help="Re-runs the chat's active trade under these settings.")
+        # Streamlit starts a new run on a click without waiting for the current one, so a
+        # second click while an Apply is still re-pricing would race it; ignore that click.
+        if clicked and not in_flight:
+            st.session_state[flag] = time.monotonic()
             try:
-                out = svc.apply_settings(
-                    conv, session, new, distributions,
-                    seq=st.session_state.ws_seq, persist=st.session_state.ws_seq > 0,
-                )
-            except Exception as e:
-                on_error("agent_apply_settings", e)
-                st.error(f"Couldn't apply the settings ({type(e).__name__}).")
-                return
-            st.session_state.ws_conv = out.conversation
-            st.session_state.ws_last_settings = new.to_dict()
-            if out.message:
-                st.session_state.agent_chat.append(("assistant", out.message))
-                st.session_state.ws_seq += 1
-            st.rerun()
+                sc, tm = merged_pref_fields(pref)
+                new = ChatSettings(sizing_method=method, kelly_lambda=float(lam),
+                                   target_rr=float(rr), structure_constraint=sc,
+                                   tail_constraint=settings.tail_constraint,
+                                   trade_management=tm)
+                if dist_change is not None:
+                    distributions = with_distribution(distributions, *dist_change)
+                if abs(float(new_w) - float(capital)) > 0.5:
+                    set_capital(float(new_w))
+                    session.linear_notional = float(new_w)
+                try:
+                    out = svc.apply_settings(
+                        conv, session, new, distributions,
+                        seq=st.session_state.ws_seq, persist=st.session_state.ws_seq > 0,
+                    )
+                except Exception as e:
+                    on_error("agent_apply_settings", e)
+                    st.error(f"Couldn't apply the settings ({type(e).__name__}).")
+                    return
+                st.session_state.ws_conv = out.conversation
+                st.session_state.ws_last_settings = new.to_dict()
+                if out.message:
+                    st.session_state.agent_chat.append(("assistant", out.message))
+                    st.session_state.ws_seq += 1
+                st.rerun()
+            finally:
+                st.session_state.pop(flag, None)
         if busy:
             st.caption("Available once the current answer finishes.")
+        elif in_flight:
+            st.caption("Applying your previous change…")
