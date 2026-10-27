@@ -9,6 +9,13 @@ Runs entirely on your machine. No hosting, no login. Not for production use.
 
 ## Set up (about 10 minutes)
 
+> **Keep everything outside `~/Documents`, `~/Desktop` and `~/Downloads`** (for example
+> `~/macrotool-mcp`, with the key in `~/.config/macrotool/secrets.toml`). Claude Desktop starts
+> the server as a background program, and macOS silently refuses it access to those folders
+> ("Operation not permitted" on `.venv/pyvenv.cfg` in the log). Granting Claude access does
+> not help: macOS checks Python itself. Also edit `claude_desktop_config.json` only while
+> Claude Desktop is closed, or the app can overwrite your change.
+
 1. **Get the code** and check out the `mcp-demo` branch.
 2. **Create the environment** (Python 3.13) from the lockfile, then add the MCP package:
    ```bash
