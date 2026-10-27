@@ -79,8 +79,9 @@ def test_delta_normalization(req):
     assert _dict_no_label(req) == {"delta": 0.34}
 
 
-def test_atmf_long_leg_is_half_delta():
-    assert _dict_no_label("vanilla ATMF") == {"delta": 0.50}
+def test_atmf_anchor_is_preserved_separately_from_fifty_delta():
+    assert _dict_no_label("vanilla ATMF") == {"delta": 0.50, "atmf_legs": [0]}
+    assert _dict_no_label("vanilla 50 delta") == {"delta": 0.50}
 
 
 # ---------------------------------------------------------------------------

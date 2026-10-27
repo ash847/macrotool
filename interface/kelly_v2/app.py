@@ -15,6 +15,7 @@ import numpy as np
 import streamlit as st
 
 from analytics.distributions import interpolate_atm_vol
+from analytics.product_model import ResolvedContract
 from knowledge_engine import ui_labels as UL
 from data.snapshot_loader import load_snapshot as load_live_snapshot
 from data.snapshot_overrides import apply_overrides
@@ -91,6 +92,7 @@ class TradeRecCandidate:
     tenor_years: float
     net_premium_pct: float
     max_loss_pct: float
+    resolved_contract: ResolvedContract | None = None
 
 
 # --- session state ---
@@ -269,6 +271,7 @@ def _live_trade_rec_candidates() -> list[TradeRecCandidate]:
                     strikes=list(pv.strikes),
                     barrier=pv.barrier,
                     wing_ratio=pv.wing_ratio,
+                    resolved_contract=getattr(pv, "resolved_contract", None),
                     is_call=is_call,
                     entry_spot=ms.spot,
                     forward=ms.fwd,
@@ -319,6 +322,7 @@ def _live_trade_rec_candidates() -> list[TradeRecCandidate]:
                     strikes=list(pv.strikes),
                     barrier=pv.barrier,
                     wing_ratio=pv.wing_ratio,
+                    resolved_contract=getattr(pv, "resolved_contract", None),
                     is_call=is_call,
                     entry_spot=ms.spot,
                     forward=ms.fwd,
@@ -887,6 +891,7 @@ def render_page() -> None:
             is_call=trade_rec_candidate.is_call,
             entry_spot=trade_rec_candidate.entry_spot,
             wing_ratio=trade_rec_candidate.wing_ratio,
+            resolved_contract=trade_rec_candidate.resolved_contract,
         )
         ref_levels = trade_rec_candidate.strikes + (
             [trade_rec_candidate.barrier] if trade_rec_candidate.barrier is not None else []

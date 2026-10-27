@@ -128,6 +128,19 @@ Other pairs in snapshot (EURUSD, USDCNH, USDMXN, USDJPY) are not yet wired into 
 
 ## Option pricing and smile vol
 
+Delta-defined strikes use exact **unadjusted forward delta** inversion, matching
+`SmileInterpolator`'s `N(d1)` convention. ATM-forward is a distinct `K = F`
+anchor, not 50-delta. Catalogue/parser `atmf_legs` lists zero-based ATMF leg
+indices; numeric delta fields on those legs are compatibility placeholders.
+Without that marker, `delta: 0.5` means true 50-delta. ATMF legs use smile vol at
+their forward strike. Do not infer anchor types from display labels.
+
+Strike-vol lookup falls back to a bounded delta root solve if fixed-point
+iteration does not converge. Do not return an unfinished iterate. Negative
+smile-valued ERKO package totals are rejected with `SmileArbitrageError` rather
+than clipped into zero-premium trades. Digital/barrier scenario pricing remains
+flat by design; do not infer entry/scenario smile parity for those families.
+
 `analytics/structure_pricer.py: price_variants()` prices every structure variant
 in Black-76 and quotes premium/payoff as a fraction of base-ccy (USD) notional.
 

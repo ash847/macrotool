@@ -16,7 +16,17 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from pricing.black_scholes import call_value, put_value
-from pricing.digital import digital_call, digital_put
+from pricing.digital import SmileArbitrageError, digital_call, digital_put
+
+
+def _nonnegative_package(vanilla_k, vanilla_h, strip, *, check_smile):
+    raw = vanilla_k - vanilla_h - strip
+    tolerance = 1e-10 * max(abs(vanilla_k), abs(vanilla_h), abs(strip), 1.0)
+    if check_smile and raw < -tolerance:
+        raise SmileArbitrageError(
+            f"negative European RKO package value {raw:.8g}: inconsistent smile prices"
+        )
+    return max(raw, 0.0)
 
 
 def european_rko_call(
@@ -46,7 +56,7 @@ def european_rko_call(
     strip = (barrier - strike) * digital_call(
         spot, barrier, T, sigma, r_d, r_f, payout=1.0, notional=notional, vol_fn=vol_fn
     )
-    return max(vanilla_k - vanilla_h - strip, 0.0)
+    return _nonnegative_package(vanilla_k, vanilla_h, strip, check_smile=vol_fn is not None)
 
 
 def european_rko_put(
@@ -71,7 +81,7 @@ def european_rko_put(
     strip = (strike - barrier) * digital_put(
         spot, barrier, T, sigma, r_d, r_f, payout=1.0, notional=notional, vol_fn=vol_fn
     )
-    return max(vanilla_k - vanilla_h - strip, 0.0)
+    return _nonnegative_package(vanilla_k, vanilla_h, strip, check_smile=vol_fn is not None)
 
 
 def european_rko_call_mtm(

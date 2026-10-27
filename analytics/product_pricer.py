@@ -14,12 +14,15 @@ Parity: reuses the exact legacy primitives (`black76_call/put`, `otm_*_strike`, 
 so the leg-sum reproduces `analytics.structure_pricer.price_variants` byte-for-byte on the
 families implemented here. Guarded by `tests/test_product_model_parity.py`.
 
-Implemented so far: vanilla, 1x1_spread. (1x1.5/1x2/seagull/digital/european_rko follow.)
+Entry construction supports vanilla-leg families plus specialised European wrappers.
+Vanilla and two-leg spreads also retain an immutable resolved contract for revaluation;
+the remaining families stay on their existing consumer paths during migration.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from analytics.market_state import MarketState
 from analytics.product_model import (
@@ -31,6 +34,8 @@ from analytics.product_model import (
     PricedStructure,
     Right,
     Structure,
+    ResolvedContract,
+    ResolvedLeg,
 )
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
 from analytics.structure_pricer import _VolModel
@@ -38,12 +43,41 @@ from pricing.black_scholes import black76_call, black76_put
 
 _ZERO_COST_EPS = 0.0001   # × spot, matches legacy is_zero_cost test
 
+RESOLVED_FAMILIES = frozenset(("vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread"))
+
+
+def freeze_contract(structure: Structure, strikes, tenor_years: float) -> ResolvedContract:
+    """Retain already resolved strikes; never price or resolve an anchor here."""
+    if structure.family not in RESOLVED_FAMILIES or structure.barrier_anchor is not None:
+        raise ValueError("Family not yet migrated to the resolved vanilla contract")
+    if len(strikes) != len(structure.legs):
+        raise ValueError("Resolved strike count does not match the structure")
+    if any(leg.instrument != Instrument.VANILLA for leg in structure.legs):
+        raise ValueError("Resolved vanilla contract cannot contain binary legs")
+    return ResolvedContract(
+        structure.family, structure.label,
+        tuple(ResolvedLeg(leg.right, strike, leg.signed_notional)
+              for leg, strike in zip(structure.legs, strikes)), tenor_years,
+    )
+
 
 # ---------------------------------------------------------------------------
 # build_structure — JSON variant dict → Structure (market-independent)
 # ---------------------------------------------------------------------------
 
 def build_structure(family: str, variant: dict, is_call: bool) -> Structure | None:
+    structure = _build_structure(family, variant, is_call)
+    if structure is None:
+        return None
+    atmf = set(variant.get("atmf_legs", ()))
+    legs = tuple(replace(leg, anchor=Anchor(AnchorKind.ATMF)) if i in atmf else leg
+                 for i, leg in enumerate(structure.legs))
+    barrier = (Anchor(AnchorKind.ATMF) if family == "european_rko" and 1 in atmf
+               else structure.barrier_anchor)
+    return replace(structure, legs=legs, barrier_anchor=barrier)
+
+
+def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | None:
     """Convert a curated variant dict into a Structure. Returns None for families
     not yet ported (caller falls back to the legacy pricer)."""
     right = Right.CALL if is_call else Right.PUT
@@ -161,6 +195,16 @@ def _intrinsic(strike: float, target: float, is_call: bool) -> float:
 
 
 def _variant_dict_from(structure: Structure) -> dict:
+    variant = _wrapped_variant_dict(structure)
+    atmf = [i for i, leg in enumerate(structure.legs) if leg.anchor.kind == AnchorKind.ATMF]
+    if structure.barrier_anchor is not None and structure.barrier_anchor.kind == AnchorKind.ATMF:
+        atmf.append(1)
+    if atmf:
+        variant["atmf_legs"] = atmf
+    return variant
+
+
+def _wrapped_variant_dict(structure: Structure) -> dict:
     """Reconstruct the legacy variant dict for a wrapped (binary/barrier) family."""
     legs = structure.legs
     if structure.family == "european_digital":
@@ -168,8 +212,8 @@ def _variant_dict_from(structure: Structure) -> dict:
     if structure.family == "european_rko":
         return {
             "label": structure.label,
-            "long_delta": legs[0].anchor.value,
-            "barrier": structure.barrier_anchor.value,
+            "long_delta": legs[0].anchor.value if legs[0].anchor.kind == AnchorKind.DELTA else 0.5,
+            "barrier": structure.barrier_anchor.value if structure.barrier_anchor.kind == AnchorKind.DELTA else 0.5,
         }
     raise ValueError(f"no wrapped variant dict for {structure.family}")
 
@@ -313,4 +357,6 @@ def price(
         breakeven_has_zero_region=zero_region,
         is_zero_cost=is_zero_cost,
         wing_ratio=wing_ratio,
+        resolved_contract=(freeze_contract(structure, strikes, T)
+                           if fam in RESOLVED_FAMILIES else None),
     )

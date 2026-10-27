@@ -32,6 +32,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 from scipy.interpolate import CubicSpline
+from scipy.optimize import brentq
 from scipy.stats import norm
 
 from data.schema import CurrencySnapshot
@@ -208,7 +209,7 @@ class SmileInterpolator:
         F: float,
         horizon_days: int,
         max_iter: int = 10,
-        tol: float = 1e-8,
+        tol: float = 1e-10,
     ) -> float:
         """
         Derive smile vol for a given strike via iteration.
@@ -217,7 +218,8 @@ class SmileInterpolator:
           1. Start with ATM vol as initial guess.
           2. Compute call_delta = N(d1) at current vol.
           3. Look up smile vol at that delta.
-          4. Repeat until vol converges.
+          4. Repeat until vol converges; if iteration stalls, solve the bounded
+             call-delta fixed point. Never return an unfinished iteration.
         """
         T = horizon_days / 365.0
         sigma = self.vol_at_delta(0.5, horizon_days)  # ATM seed
@@ -233,7 +235,19 @@ class SmileInterpolator:
                 return sigma_new
             sigma = sigma_new
 
-        return sigma
+        if T <= 0:
+            return sigma
+
+        def residual(delta):
+            vol = self._interp_total_variance(delta, T)
+            if not math.isfinite(vol) or vol <= 0:
+                raise ValueError("Smile inversion requires finite positive volatility")
+            d1 = (math.log(F / K) + 0.5 * vol ** 2 * T) / (vol * math.sqrt(T))
+            implied_delta = float(np.clip(norm.cdf(d1), self._delta_lo, self._delta_hi))
+            return implied_delta - delta
+
+        root = brentq(residual, self._delta_lo, self._delta_hi, xtol=1e-13)
+        return self._interp_total_variance(root, T)
 
     # ------------------------------------------------------------------
     # Internal

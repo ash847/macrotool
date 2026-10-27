@@ -211,6 +211,12 @@ def _value_variant(
     skew spread at the leg's strike under the scenario forward. Digital / RKO /
     european_rko legs stay on the flat ``svol`` (Phase 2 keeps them flat).
     """
+    contract = getattr(variant, "resolved_contract", None)
+    if contract is not None:
+        from analytics.resolved_pricing import PricingContext, value_resolved
+        if contract.family != structure_id:
+            raise ValueError("Scenario family does not match the resolved contract")
+        return value_resolved(contract, PricingContext(sspot, tau, svol, r_d, r_f, surface))
     K = variant.strikes
     barrier = variant.barrier
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Callable
 
 import numpy as np
+from analytics.product_model import ResolvedContract
 
 PayoffFn = Callable[[np.ndarray], np.ndarray]
 
@@ -40,12 +41,18 @@ def base_ccy_payoff_for_trade_rec(
     is_call: bool,
     entry_spot: float,
     wing_ratio: float | None = None,
+    resolved_contract: ResolvedContract | None = None,
 ) -> PayoffFn:
     """Terminal base-ccy payoff (per 1 unit of structure notional) for one variant.
 
     ``entry_spot`` is retained for signature back-compat; the digital families now
     settle base-ccy cash-or-nothing and ignore it.
     """
+    if resolved_contract is not None:
+        from analytics.resolved_pricing import terminal_payoff
+        if resolved_contract.family != structure_id:
+            raise ValueError("Payoff family does not match the resolved contract")
+        return lambda prices: terminal_payoff(resolved_contract, prices)
     if structure_id == "vanilla":
         strike = strikes[0]
         if is_call:

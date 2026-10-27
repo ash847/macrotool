@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 
 
 class Instrument(str, Enum):
@@ -62,6 +63,49 @@ class Structure:
     barrier_anchor: Anchor | None = None   # RKO family (definitional)
 
 
+@dataclass(frozen=True)
+class ResolvedLeg:
+    """An executed vanilla leg: no delta/target anchor to re-solve on a bump."""
+    right: Right
+    strike: float
+    signed_notional: float
+
+    def __post_init__(self):
+        if not isinstance(self.right, Right):
+            raise ValueError("Resolved leg requires an explicit option right")
+        if not math.isfinite(self.strike) or self.strike <= 0:
+            raise ValueError("Resolved strike must be finite and positive")
+        if not math.isfinite(self.signed_notional):
+            raise ValueError("Resolved quantity must be finite")
+
+
+@dataclass(frozen=True)
+class ResolvedContract:
+    """Immutable vanilla-leg contract, per unit base notional, before sizing.
+
+    Expiry is represented by the original tenor in this date-free engine.
+    Valuation receives remaining maturity separately; it never reconstructs legs.
+    Binary/barrier contracts deliberately do not use this representation yet.
+    """
+    family: str
+    label: str
+    legs: tuple[ResolvedLeg, ...]
+    tenor_years: float
+
+    def __post_init__(self):
+        if not isinstance(self.legs, tuple) or not self.legs:
+            raise ValueError("Resolved contract requires an immutable nonempty leg tuple")
+        if not all(isinstance(leg, ResolvedLeg) for leg in self.legs):
+            raise ValueError("Resolved contract requires resolved vanilla legs")
+        if not math.isfinite(self.tenor_years) or self.tenor_years <= 0:
+            raise ValueError("Contract tenor must be finite and positive")
+
+    @property
+    def expiry_terms(self):
+        return [(leg.signed_notional, leg.strike, leg.right == Right.CALL)
+                for leg in self.legs]
+
+
 @dataclass
 class PricedLeg:
     leg: Leg
@@ -92,6 +136,7 @@ class PricedStructure:
     wing_ratio: float | None = None      # derived (|wing leg notional|) for display/back-compat
     warnings: list[str] = field(default_factory=list)
     strikes_override: list[float] | None = None   # binary/barrier families priced via wrapper
+    resolved_contract: ResolvedContract | None = field(default=None, kw_only=True)
 
     # --- back-compat shim (lets PricedStructure stand in for PricedVariant) ---
     @property

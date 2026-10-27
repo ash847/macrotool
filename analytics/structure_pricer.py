@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from analytics.market_state import MarketState
+from analytics.product_model import ResolvedContract
 from analytics.construction_risk import declared_additional_loss, passes_no_tails
 from analytics.trade_economics import TradeEconomics, compute_trade_economics
 from analytics.sizing_trace import SizingTrace, distribution_fingerprint
@@ -85,6 +86,13 @@ class _VolModel:
         # vol_at_delta takes a call delta (positive) or put delta (negative).
         return self._smile.vol_at_delta(delta if is_call else -delta, self._h)
 
+    def resolve_leg(self, delta: float, is_call: bool, T: float, *, atmf=False):
+        if atmf:
+            return self._F, self.at_strike(self._F)
+        vol = self.at_delta(delta, is_call)
+        resolve = otm_call_strike if is_call else otm_put_strike
+        return resolve(self._F, vol, T, delta), vol
+
 _VARIANTS_PATH = Path(__file__).parent.parent / "knowledge" / "defaults" / "structure_variants.json"
 
 
@@ -113,6 +121,7 @@ class PricedVariant:
     lower_spot_tail: bool | None = field(default=None, kw_only=True)
     higher_spot_tail: bool | None = field(default=None, kw_only=True)
     sizing_trace: SizingTrace | None = field(default=None, kw_only=True)
+    resolved_contract: ResolvedContract | None = field(default=None, kw_only=True)
     # Sizing — populated when loss_budget passed to price_variants(), else None.
     # All amounts in BASE currency units (e.g. USD for USDBRL, EUR for EURPLN).
     structure_notional: float | None = None    # base ccy notional sized so max loss = loss_budget
@@ -223,9 +232,17 @@ def price_variants(
     # behaviour) sizes to the loss budget. Default sizing_spec=None ⇒ fixed-loss, so every
     # existing caller is byte-for-byte unchanged.
     from analytics.expiry_breakeven import expiry_breakevens, variant_terms
+    from analytics.product_pricer import RESOLVED_FAMILIES, build_structure, freeze_contract
+
+    if structure_id in RESOLVED_FAMILIES:
+        definitions = {v["label"]: v for v in variants}
+        for variant in result:
+            structure = build_structure(structure_id, definitions[variant.variant_label], is_call)
+            variant.resolved_contract = freeze_contract(structure, variant.strikes, T)
 
     for variant in result:
-        terms = variant_terms(structure_id, variant.strikes, is_call, variant.wing_ratio)
+        terms = (variant.resolved_contract.expiry_terms if variant.resolved_contract is not None
+                 else variant_terms(structure_id, variant.strikes, is_call, variant.wing_ratio))
         variant.breakevens, variant.breakeven_has_zero_region = expiry_breakevens(
             terms, variant.net_premium_pct,
             barrier=variant.barrier if structure_id == "european_rko" else None,
@@ -309,6 +326,7 @@ def _size_variants_kelly(
             payoff = base_ccy_payoff_for_trade_rec(
                 structure_id, strikes=pv.strikes, barrier=pv.barrier,
                 is_call=is_call, entry_spot=spot, wing_ratio=pv.wing_ratio,
+                resolved_contract=pv.resolved_contract,
             )
             pnl = per_notional_pnl(payoff(bins), pv.net_premium_pct, discount_factor=df_f)
             x_star = kelly_fraction_per_notional(probs, pnl)
@@ -418,6 +436,7 @@ def _delta_spread_legs(
     long_delta: float,
     short_delta: float,
     vm: _VolModel,
+    atmf_legs=(),
 ) -> tuple[float, float, float, float]:
     """Resolve (K_long, K_short, vol_long, vol_short) for a delta-pair spread.
 
@@ -425,15 +444,9 @@ def _delta_spread_legs(
     same vol is returned for pricing — so under a flat vol model the result is
     identical to the legacy ATM-vol path.
     """
-    v_long = vm.at_delta(long_delta, is_call)
-    v_short = vm.at_delta(short_delta, is_call)
-    resolve = otm_call_strike if is_call else otm_put_strike
-    return (
-        resolve(F, v_long, T, long_delta),
-        resolve(F, v_short, T, short_delta),
-        v_long,
-        v_short,
-    )
+    k_long, v_long = vm.resolve_leg(long_delta, is_call, T, atmf=0 in atmf_legs)
+    k_short, v_short = vm.resolve_leg(short_delta, is_call, T, atmf=1 in atmf_legs)
+    return k_long, k_short, v_long, v_short
 
 
 def _resolve_ratio_spread_strikes(
@@ -456,7 +469,8 @@ def _resolve_ratio_spread_strikes(
     """
     if "long_delta" in variant and "short_delta" in variant:
         return _delta_spread_legs(
-            F, T, is_call, variant["long_delta"], variant["short_delta"], vm
+            F, T, is_call, variant["long_delta"], variant["short_delta"], vm,
+            variant.get("atmf_legs", ()),
         )
 
     if target is None:
@@ -537,12 +551,10 @@ def _vanilla(
     result = []
     for v in variants:
         delta = v["delta"]
-        leg_vol = vm.at_delta(delta, is_call)
+        K, leg_vol = vm.resolve_leg(delta, is_call, T, atmf=0 in v.get("atmf_legs", ()))
         if is_call:
-            K = otm_call_strike(F, leg_vol, T, delta)
             prem = black76_call(F, K, T, leg_vol, DF)
         else:
-            K = otm_put_strike(F, leg_vol, T, delta)
             prem = black76_put(F, K, T, leg_vol, DF)
 
         prem_pct = prem / spot
@@ -577,7 +589,7 @@ def _spread(
     result = []
     for v in variants:
         K_long, K_short, v_long, v_short = _delta_spread_legs(
-            F, T, is_call, v["long_delta"], v["short_delta"], vm
+            F, T, is_call, v["long_delta"], v["short_delta"], vm, v.get("atmf_legs", ())
         )
         if is_call:
             prem_long  = black76_call(F, K_long,  T, v_long,  DF)
@@ -817,25 +829,20 @@ def _seagull(
     for v in variants:
         ld, sd, wd = v["spread_long"], v["spread_short"], v["wing_delta"]
         # Spread legs in the view direction; wing on the opposite side.
-        v1 = vm.at_delta(ld, is_call)
-        v2 = vm.at_delta(sd, is_call)
-        v3 = vm.at_delta(wd, not is_call)
+        anchors = v.get("atmf_legs", ())
+        K1, v1 = vm.resolve_leg(ld, is_call, T, atmf=0 in anchors)
+        K2, v2 = vm.resolve_leg(sd, is_call, T, atmf=1 in anchors)
+        K3, v3 = vm.resolve_leg(wd, not is_call, T, atmf=2 in anchors)
 
         if is_call:
-            K1 = otm_call_strike(F, v1, T, ld)   # long call (lower K)
-            K2 = otm_call_strike(F, v2, T, sd)   # short call (higher K)
             prem1 = black76_call(F, K1, T, v1, DF)
             prem2 = black76_call(F, K2, T, v2, DF)
             # Wing: OTM put (opposite direction)
-            K3 = otm_put_strike(F, v3, T, wd)
             prem3 = black76_put(F, K3, T, v3, DF)
         else:
-            K1 = otm_put_strike(F, v1, T, ld)    # long put (higher K)
-            K2 = otm_put_strike(F, v2, T, sd)    # short put (lower K)
             prem1 = black76_put(F, K1, T, v1, DF)
             prem2 = black76_put(F, K2, T, v2, DF)
             # Wing: OTM call (opposite direction)
-            K3 = otm_call_strike(F, v3, T, wd)
             prem3 = black76_call(F, K3, T, v3, DF)
 
         spread_cost = prem1 - prem2
@@ -1035,7 +1042,6 @@ def _european_rko(
         return []
 
     fn_price = european_rko_call if is_call else european_rko_put
-    resolve = otm_call_strike if is_call else otm_put_strike
     # Smile seam: price each leg at its own strike vol. Flat surface → vol_fn is
     # None and every leg collapses to the scalar `vol`, reproducing the legacy
     # flat price byte-for-byte.
@@ -1049,8 +1055,9 @@ def _european_rko(
         # at_delta returns the scalar vol so placement is unchanged.
         long_delta = v["long_delta"]
         barrier_delta = v["barrier"]
-        K = resolve(F, vm.at_delta(long_delta, is_call), T, long_delta)
-        barrier = resolve(F, vm.at_delta(barrier_delta, is_call), T, barrier_delta)
+        anchors = v.get("atmf_legs", ())
+        K, _ = vm.resolve_leg(long_delta, is_call, T, atmf=0 in anchors)
+        barrier, _ = vm.resolve_leg(barrier_delta, is_call, T, atmf=1 in anchors)
 
         # The digital strip can hit a smile arbitrage → drop the variant.
         try:

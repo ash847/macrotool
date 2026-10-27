@@ -1,13 +1,16 @@
 """Parity harness — the new product pricer must reproduce the legacy
-`structure_pricer.price_variants` byte-for-byte on every ported family, across
+`structure_pricer.price_variants` within explicit tolerances on every ported family, across
 the supported pairs/directions/tenors, under both flat and smile surfaces.
 
 This is the linchpin of the product-model refactor (PRODUCT_MODEL_PLAN.md): it lets the
-internal pricer be replaced with the legacy result as the golden reference. Families not
-yet ported are simply skipped (build_structure returns None).
+internal pricer be replaced with the legacy result as a compatibility reference.
+Every listed family must build and exercise variants. The synthetic market is fixed;
+the production variant catalog remains covered here as an integration test. Independent
+formula checks and fixed constructions live in test_product_engine_baseline.py.
 """
 
 import math
+from datetime import date
 
 import pytest
 
@@ -16,10 +19,37 @@ from analytics.market_state import compute_market_state
 from analytics.product_pricer import build_structure, price
 from analytics.structure_pricer import _load_variants, price_variants
 from agentic.standard_pack import target_from_reference
-from data.snapshot_loader import load_snapshot
+from data.schema import CurrencySnapshot, MarketSnapshot
 from pricing.forwards import rate_context_for_snapshot
 
-_SNAP = load_snapshot()
+
+def _frozen_snapshot():
+    """Synthetic, CIP-consistent pillars independent of production data/env vars."""
+    currencies = {}
+    tenors = {"1W": 7, "1M": 30, "2M": 60, "3M": 91, "6M": 182, "1Y": 365}
+    for pair, spot, rd, rf, atm in (
+        ("USDBRL", 5.0, 0.12, 0.04, 0.15),
+        ("EURPLN", 4.3, 0.06, 0.03, 0.10),
+        ("GBPUSD", 1.3, 0.03, 0.04, 0.09),
+    ):
+        currencies[pair] = CurrencySnapshot(
+            pair=pair, instrument_type="NDF" if pair == "USDBRL" else "Deliverable",
+            spot=spot, as_of=date(2026, 1, 1),
+            forwards=[dict(tenor=t, points=0.0,
+                           outright=spot * math.exp((rd - rf) * days / 365))
+                      for t, days in tenors.items()],
+            vol_surface=[dict(tenor=t, delta=d, vol=atm + spread)
+                         for t in tenors for d, spread in
+                         (("10DP", -0.005), ("25DP", -0.003), ("ATM", 0.0),
+                          ("25DC", 0.005), ("10DC", 0.010))],
+            **{f"{pair[:3].lower()}_df_curve": [
+                dict(tenor=t, df=math.exp(-rf * days / 365))
+                for t, days in tenors.items()]},
+        )
+    return MarketSnapshot(snapshot_date=date(2026, 1, 1), currencies=currencies)
+
+
+_SNAP = _frozen_snapshot()
 _PORTED = ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread", "1x2x1_spread",
            "seagull", "european_digital", "european_rko"]
 
@@ -31,6 +61,7 @@ _MARKETS = [
     ("EURPLN", 180, 5.0, "base_higher"),
     ("EURPLN", 180, 5.0, "base_lower"),
     ("GBPUSD", 60, 3.0, "base_higher"),
+    ("GBPUSD", 60, 3.0, "base_lower"),
 ]
 
 
@@ -51,10 +82,7 @@ def _surface_for(pair, flat):
     if flat:
         return None
     from analytics.vol_surface import build_vol_surface
-    try:
-        return build_vol_surface(_SNAP.get(pair))
-    except Exception:
-        return None
+    return build_vol_surface(_SNAP.get(pair))
 
 
 def _close(a, b):
@@ -93,6 +121,7 @@ def test_parity_ported_families(pair, horizon, mag, direction, flat):
             ms, family, target=target, is_call=is_call, stop_price=stop_price, smile=surface
         )
         by_label = {v.variant_label: v for v in legacy}
+        assert by_label, f"{pair} {direction} {family}: no variants exercised"
         for variant in cfg[family]:
             # Legacy drops variants its eligibility gate rejects (e.g. half_sigma below
             # min_target_z); compare only the variants it actually priced.

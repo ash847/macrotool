@@ -4,7 +4,8 @@ Phase 2 smile refactor guards.
 The refactor introduces a pluggable ``VolSurface`` interface and pushes the
 smile through every place a *vanilla* option is priced — atmfsratio (in
 ``compute_market_state``) and scenario mark-to-market — while keeping the
-digital / RKO / european_rko legs on flat ATM vol.
+scenario digital / RKO / european_rko legs on flat ATM vol. European digital
+and ERKO entry pricing is smile-aware and rejects invalid digital values.
 
 Two invariants are pinned here:
 
@@ -20,6 +21,7 @@ Two invariants are pinned here:
 from __future__ import annotations
 
 import math
+from datetime import date
 
 import pytest
 
@@ -34,7 +36,7 @@ from analytics.vol_surface import (
     build_vol_surface,
     smile_skew_spread,
 )
-from data.snapshot_loader import load_snapshot
+from data.schema import CurrencySnapshot
 
 
 _TARGET = 55.0
@@ -46,7 +48,21 @@ _FWD = 46.7597
 
 @pytest.fixture(scope="module")
 def usdtry_ccy():
-    return load_snapshot().get("USDTRY")
+    """Controlled mild skew, not a changing live smile mixed with old constants."""
+    spot = 45.0
+    rd = _R_F + math.log(_FWD / spot) / _T
+    tenors = {"1W": 7, "1M": 30, "2M": 60, "3M": 91, "6M": 182, "1Y": 365}
+    return CurrencySnapshot(
+        pair="USDTRY", instrument_type="NDF", spot=spot, as_of=date(2026, 1, 1),
+        forwards=[dict(tenor=t, outright=spot * math.exp((rd - _R_F) * d / 365),
+                       points=(spot * math.exp((rd - _R_F) * d / 365) - spot) * 10000)
+                  for t, d in tenors.items()],
+        usd_df_curve=[dict(tenor=t, df=math.exp(-_R_F * d / 365)) for t, d in tenors.items()],
+        vol_surface=[dict(tenor=t, delta=delta, vol=_VOL + spread)
+                     for t in tenors for delta, spread in
+                     (("10DP", -0.005), ("25DP", -0.003), ("ATM", 0.0),
+                      ("25DC", 0.005), ("10DC", 0.01))],
+    )
 
 
 @pytest.fixture(scope="module")
@@ -69,11 +85,12 @@ def trade_inputs(usdtry_ccy):
     }
 
 
-def _market_state(spot, surface=None):
+def _market_state(spot, surface=None, is_call=True):
     r_d = _R_F + math.log(_FWD / spot) / _T
     return compute_market_state(
         spot, _FWD, _VOL, _T, r_d, _R_F,
-        target=_TARGET, direction="base_higher", surface=surface,
+        target=_TARGET if is_call else _FWD * 0.85,
+        direction="base_higher" if is_call else "base_lower", surface=surface,
     )
 
 
@@ -174,8 +191,7 @@ def test_scenario_smile_leaves_digital_flat(usdtry_ccy, trade_inputs, smile):
     """Digital legs stay on flat vol — smile must not change their MtM rows."""
     ms = _market_state(usdtry_ccy.spot, surface=smile)
     pvs = price_variants(ms, "european_digital", target=_TARGET, is_call=True, smile=smile)
-    if not pvs:
-        pytest.skip("no european_digital variant priced")
+    assert pvs, "controlled smile must exercise digital scenario pricing"
     pv = pvs[0]
     flat_rows = _scenario_rows(pv, "european_digital", trade_inputs, None)
     smile_rows = _scenario_rows(pv, "european_digital", trade_inputs, smile)
@@ -203,12 +219,17 @@ def test_european_rko_entry_flat_matches_none(usdtry_ccy):
         assert a.net_premium_pct == pytest.approx(b.net_premium_pct, rel=1e-12, abs=1e-15)
 
 
-def test_european_rko_entry_smile_moves_premium(usdtry_ccy, smile):
+@pytest.mark.parametrize("is_call", [True, False], ids=["call", "put"])
+def test_european_rko_entry_smile_moves_premium(usdtry_ccy, smile, is_call):
     """A real topside-skew smile shifts ERKO entry premium off the flat value."""
     spot = usdtry_ccy.spot
-    flat_pvs = price_variants(_market_state(spot, surface=None), "european_rko", target=_TARGET, is_call=True)
-    smile_pvs = price_variants(_market_state(spot, surface=smile), "european_rko", target=_TARGET, is_call=True, smile=smile)
+    target = _TARGET if is_call else _FWD * 0.85
+    warnings = []
+    flat_pvs = price_variants(_market_state(spot, is_call=is_call), "european_rko", target=target, is_call=is_call)
+    smile_pvs = price_variants(_market_state(spot, surface=smile, is_call=is_call), "european_rko", target=target, is_call=is_call, smile=smile, warnings=warnings)
+    assert not warnings, warnings
     assert flat_pvs and len(flat_pvs) == len(smile_pvs)
+    assert [v.variant_label for v in flat_pvs] == [v.variant_label for v in smile_pvs]
     diffs = [abs(a.net_premium_pct - b.net_premium_pct) for a, b in zip(flat_pvs, smile_pvs)]
     assert any(d > 1e-9 for d in diffs), "smile did not move any european_rko entry premium"
 
@@ -227,12 +248,17 @@ def test_european_digital_entry_flat_matches_none(usdtry_ccy):
         assert a.net_premium_pct == pytest.approx(b.net_premium_pct, rel=1e-12, abs=1e-15)
 
 
-def test_european_digital_entry_smile_moves_strike(usdtry_ccy, smile):
+@pytest.mark.parametrize("is_call", [True, False], ids=["call", "put"])
+def test_european_digital_entry_smile_moves_strike(usdtry_ccy, smile, is_call):
     """A real smile (level + skew-slope) shifts the solved digital strike/premium."""
     spot = usdtry_ccy.spot
-    flat_pvs = price_variants(_market_state(spot, surface=None), "european_digital", target=_TARGET, is_call=True)
-    smile_pvs = price_variants(_market_state(spot, surface=smile), "european_digital", target=_TARGET, is_call=True, smile=smile)
+    target = _TARGET if is_call else _FWD * 0.85
+    warnings = []
+    flat_pvs = price_variants(_market_state(spot, is_call=is_call), "european_digital", target=target, is_call=is_call)
+    smile_pvs = price_variants(_market_state(spot, surface=smile, is_call=is_call), "european_digital", target=target, is_call=is_call, smile=smile, warnings=warnings)
+    assert not warnings, warnings
     assert flat_pvs and len(flat_pvs) == len(smile_pvs)
+    assert [v.variant_label for v in flat_pvs] == [v.variant_label for v in smile_pvs]
     diffs = [abs(a.strikes[0] - b.strikes[0]) for a, b in zip(flat_pvs, smile_pvs)]
     assert any(d > 1e-6 for d in diffs), "smile did not move any european_digital strike"
 
@@ -264,8 +290,10 @@ def test_smile_arbitrage_european_rko_propagates(usdtry_ccy):
     """The ERKO digital strip inherits the guard — steep skew drops ERKO variants too."""
     ms = _market_state(usdtry_ccy.spot, surface=None)
     warns: list[str] = []
-    price_variants(
+    pvs = price_variants(
         ms, "european_rko", target=_TARGET, is_call=True,
         smile=_SteepSkewSurface(), warnings=warns,
     )
     assert warns, "steep-skew smile should drop at least one european_rko variant"
+    flat = price_variants(ms, "european_rko", target=_TARGET, is_call=True)
+    assert len(pvs) < len(flat)

@@ -162,6 +162,15 @@ def parse_structure_request(text: str) -> ParseResult:
 
 
 def to_variant_dict(req: StructureRequest) -> dict:
+    variant = _to_variant_dict(req)
+    # Keep numeric delta placeholders for compatibility, but preserve anchor intent.
+    atmf = [i for i, leg in enumerate(req.legs) if leg.kind == "atmf"]
+    if atmf and "long_type" not in variant:
+        variant["atmf_legs"] = atmf
+    return variant
+
+
+def _to_variant_dict(req: StructureRequest) -> dict:
     """Turn a parsed request into the synthetic per-variant dict the pricer consumes.
 
     Output shape mirrors structure_variants.json exactly, plus a ``label`` key.

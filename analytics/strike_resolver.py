@@ -1,42 +1,28 @@
 """
-σ-approximation for delta-to-strike conversion.
-
-Avoids full GK delta inversion; uses N^{-1}(Δ_call) as the z-score.
-Accurate to < 1% vs exact inversion for typical FX tenors and vols.
-
-Supported deltas: 0.10, 0.15, 0.25, 0.50. Linearly interpolated between.
+Exact unadjusted forward-delta inversion, matching the smile's N(d1) convention.
+ATM-forward is a separate anchor (K=F), not a synonym for 50-delta.
 """
 
 from __future__ import annotations
 
 import math
+from statistics import NormalDist
 
-# N^{-1}(Δ_call) for standard call deltas
-_DELTA_Z: dict[float, float] = {
-    0.50: 0.0000,
-    0.25: 0.6745,
-    0.15: 1.0364,
-    0.10: 1.2816,
-}
-
-
-def _z_for_delta(delta: float) -> float:
-    if delta in _DELTA_Z:
-        return _DELTA_Z[delta]
-    keys = sorted(_DELTA_Z.keys(), reverse=True)  # [0.50, 0.25, 0.15, 0.10]
-    for i in range(len(keys) - 1):
-        d_hi, d_lo = keys[i], keys[i + 1]
-        if d_lo <= delta <= d_hi:
-            t = (delta - d_lo) / (d_hi - d_lo)
-            return _DELTA_Z[d_lo] * (1 - t) + _DELTA_Z[d_hi] * t
-    raise ValueError(f"delta {delta} outside supported range [0.10, 0.50]")
+def _strike(fwd: float, vol: float, T: float, delta: float, is_call: bool) -> float:
+    if not all(math.isfinite(x) for x in (fwd, vol, T, delta)):
+        raise ValueError("Strike inputs must be finite")
+    if fwd <= 0 or vol <= 0 or T <= 0 or not 0 < delta < 1:
+        raise ValueError("Forward, vol and tenor must be positive; delta must be in (0, 1)")
+    z = NormalDist().inv_cdf(delta)
+    sign = -1.0 if is_call else 1.0
+    return fwd * math.exp(0.5 * vol * vol * T + sign * z * vol * math.sqrt(T))
 
 
 def otm_call_strike(fwd: float, vol: float, T: float, delta: float) -> float:
-    """Strike for an OTM call at the given delta (above the forward)."""
-    return fwd * math.exp(_z_for_delta(delta) * vol * math.sqrt(T))
+    """Strike at the given call forward delta; historical function name retained."""
+    return _strike(fwd, vol, T, delta, True)
 
 
 def otm_put_strike(fwd: float, vol: float, T: float, delta: float) -> float:
-    """Strike for an OTM put at the given delta (below the forward)."""
-    return fwd * math.exp(-_z_for_delta(delta) * vol * math.sqrt(T))
+    """Strike at the given absolute put forward delta (not necessarily below F)."""
+    return _strike(fwd, vol, T, delta, False)
