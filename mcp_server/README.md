@@ -7,7 +7,19 @@ normal; MacroTool answers anything about FX option structuring.
 
 Runs entirely on your machine. No hosting, no login. Not for production use.
 
-## Set up (about 10 minutes)
+## Quick start
+
+```bash
+git clone https://github.com/ash847/macrotool.git ~/macrotool-mcp
+cd ~/macrotool-mcp && git checkout mcp-demo
+./install.sh
+```
+
+`install.sh` builds the environment, stores your own Anthropic key (hidden prompt), adds MacroTool
+to Claude Desktop (while the app is closed), and self-checks. How to evaluate it:
+`mcp_server/EVALUATION.md`. The manual steps below are what it automates.
+
+## Set up manually (about 10 minutes)
 
 > **Keep everything outside `~/Documents`, `~/Desktop` and `~/Downloads`** (for example
 > `~/macrotool-mcp`, with the key in `~/.config/macrotool/secrets.toml`). Claude Desktop starts
