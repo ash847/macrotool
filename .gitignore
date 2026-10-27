@@ -17,3 +17,6 @@ logs/*.log
 # convenience and must never be added to this one — it carries its own .git, so a
 # stray `git add -A` would embed it as a broken submodule.
 backtest_lab/
+
+# Tester chat transcripts (scripts/tester_transcripts.py) contain testers' conversations.
+tester_transcripts*.html
