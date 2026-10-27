@@ -1,5 +1,10 @@
 # Beta readiness — to-do list
 
+> **Historical source review; superseded as an implementation checklist.**
+> Codex consolidated this review and its own review into
+> [BETA_IMPLEMENTATION_TODO.md](BETA_IMPLEMENTATION_TODO.md).
+> Use that file for task tracking. Claude's original text below is preserved.
+
 > **Written by Claude (AI code assistant), not by a team member.**
 > Source: a review of the `agentic-workflow` branch (v0.2.49, commit `bf049fc`) against
 > `BETA_READINESS_PLAN.md`, done on 13 October 2026. Claude read the code and ran the test
