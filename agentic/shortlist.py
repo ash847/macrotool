@@ -210,6 +210,7 @@ def shortlist_reference(pack, view) -> str:
                    pack.market_state.r_d, pack.market_state.r_f],
         "pair": view.pair, "horizon": view.horizon_days,
         "method": pack.sizing_method, "weights": pack.scenario_weights,
+        "scenario_grid": pack.scenario_grid,
         "tail_constraint": pack.tail_constraint, "effective_tails": pack.resolved_tail_constraint,
         "distributions": [getattr(getattr(rec.variant, "sizing_trace", None), "distribution_id", None)
                           for rec in pack.recommended],

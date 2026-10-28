@@ -5,9 +5,15 @@
 - Worktree: /Users/ash/Documents/Coding work/agentic-workflow
 - Branch: agentic-workflow. Do not implement this work in main.
 - Pre-integration checkpoint: d561a32 (flexible ratios, clean tree).
-- Current source release: f276056, v0.2.57, pushed to origin/agentic-workflow.
+- Previous source release: 746a75d, v0.2.58, pushed to origin/agentic-workflow.
+- Current release checkpoint: v0.2.59 custom comparison slice.
+- User tests on cloud. Publish authorized changes to agentic-workflow before
+  asking for acceptance testing; do not assume a local app test. Confirm the
+  cloud app has deployed the expected version separately from git push.
+- Latest local full suite: 1,499 passed, seven skipped (187.06 seconds), including custom comparison.
+- Pushed T23 suite: 1,482 passed, seven skipped (165.76 seconds).
 - User acceptance testing is pending; cloud deployment has not been independently verified.
-- Integrated source full suite: 1,416 passed, zero failures, seven skipped
+- Previous integration full suite: 1,416 passed, zero failures, seven skipped
   (160.55 seconds). Eight additional combined-feature tests then passed.
 - MCP optional suite: 13 passed using /Users/ash/macrotool-mcp/.venv/bin/python,
   with fake model and real stdio transport. No API calls or live deployment.
@@ -15,13 +21,35 @@
   Auth0-only expectations, GBPUSD 1M instead of missing 1W, and removal of the
   far-target/high-carry vanilla-winner test. Production behavior unchanged.
 - Post-merge check on agentic-workflow: 30 ratio/integration tests passed.
-- Test cleanup and all engine/integration work through f276056 are committed and
+- Test cleanup and all engine/integration work through 746a75d are committed and
   pushed. Historical results below are retained; earlier no-push statements
   describe those checkpoints only, not the current release.
 
 ## Resume here
 
-T23 release checkpoint (28 October, v0.2.58): user chose inception
+Release v0.2.59: user requested full custom scoring/comparison before charts.
+StandardPack retains its exact scenario grid; recommendations and custom-priced
+results retain full ScenarioEvidence (rows and ScoreResult). The old tag-only
+custom scorer was removed. compare_custom_trade accepts the current shortlist
+reference, one custom index and one to five recommendation ranks. It reads
+retained results without repricing, resizing, reranking or bypassing preferences.
+Public output: per-unit and actual-sized relative performance, each trade's
+contributors/detractors, and the scenario drivers of the difference. Raw scores
+and weights remain private. Sized differences split into structure effect at
+the comparator notional and sizing effect using custom per-unit performance.
+Shares use every absolute cell contribution/difference; never divide by net
+score. Zero/negative totals, zero size and missing size are covered.
+Custom seagulls now receive the same stop input and capital as the pack.
+Scenario-pricer exceptions carry metadata so this comparison fails closed. The
+legacy ranking/pricer fallback policy itself is not rewritten by this slice;
+broader T15 failure-policy work remains open.
+17 dedicated tests pass, including both directions, fixed-loss/Kelly, frozen
+grid reuse, seagull stop parity, supported digital/ERKO scenario pricing,
+stale/invalid references, restriction warnings and fake-model routing.
+Final full suite: 1,499 passed, seven skipped (187.06 seconds). No live API/UI
+or cloud acceptance. Earlier documentation edits in this worktree are preserved.
+
+T23 release checkpoint (28 October, v0.2.58, 746a75d pushed): user chose inception
 Greeks ahead of T21. Added analytics/inception_greeks.py and the on-demand
 inception_greeks agent tool. Vanilla-leg contracts only; actual signed quantities
 and sized notional; no reconstruction, resizing or automatic UI reporting.
@@ -36,9 +64,14 @@ or 0.05 base units per million; vega checks use 0.5% relative or 0.5 base units
 per million across half/standard/double bumps. These are numerical test
 tolerances, not risk limits. Live agent/cloud acceptance has not been run.
 
-1. Get user test feedback on familiar recommendations, explicit strike versus
-   delta inputs, ratio sizing and Kelly widget updates. README links current scope.
-2. After user testing of T23, next product slice: T21 selected-trade expiry payoff/net P&L charts, using the
+1. User acceptance: price `1x1.3 ATMF/25d`, then compare it to ranks 1 and 2 and
+   ask for attribution. Check structural versus sizing effects and restriction
+   warnings. Also ask for inception Greeks on an exact recommendation, then on
+   a custom `1x1.3 ATMF/25d` trade. Check base-currency units and actual sized
+   notional, puts as well as calls, and unavailable digital/ERKO results. Confirm
+   normal answers do not acquire automatic Greeks panels. Broader acceptance of
+   recommendations, strike/delta inputs, sizing and Kelly remains pending too.
+2. After user testing of custom comparison and T23, next product slice: T21 selected-trade expiry payoff/net P&L charts, using the
    retained contract, premium and actual notional. No LLM numerical curve building.
 3. T23 exotic Greeks remain deferred; do not substitute vanilla sensitivities.
 4. Broader T22 arbitrary packages remain proposed; supported 1xR requests already

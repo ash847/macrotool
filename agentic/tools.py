@@ -50,6 +50,20 @@ _MODES = ("recommend", "critique")
 
 TOOL_SCHEMAS = [
     {
+        "name": "compare_custom_trade",
+        "description": "Compare a previously priced custom trade with one to five exact recommendation ranks, using retained scenario scores and attribution. Supply its CUSTOM TRADE INDEX and the current SHORTLIST REFERENCE. Call price_structure first for a new construction. Returns engine-computed relative performance per unit and at actual sizes, plus contributors/detractors and drivers of the difference. Does not reprice, resize, rerank or promote a restricted trade. Internal numeric scores/weights remain private.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "shortlist_ref": {"type": "string"},
+                "custom_index": {"type": "integer", "minimum": 1},
+                "ranks": {"type": "array", "items": {"type": "integer", "minimum": 1},
+                          "minItems": 1, "maxItems": 5, "uniqueItems": True},
+            },
+            "required": ["shortlist_ref", "custom_index", "ranks"], "additionalProperties": False,
+        },
+    },
+    {
         "name": "inception_greeks",
         "description": "Only when the PM asks for Greeks: compute inception delta, gamma and vega for an already-priced vanilla-leg package. Supply the current SHORTLIST REFERENCE and exactly one of rank (recommendation) or custom_index (1-based index returned by price_structure). Never calculate Greeks yourself. Digital, ERKO and linear trades are not supported. No repricing, resizing or change to recommendations.",
         "input_schema": {
@@ -171,6 +185,8 @@ TOOL_SCHEMAS = [
 def dispatch(session: AgentSession, name: str, args: dict) -> tuple[str, bool]:
     """Run a tool by name. Returns (content_text, is_error)."""
     try:
+        if name == "compare_custom_trade":
+            return _compare_custom_trade(session, args), False
         if name == "inception_greeks":
             return _inception_greeks(session, args), False
         if name == "set_tail_constraint":
@@ -190,6 +206,62 @@ def dispatch(session: AgentSession, name: str, args: dict) -> tuple[str, bool]:
 
 class _ToolError(Exception):
     pass
+
+
+def _compare_custom_trade(session, args):
+    import json
+    from agentic.scenario_comparison import compare_evidence, public_attribution
+
+    pack, view = session.pack, session.view
+    if pack is None or view is None:
+        raise _ToolError("No standard pack yet; establish the view first.")
+    reference = shortlist_reference(pack, view)
+    if args.get("shortlist_ref") != reference:
+        raise _ToolError("Stale shortlist reference; do not map old ranks onto the current list.")
+    if set(args) != {"shortlist_ref", "custom_index", "ranks"}:
+        raise _ToolError("Supply only shortlist_ref, custom_index and ranks.")
+    index, ranks = args["custom_index"], args["ranks"]
+    if type(index) is not int or not 1 <= index <= len(session.priced):
+        raise _ToolError("Custom trade index not found.")
+    if (not isinstance(ranks, list) or not 1 <= len(ranks) <= 5
+            or any(type(rank) is not int or rank < 1 for rank in ranks) or len(set(ranks)) != len(ranks)):
+        raise _ToolError("Provide one to five distinct positive integer ranks.")
+    custom = session.priced[index - 1]
+    if custom.comparison_reference != reference or custom.inception_market_state is not pack.market_state:
+        raise _ToolError("Custom trade belongs to an old view/settings context; price it in the current view first.")
+    if custom.scenario_error or custom.scenario_evidence is None:
+        raise _ToolError(custom.scenario_error or "Custom scenario evidence is unavailable.")
+    selected = []
+    for rank in ranks:
+        rec = next((rec for rec in pack.recommended if rec.rank == rank), None)
+        if rec is None:
+            raise _ToolError("Recommendation rank not found; do not guess another trade.")
+        selected.append(rec)
+    warning = tail_exclusion_reason(custom.variant, pack.resolved_tail_constraint, view.direction)
+    from knowledge_engine.preference_policy import preference_exclusion_reason
+    warning = warning or preference_exclusion_reason(custom.request.family, custom.variant, session.structure_constraint)
+    comparisons = []
+    try:
+        for rec in selected:
+            comparisons.append({
+                "rank": rec.rank, "family": rec.structure_id, "label": rec.variant.variant_label,
+                "notional_base": rec.variant.structure_notional,
+                "risk": tail_risk_text(rec.variant), "risk_note": rec.major_risk,
+                "attribution": public_attribution(rec.scenario_evidence),
+                "custom_minus_recommendation": compare_evidence(
+                    custom.scenario_evidence, rec.scenario_evidence,
+                    custom.variant.structure_notional, rec.variant.structure_notional),
+            })
+        attribution = public_attribution(custom.scenario_evidence)
+    except ValueError as error:
+        raise _ToolError(str(error)) from error
+    return json.dumps({
+        "shortlist_ref": reference, "custom_index": index, "base_currency": view.pair[:3],
+        "custom_label": custom.variant.variant_label, "custom_notional_base": custom.variant.structure_notional,
+        "custom_risk": tail_risk_text(custom.variant), "restriction_warning": warning,
+        "custom_attribution": attribution, "comparisons": comparisons,
+        "interpretation": "Same retained scenario grid and weights. Higher/lower always means custom relative to the recommendation. Per-unit removes the size difference, not risk differences. Actual-sized uses each retained notional. Structure effect is measured at the comparator notional; size effect uses the custom per-unit performance. Positive gap drivers favour the custom trade; negative gap drivers favour the recommendation. Signed shares divide by ALL absolute cell contributions (or ALL absolute cell differences for gap attribution), not by net P&L or the displayed subset; null means near-zero denominator. Fractions are not probabilities or returns. Raw numeric scores and weights are private. This is modelled scenario performance, not realised returns or proof of optimality. Existing ranks and eligibility are unchanged; preserve restriction warnings. Linear uses modelled capped scenario losses, not contractual protection.",
+    }, allow_nan=False)
 
 
 def _inception_greeks(session, args):
@@ -471,14 +543,20 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             return render_recommended(rec, base_ccy), False
 
     ms = session.pack.market_state
+    pack = session.pack
+    stop_price = None
+    if pack.target is not None and pack.loss_budget is not None and pack.linear_notional > 0:
+        distance = pack.loss_budget / pack.linear_notional
+        stop_price = ms.fwd * (1 - distance if pack.is_call else 1 + distance)
     try:
         result = price_structure(
             request,
             ms,
             is_call=session.pack.is_call,
             target=session.pack.target,
+            stop_price=stop_price,
             loss_budget=session.pack.loss_budget,
-            linear_notional=session.linear_notional,
+            linear_notional=pack.linear_notional,
             smile=getattr(ms, "surface", None),
             # Same regime as the pack: Kelly on the PM's stated distribution for this
             # trade when the pack was Kelly-sized, else fixed-loss.
@@ -513,19 +591,27 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
                     for name in ("budget_distance", "budget_reference", "budget_target", "budget_input_rr"):
                         context[name] = getattr(origin, name)
             result.variant.sizing_trace = replace(trace, **context)
-        session.priced.append(result)
         from agentic.structure_request import to_variant_dict
         assign_variant_tails(result.request.family, result.variant, session.pack.is_call,
                              construction=to_variant_dict(result.request))
         tail_warning = tail_exclusion_reason(result.variant, session.pack.resolved_tail_constraint, session.view.direction)
-        # Characterize the off-menu structure in the same IP-clean vocabulary as the
-        # recommended set (scored against the frozen pack) so the LLM can contrast it.
-        from agentic.price_structure import characterize_against_pack
-        tags = characterize_against_pack(
-            result.variant, result.request.family, ms,
-            is_call=session.pack.is_call, target=session.pack.target,
-            smile=getattr(ms, "surface", None), weights=session.pack.scenario_weights,
-        )
+        from agentic.scenario_comparison import evaluate_custom
+        from knowledge_engine.comparator import summarize_scenario_rows
+        from knowledge_engine.structure_attributes import attributes
+        tags = frozenset()
+        evidence = None
+        scenario_error = None
+        try:
+            evidence = evaluate_custom(result, pack)
+            tags = attributes(result.request.family, evidence.score, summarize_scenario_rows(evidence.rows))
+        except Exception as error:
+            scenario_error = ("Scenario scoring unavailable: a usable target and ranked pack are required."
+                              if not pack.variants_ranked else
+                              f"Scenario scoring unavailable ({type(error).__name__}); do not infer a comparison from this price.")
+        result = replace(result, scenario_evidence=evidence, scenario_error=scenario_error,
+                         comparison_reference=shortlist_reference(pack, session.view))
+        session.priced.append(result)
         warning = f"CONFLICT WITH ACTIVE TAIL CONSTRAINT: {tail_warning}. Priced only for inspection, not an eligible recommendation.\n" if tail_warning else ""
-        return reading + f"CUSTOM TRADE INDEX: {len(session.priced)}\n" + warning + tail_risk_text(result.variant) + "\n" + render_priced_structure(result, tags, base_ccy), False
+        evidence_note = scenario_error or "Scenario evidence retained; use compare_custom_trade for attribution against exact recommendation ranks."
+        return reading + f"CUSTOM TRADE INDEX: {len(session.priced)}\nSHORTLIST REFERENCE: {result.comparison_reference}\n{evidence_note}\n" + warning + tail_risk_text(result.variant) + "\n" + render_priced_structure(result, tags, base_ccy), False
     return "Unexpected pricing result.", True

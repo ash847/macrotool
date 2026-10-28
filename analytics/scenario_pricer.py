@@ -124,6 +124,7 @@ def price_scenarios(
         d = sc["derived"]
         scenario_spot: float = d["scenario_spot"]
         tau: float = d["remaining_time"]
+        pricing_error = None
         vol_shifts = sc.get("vol_shifts")
         if vol_shifts:
             raws = []
@@ -134,7 +135,8 @@ def price_scenarios(
                         scenario_spot, max(trade_inputs["implied_vol"] + shift, 0.01), tau,
                         r_d, r_f, entry_spot, is_call, surface,
                     )
-                except Exception:
+                except Exception as error:
+                    pricing_error = type(error).__name__
                     raw = 0.0
                 raws.append(raw)
             raw = min(raws) if raws else 0.0
@@ -148,7 +150,8 @@ def price_scenarios(
                     scenario_spot, scenario_vol, tau,
                     r_d, r_f, entry_spot, is_call, surface,
                 )
-            except Exception:
+            except Exception as error:
+                pricing_error = type(error).__name__
                 raw = 0.0
             vol_shift = d["vol_shift"]
 
@@ -162,6 +165,7 @@ def price_scenarios(
 
         results.append({
             "structure_id": structure_id,
+            **({"pricing_error": pricing_error} if pricing_error else {}),
             "variant_label": variant.variant_label,
             "scenario_id": sc["id"],
             "row": sc["row"],

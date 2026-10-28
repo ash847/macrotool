@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from analytics.market_state import MarketState
 from analytics.models import MaturityHistogram, PriceDistribution
 from analytics.structure_pricer import PricedVariant, price_variants
+from agentic.scenario_comparison import ScenarioEvidence
 from knowledge_engine.models import SizingOutput, StructureSelectionResult, TradeView
 
 
@@ -75,6 +76,7 @@ class RecommendedStructure:
                                      # same numbers as Trade View's "Key P&L drivers" panel
     score_pct: float | None = None
     absolute_contribution_total_pct: float | None = None
+    scenario_evidence: ScenarioEvidence | None = None
 
 
 @dataclass
@@ -95,6 +97,7 @@ class StandardPack:
     active_context: str | None = None         # fired scenario-weighting context id
     deciding_axis: str | None = None          # IP-clean gloss: what separated #1 from #2
     scenario_weights: dict | None = None      # resolved PM weights (Tier-2 reuses to score a PM structure)
+    scenario_grid: list[dict] = field(default_factory=list)
     sizing_method: str = "fixed_loss"         # active sizing regime the trades were sized under
     kelly_lambda: float = 0.5                 # fractional-Kelly multiplier (Kelly regime only)
     linear_notional: float = 100.0            # sizing capital W
@@ -177,6 +180,7 @@ def _recommend_ranked(
                 variant=best.variant,
                 score_ccy=best.pm_score.score_ccy,
                 score_pct=best.pm_score.score_pct,
+                scenario_evidence=ScenarioEvidence(tuple(best.rows), best.pm_score),
                 absolute_contribution_total_pct=best.pm_score.absolute_contribution_total_pct,
                 priced_structure=_priced_structure_for(
                     item.structure_id, best.variant.variant_label, ms, is_call,
@@ -208,6 +212,7 @@ def _recommend_ranked(
         rationale="Modelled linear benchmark; scenario losses are capped, not a contractual loss guarantee.",
         variant=linear_variant, score_ccy=linear_score.score_ccy,
         score_pct=linear_score.score_pct,
+        scenario_evidence=ScenarioEvidence(tuple(linear_rows), linear_score),
         absolute_contribution_total_pct=linear_score.absolute_contribution_total_pct,
         major_risk="The modelled loss cap is not a guaranteed executable stop or contractual protection.",
         cell_drivers=top_bottom_cells(linear_score),
@@ -242,7 +247,7 @@ def _recommend_ranked(
             agg_by_sid[(out[1].structure_id, out[1].variant.variant_label)],
         )
 
-    return out, loss_budget, inputs.active_context, deciding, inputs.weights
+    return out, loss_budget, inputs.active_context, deciding, inputs.weights, inputs.scenarios
 
 
 def _filter_directional_tails(recommendations, is_call, constraint, exclusions):
@@ -407,10 +412,11 @@ def build_pack(
     active_context: str | None = None
     deciding_axis: str | None = None
     scenario_weights: dict | None = None
+    scenario_grid: list[dict] = []
     ranked_completed = False
     if target is not None:
         try:
-            recommended, loss_budget, active_context, deciding_axis, scenario_weights = _recommend_ranked(
+            recommended, loss_budget, active_context, deciding_axis, scenario_weights, scenario_grid = _recommend_ranked(
                 market_state, selector_result, target, is_call, surface,
                 primary_objective, trade_management, structure_constraint, target_rr,
                 user_email=user_email, linear_notional=linear_notional,
@@ -476,6 +482,7 @@ def build_pack(
         active_context=active_context,
         deciding_axis=deciding_axis,
         scenario_weights=scenario_weights,
+        scenario_grid=scenario_grid,
         sizing_method=("kelly" if sizing_spec is not None else "fixed_loss"),
         kelly_lambda=kelly_lambda,
         linear_notional=linear_notional,

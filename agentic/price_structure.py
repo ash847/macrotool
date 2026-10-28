@@ -29,6 +29,7 @@ from typing import Union
 
 from analytics.market_state import MarketState
 from analytics.structure_pricer import PricedVariant, price_variants
+from agentic.scenario_comparison import ScenarioEvidence
 from agentic.structure_request import (
     ClarificationNeeded,
     StructureRequest,
@@ -48,6 +49,9 @@ class PricedStructure:
     # explicit per-leg render. Metrics/ccy still come from `variant` (sized to loss_budget).
     priced_structure: object | None = None
     inception_market_state: object | None = None
+    scenario_evidence: ScenarioEvidence | None = None
+    scenario_error: str | None = None
+    comparison_reference: str | None = None
 
 
 @dataclass(frozen=True)
@@ -154,44 +158,6 @@ def price_structure(
         priced_structure=legs_struct,
         inception_market_state=ms,
     )
-
-
-def characterize_against_pack(
-    variant,
-    family: str,
-    ms: MarketState,
-    *,
-    is_call: bool,
-    target: float | None,
-    smile: object,
-    weights: dict | None,
-) -> frozenset:
-    """IP-clean qualitative tags for a PM-named structure, scored against the
-    *frozen* pack (same scenario grid + same resolved weights). Mirrors the
-    pack-build path so an off-menu structure lands in the identical vocabulary.
-
-    Best-effort: returns an empty set if the structure can't be scenario-scored
-    (e.g. no target, or no resolved weights on the pack).
-    """
-    if target is None or not weights:
-        return frozenset()
-    try:
-        from analytics.scenario_generator import generate_scenarios
-        from analytics.scenario_pricer import price_scenarios
-        from knowledge_engine.scenario_scorer import score_structure
-        from knowledge_engine.comparator import summarize_scenario_rows
-        from knowledge_engine.structure_attributes import attributes
-
-        trade_inputs = {
-            "spot": ms.spot, "forward": ms.fwd, "implied_vol": ms.vol,
-            "tenor_years": ms.T, "target": target, "r_d": ms.r_d, "r_f": ms.r_f,
-        }
-        scenarios = generate_scenarios(trade_inputs)
-        rows = price_scenarios(variant, family, scenarios, trade_inputs, is_call, surface=smile)
-        pm_score = score_structure(rows, weights)
-        return attributes(family, pm_score, summarize_scenario_rows(rows))
-    except Exception:
-        return frozenset()
 
 
 # A strike further than this many standard deviations (σ√T) from the forward is not a

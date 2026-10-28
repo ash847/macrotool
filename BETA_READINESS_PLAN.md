@@ -2,20 +2,29 @@
 
 Original plan: 7 October 2026; source-status refresh: 28 October 2026.
 Original review: v0.2.43 / `002aea2`; current tested source: `agentic-workflow`,
-v0.2.57 / `f276056`, pushed to origin.
+v0.2.58 / `746a75d`, pushed to origin/agentic-workflow.
 Status: proposed plan for agreement; not an implementation or a production security certification.
 
 ## Current delivery checkpoint
 
 Shared vanilla-leg pricing/valuation, exact strike resolution, flexible ratio
 requests with existing sizing, strike-default parsing and local MCP integration
-are implemented. User cloud/UI acceptance testing is pending. The integrated
-suite passed 1,416 tests (seven skipped); eight new integration tests and 13 MCP
-tests passed separately, followed by 30 post-merge ratio/integration tests.
+are implemented. T23 vanilla-leg inception Greeks are now available to the agent
+on request, using agreed base-currency conventions; digital/ERKO Greeks remain
+unavailable. User cloud/UI acceptance testing is pending. The latest full suite
+passed 1,482 tests (seven skipped). The optional MCP suite previously passed 13
+tests at the integration checkpoint; it was not rerun for T23.
 The previous recurring test failures are resolved, not quarantined.
 
-Product sequence: test the pushed changes; T21 expiry payoff/net P&L charts;
-T23 inception Greeks after conventions are agreed; broader T22 packages after
+Release v0.2.59 adds custom-trade scenario comparison/attribution before charts;
+cloud acceptance is pending. It reuses retained grid/weights and separates structural
+performance from sizing, without exposing raw scores or changing eligibility.
+This is a T14/T22 subset, not approval of unrestricted packages or numeric scores.
+Local full-suite verification: 1,499 passed, seven skipped (187.06 seconds);
+no live API/cloud/UI acceptance and no new optional MCP run.
+
+Product sequence: acceptance-test custom comparison and pushed T23 Greeks; T21 expiry payoff/net
+P&L charts; broader T22 packages after
 their risk/sizing specification. T19 specialized-product migration is incomplete.
 This sequence does not replace urgent admission/RLS/spend/release work before
 onboarding more users. See [the active checklist](BETA_IMPLEMENTATION_TODO.md)
@@ -50,7 +59,7 @@ The following is based on repository inspection and work completed in this task.
 | Product surface | About, sizing explanations, contact email, chat logging and reactions already exist. | Improve onboarding and feedback delivery; these are not greenfield features. |
 | Recent fixes | v0.2.42–43 add loss-bound reporting, target/budget displays and hard preference filters. Net-credit sizing still sets notional to 10×W by policy. | Verify deployed UI; narration changes do not make that sizing policy conservative or a guaranteed loss bound. |
 | Commentary | Remote commentary can override local JSON. The USDJPY trace showed “Avoid seagulls” while Seagull was second in Structure Fit. | Audit and reconcile active remote prose. Prompt safeguards alone are not a complete content cleanup. |
-| Releases/tests | v0.2.57 / `f276056` is pushed to `agentic-workflow`; test evidence is above. Obsolete scorer expectation removed by user decision; login/tenor/smile tests corrected. | Verify the actual deployed branch/version and clean-install/CI release gates separately; source tests do not establish deployment readiness. |
+| Releases/tests | v0.2.58 / `746a75d` is pushed to `agentic-workflow`; test evidence is above. Obsolete scorer expectation removed by user decision; login/tenor/smile tests corrected. | Verify the actual deployed branch/version and clean-install/CI release gates separately; source tests do not establish deployment readiness. |
 
 Older `SECURITY_HARDENING_PLAN.md` describes an anon insert model that differs from today's service-role model. Reconcile that document during hardening; do not copy its old SQL into production.
 

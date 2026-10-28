@@ -16,7 +16,7 @@ authorise launch.
 
 ### Current status - 28 October 2026
 
-Pushed source checkpoint: **agentic-workflow, f276056, v0.2.57**. User testing is
+Pushed source checkpoint: **agentic-workflow, 746a75d, v0.2.58**. User testing is
 pending; a cloud deployment is not independently confirmed. Earlier evidence
 sections retain their original test counts and no-push notes as historical records.
 
@@ -26,21 +26,27 @@ sections retain their original test counts and no-push notes as historical recor
 | T19 product migration | Partial: vanilla-leg families share entry pricing, retained contracts, valuation and explicit sizing policies. Specialized products/legacy retirement remain. |
 | T22 flexible packages | Partial: supported two-leg 1xR requests (R >= 1) have existing recommended sizing; arbitrary combinations/editor remain proposed. |
 | T21 payoff/P&L charts | Not implemented in this work; next product slice after user testing. |
-| T23 inception Greeks | Vanilla-leg implementation added locally in v0.2.58, agent-only on request; user testing and exotic-product validation remain open. |
+| T23 inception Greeks | Vanilla-leg implementation pushed as 746a75d / v0.2.58, agent-only on request; user testing and exotic-product validation remain open. |
+| Custom comparison (T14/T22 subset) | Release v0.2.59: retained scenario evidence and on-demand attribution versus exact recommendation ranks; cloud acceptance pending. Numeric score display remains outside this slice. |
 | Launch controls and deployment gates | Not signed off by these changes; retain existing urgency and verification requirements. |
 
-Verification: full integrated source run 1,416 passed / seven skipped; eight new
+Historical integration verification: full source run 1,416 passed / seven skipped; eight new
 combined-feature tests and 13 MCP tests passed separately; post-merge ratio/
 integration run 30 passed. No live API/cloud/UI certification. Input rule:
 bare leg numbers are strikes; use `25d`/`25 delta` for delta. ATMF is distinct
 from 50 delta. See README and PRODUCT_ENGINE_HANDOFF_CODEX.md for current usage.
 
-T23 local v0.2.58 verification: final full suite 1,482 passed / seven skipped
+T23 pushed v0.2.58 verification: final full suite 1,482 passed / seven skipped
 (165.76 seconds), including 58 new Greeks cases and fake-model routing. No live
 API/cloud/UI certification; source release checkpoint is v0.2.58.
 
+Local v0.2.59 custom-comparison verification: final full suite 1,499 passed /
+seven skipped (187.06 seconds), including 17 new comparison tests. Includes
+fake-model agent routing; no live API/cloud/UI check. User acceptance testing
+is on cloud after deployment of the v0.2.59 release, not on a local app.
+
 The broad launch stage order below remains valid. Within the current product
-track: user testing -> T23 vanilla-leg Greeks (user-selected next) -> T21 expiry charts -> broader T22 design,
+track: acceptance testing of local custom comparison and pushed T23 Greeks -> T21 expiry charts -> broader T22 design,
 with remaining T19 migration incremental. Do not delay urgent controls for charts.
 
 Items are ordered by implementation stage. Each has one or two functional tags
@@ -308,6 +314,13 @@ or concurrent chat activity cannot quietly corrupt the saved state.
 
 - [ ] **T14. Add a score and gap-to-best display on a common basis.**
 
+  Implemented subset (local v0.2.59): custom-versus-recommendation comparison
+  retains full engine results and explains per-unit versus actual-sized relative
+  performance, contributors/detractors and difference attribution. No shortlist
+  mutation. Existing confidentiality policy is preserved: raw scores and weights
+  are not exposed. The numeric display proposed below still requires explicit
+  product approval; this slice does not complete T14.
+
   Tags: system consistency; core engine function improvement. **Urgency: U1.**
   Depends on: T13 interpretation; T09 versioned settings. Sources: Claude 10; roadmap section 9.
   Do: render scenario-weighted P&L score and absolute gap from the top package in
@@ -319,6 +332,10 @@ or concurrent chat activity cannot quietly corrupt the saved state.
   Done when: quant/product approve wording and deterministic display tests pass.
 
 - [ ] **T15. Expose pricing/ranking failures and approve fallback rules.**
+
+  Local comparison safeguard (v0.2.59): scenario pricing exceptions are marked
+  in retained rows and make comparison unavailable, rather than treating the
+  fallback zero as valid evidence. Legacy ranking fallback policy remains open.
 
   Tags: core engine function improvement; system consistency. **Urgency: U1.**
   Depends on: T09/T12 for traceable reasons. Sources: Codex 7.
@@ -414,7 +431,9 @@ Do not widen the cohort solely because a day or headcount target was reached.
   bump-and-reprice methods; do not substitute ordinary vanilla Greeks.
   Dependencies: T13 risk meanings and T09 run context; coordinate with T19's
   product model and T22's flexible construction. Vanilla-leg conventions and
-  implementation are complete locally; exotic-product design remains open.
+  implementation are pushed in 746a75d; user acceptance and exotic-product
+  design remain open. Keep the overall item unticked until its agreed scope
+  and acceptance criteria are closed.
   Example/trade-off: a 1x2 spread's net delta is long-leg delta minus twice the
   short-leg delta. Consistent conventions add work but prevent misleading
   comparisons between trades, currencies and sizing levels.
@@ -432,9 +451,13 @@ Do not widen the cohort solely because a day or headcount target was reached.
   limited to the preset constructions. For example, support a requested 1x1.3
   spread with its actual leg quantities reflected consistently in pricing,
   payoff/P&L charts, risk and sizing.
-  Design/specification: deferred; agree supported constructions, ratio limits,
-  validation and user interaction before implementation. Coordinate with T19's
-  product-model work and T21's charts; detailed dependencies remain to be decided.
+  Delivered subset: explicit two-leg 1xR requests (R >= 1), including 1x1.3,
+  already support pricing, existing sizing and vanilla-leg Greeks. Local v0.2.59
+  adds retained custom scenario evidence and comparison/attribution, including
+  the same stop input for custom seagull sizing as recommendations. Broader
+  construction/editor specification is deferred: agree supported combinations,
+  ratio limits, validation and user interaction before widening scope. Coordinate
+  with T19's product model and T21's charts.
   Trade-off: greater flexibility adds validation and risk-explanation complexity.
   This is a backlog addition, not approval to change the default recommendation
   menu or implement unrestricted structures now.
@@ -913,7 +936,7 @@ Fill this table as work is assigned and completed.
 | T11 | Unassigned | Pending |
 | T12 | Unassigned | Pending |
 | T13 | Unassigned | Pending |
-| T14 | Unassigned | Pending |
+| T14 | Codex (comparison subset) | Local v0.2.59 relative custom comparison/attribution; broader numeric score display pending approval |
 | T15 | Unassigned | Pending |
 | T16 | Unassigned | Pending |
 | T17 | Unassigned | Pending |
@@ -921,8 +944,8 @@ Fill this table as work is assigned and completed.
 | T19 | Unassigned | Pending |
 | T20 | Unassigned | Pending |
 | T21 | Unassigned | Pending |
-| T22 | Unassigned | Pending specification |
-| T23 | Codex | Vanilla-leg tool implemented locally; user acceptance and exotic scope pending |
+| T22 | Codex (supported subset) | Supported 1xR shipped; local v0.2.59 comparison; arbitrary-package specification still pending |
+| T23 | Codex | 746a75d, v0.2.58 pushed; full suite 1,482 passed / seven skipped; user acceptance and exotic scope pending |
 
 ## Coverage: nothing dropped from either source review
 

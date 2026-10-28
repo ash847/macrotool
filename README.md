@@ -8,7 +8,7 @@ Trade View screen retains a structured, silent engine path for admin testing.
 
 ## Current Status - 28 October 2026
 
-The tested integration is **v0.2.57, commit `f276056`, pushed to
+The previous source release is **v0.2.58, commit `746a75d`, pushed to
 `origin/agentic-workflow`**. This is a source-release checkpoint, not confirmation
 that a cloud app has deployed it. User acceptance testing is pending.
 
@@ -27,13 +27,26 @@ that a cloud app has deployed it. User acceptance testing is pending.
 - The local [MCP demo](mcp_server/README.md) and shared exchange telemetry are included.
   MCP is not a production external API or an app authentication replacement.
 
-Verification: integrated full suite **1,416 passed, seven skipped**; eight added
-combined-feature tests passed; all 13 optional MCP tests passed separately. After
-integration, 30 ratio/integration tests passed on agentic-workflow. These counts
-describe separate runs, not one combined full-suite result. No live cloud/UI check.
+Verification: latest full suite **1,482 passed, seven skipped**, including the
+Greeks tests. The optional MCP suite previously passed 13 tests separately at
+the integration checkpoint; it was not rerun for T23. No live cloud/UI check.
 
 Next product work: user testing of vanilla-leg inception Greeks (T23), then
 selected-trade expiry payoff/net P&L charts (T21) and broader custom packages (T22).
+
+Release v0.2.59 adds custom-trade comparison before charting.
+Price a trade, then ask: "Compare my 1x1.3 ATMF/25d with recommendations
+1 and 2 and explain the contributors and detractors." The engine retains its
+full scenario evidence using the recommendation run's exact grid and weights.
+Comparison separates per-unit performance from actual-sized performance and
+identifies scenarios driving the difference. Raw scores/weights stay private;
+signed attribution shares use all absolute contributions, not net profit.
+Stale contexts and failed scenario prices are unavailable, not fabricated zeros.
+The existing shortlist and eligibility rules are not changed. Custom seagulls
+now use the same stop input as the pack for existing sizing rules. Accept this
+comparison slice and T23 before moving to T21; no live API/cloud test yet.
+Local v0.2.59 full suite: **1,499 passed, seven skipped** (187.06 seconds),
+including 17 dedicated custom-comparison tests. `git diff --check` passed.
 
 Version 0.2.58 adds T23 vanilla-leg inception Greeks, ahead of charts at the user's
 request. Ask the agent for delta/gamma/vega on an exact recommendation or custom
@@ -179,7 +192,10 @@ settings. This work was pushed to `agentic-workflow`, not to `main`; a push is n
 proof of a completed deployment. For Python source or dependency changes, bump
 `pyproject.toml` to trigger package reinstall. JSON-only changes do not require a bump.
 
-Current tested source version: `0.2.57` (`f276056`).
+Current tested source version: `0.2.59`, custom-trade comparison release on
+`agentic-workflow`. User acceptance testing is on cloud, not a local app;
+verify the deployed version before testing. A successful push alone does not
+confirm Streamlit deployment.
 
 Runtime secrets:
 

@@ -358,6 +358,19 @@ Routing — decide what each PM turn needs:
    or moving-smile risk. Unsupported digital/ERKO/linear Greeks must be unavailable,
    never approximated with vanilla Greeks. Do not add Greeks to routine responses.
 
+7. For comparing a PM's custom trade to recommendations or explaining its scenario
+   attribution, call compare_custom_trade with its CUSTOM TRADE INDEX, current
+   SHORTLIST REFERENCE and the requested recommendation ranks. Price a new
+   construction first; ask which trades if ambiguous. Use the returned relative
+   performance and attribution; do not calculate differences yourself. Explain
+   per-unit versus actual-sized performance separately. Positive gap shares favour
+   the custom trade; negative shares favour the recommendation. These normalized
+   difference-attribution shares are approved public output, like the existing
+   contributor shares; internal numeric scores and weights remain private.
+   Keep eligibility warnings: better modelled performance does not turn a
+   restricted inspection-only trade into an eligible recommendation. This tool
+   neither changes the shortlist nor establishes an optimal or realised outcome.
+
 If a tool returns a clarifying question (ambiguous structure request), ask the PM that
 question. If it says a structure can't be priced, relay the reason plainly.
 
@@ -426,7 +439,7 @@ class AgentFlow:
                 if call.name in ("run_standard_pack", "set_tail_constraint"):
                     show_shortlist = not is_error
                     tables = None if not is_error else {}
-                elif call.name == "price_structure":
+                elif call.name in ("price_structure", "compare_custom_trade"):
                     show_shortlist = False
                     tables = None
                 elif call.name == "inspect_recommendations":
