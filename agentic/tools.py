@@ -134,16 +134,18 @@ TOOL_SCHEMAS = [
         "description": (
             "Price a specific structure the PM names, against the CURRENT view's market "
             "state. Provide a short request string in the structure grammar, e.g. "
-            "'34 vs 25 1x1.5', '25Δ vanilla', 'digital 10%', 'ATMF vs target 1x2'. "
-            "Direction, target, weights, and strikes are supplied by the engine — you only "
-            "name the structure. Requires that run_standard_pack has already been called."
+            "'34Δ vs 25Δ 1x1.5', '1x1 5.00 / 4.80', '25Δ vanilla', 'digital 10%', "
+            "'ATMF vs target 1x2'. A bare number is an absolute strike; mark deltas with Δ "
+            "(10Δ–50Δ). Legs are long first, then short. Copy the PM's numbers as written — "
+            "never convert between strike and delta. Direction, target and weights are "
+            "supplied by the engine. Requires that run_standard_pack has already been called."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "request": {
                     "type": "string",
-                    "description": "structure request, e.g. '34 vs 25 1x1.5' or 'digital 10%'",
+                    "description": "structure request, e.g. '34Δ vs 25Δ 1x1.5', '1x1 5.00 / 4.80' (strikes) or 'digital 10%'",
                 },
             },
             "required": ["request"],
@@ -166,6 +168,8 @@ def dispatch(session: AgentSession, name: str, args: dict) -> tuple[str, bool]:
         return f"Unknown tool '{name}'.", True
     except _ToolError as e:
         return str(e), True
+    except Exception as e:  # never let one tool failure break the conversation
+        return f"Tool '{name}' failed: {type(e).__name__}: {e}", True
 
 
 class _ToolError(Exception):
@@ -427,8 +431,11 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
 
     if isinstance(result, ClarificationNeeded):
         return result.question, False  # not an error — ask the PM
+    from agentic.structure_request import describe_leg_inputs
+    reading = describe_leg_inputs(result.request)
+    reading = reading + "\n" if reading else ""
     if isinstance(result, PricingUnavailable):
-        return render_unavailable(result), False
+        return reading + render_unavailable(result), False
     if isinstance(result, PricedStructure):
         from dataclasses import replace
 
@@ -461,5 +468,5 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             smile=getattr(ms, "surface", None), weights=session.pack.scenario_weights,
         )
         warning = f"CONFLICT WITH ACTIVE TAIL CONSTRAINT: {tail_warning}. Priced only for inspection, not an eligible recommendation.\n" if tail_warning else ""
-        return warning + tail_risk_text(result.variant) + "\n" + render_priced_structure(result, tags, base_ccy), False
+        return reading + warning + tail_risk_text(result.variant) + "\n" + render_priced_structure(result, tags, base_ccy), False
     return "Unexpected pricing result.", True

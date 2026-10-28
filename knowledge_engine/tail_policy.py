@@ -41,17 +41,26 @@ def construction_tails(family, construction, is_call):
 
 
 def assign_variant_tails(family, variant, is_call, construction=None):
+    """Directional tails from the variant's actual legs (strike- or delta-specified alike),
+    cross-checked against the catalog's declared tails where the construction matches one:
+    a disagreement on a side leaves that side unknown."""
+    from analytics.construction_risk import reconcile
     from analytics.structure_pricer import _load_variants
+    from knowledge_engine.construction_policy import derived_construction_risk
 
     if family == "linear":
-        lower, higher = _declared_tails(family, is_call)
-    else:
-        if construction is None:
-            construction = next((item for item in _load_variants().get(family, [])
-                                 if item["label"] == variant.variant_label), None)
-        lower, higher = construction_tails(family, construction, is_call) if construction is not None else (None, None)
+        variant.lower_spot_tail, variant.higher_spot_tail = _declared_tails(family, is_call)
+        return
+    if construction is None:
+        construction = next((item for item in _load_variants().get(family, [])
+                             if item["label"] == variant.variant_label), None)
+    lower, higher = construction_tails(family, construction, is_call) if construction is not None else (None, None)
     if family == "seagull" and variant.wing_ratio is not None and variant.wing_ratio <= 0:
-        lower, higher = (False, False) if lower is not None else (None, None)
+        lower, higher = None, None   # no wing sold: the catalog's generic seagull tails do not apply
+    derived = derived_construction_risk(family, variant, is_call)
+    if derived is not None:
+        lower = reconcile(lower, derived.lower_spot_tail)
+        higher = reconcile(higher, derived.higher_spot_tail)
     variant.lower_spot_tail, variant.higher_spot_tail = lower, higher
 
 

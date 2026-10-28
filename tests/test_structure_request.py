@@ -51,7 +51,7 @@ def test_1x1_spread():
 
 
 def test_ratio_delta_pair():
-    assert _dict_no_label("34 vs 25 1x1.5") == {"long_delta": 0.34, "short_delta": 0.25}
+    assert _dict_no_label("34Δ vs 25Δ 1x1.5") == {"long_delta": 0.34, "short_delta": 0.25}
 
 
 def test_seagull():
@@ -74,9 +74,41 @@ def test_digital():
 # 2. Delta normalization
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("req", ["vanilla 34Δ", "vanilla 0.34", "vanilla 34 delta"])
+@pytest.mark.parametrize("req", ["vanilla 34Δ", "vanilla 0.34Δ", "vanilla 34 delta", "vanilla 34d"])
 def test_delta_normalization(req):
     assert _dict_no_label(req) == {"delta": 0.34}
+
+
+# ---------------------------------------------------------------------------
+# 2b. Strikes by default — a bare number is an absolute strike, never a delta
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("req, expected", [
+    ("vanilla 0.34", {"strike": 0.34}),
+    ("vanilla 160", {"strike": 160.0}),
+    ("1x1 5.00 / 4.80", {"long_strike": 5.0, "short_strike": 4.8}),
+    ("1x1 17.2 vs 25Δ", {"long_strike": 17.2, "short_delta": 0.25}),
+    ("34 vs 25 1x1.5", {"long_strike": 34.0, "short_strike": 25.0}),
+    ("seagull ATMF / 25Δ / 18", {"spread_long": 0.50, "spread_short": 0.25, "wing_strike": 18.0}),
+    ("european rko 30Δ / 1.20", {"long_delta": 0.30, "barrier_strike": 1.20}),
+])
+def test_bare_numbers_are_strikes(req, expected):
+    assert _dict_no_label(req) == expected
+
+
+def test_leg_inputs_line_states_each_reading():
+    from agentic.structure_request import describe_leg_inputs
+    req = parse_structure_request("1x1 5.00 vs 25Δ")
+    assert describe_leg_inputs(req) == (
+        "LEG INPUTS: 5 = strike; 25Δ = delta (numbers are read as strikes unless marked Δ/delta).")
+    assert describe_leg_inputs(parse_structure_request("1x2 ATMF vs target")) is None
+
+
+@pytest.mark.parametrize("req", ["vanilla 4.8Δ", "1x1 60Δ / 25Δ", "vanilla 0.05 delta"])
+def test_delta_outside_supported_range_is_rejected(req):
+    with pytest.raises(StructureRequestError) as e:
+        parse_structure_request(req)
+    assert e.value.reason == BAD_DELTA and "10Δ–50Δ" in e.value.detail
 
 
 def test_atmf_long_leg_is_half_delta():
@@ -187,7 +219,7 @@ def test_bad_premium():
 # ---------------------------------------------------------------------------
 
 def test_ambiguous_two_bare_deltas():
-    res = parse_structure_request("34 vs 25")
+    res = parse_structure_request("34Δ vs 25Δ")
     assert isinstance(res, ClarificationNeeded)
 
 

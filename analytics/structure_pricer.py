@@ -39,7 +39,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from analytics.market_state import MarketState
-from analytics.construction_risk import declared_additional_loss, passes_no_tails
+from analytics.construction_risk import declared_additional_loss, leg_risk, passes_no_tails, reconcile
+from analytics.expiry_breakeven import variant_terms
 from analytics.trade_economics import TradeEconomics, compute_trade_economics
 from analytics.sizing_trace import SizingTrace, distribution_fingerprint
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
@@ -254,7 +255,8 @@ def price_variants(
                 variant.sizing_trace, requested_method="kelly",
                 fallback_reason="No stated Kelly distribution supplied",
             )
-        variant.can_lose_beyond_premium = declarations.get(variant.variant_label)
+        variant.can_lose_beyond_premium = _construction_loss(
+            structure_id, variant, is_call, declarations.get(variant.variant_label), warnings)
         variant.economics = compute_trade_economics(
             variant, structure_id, ms, target=target, is_call=is_call,
             loss_budget=loss_budget, stop_price=stop_price, surface=smile,
@@ -270,6 +272,22 @@ def price_variants(
         elif warnings is not None:
             warnings.append(f"{variant.variant_label}: {reason}")
     return eligible
+
+
+def _construction_loss(structure_id, variant, is_call, declared, warnings) -> bool | None:
+    """Can this construction lose beyond its premium? Derived from its actual legs (so a
+    strike-specified request is classified like a menu one); the catalog declaration, where
+    one matches, is a cross-check — a disagreement is unknown and noted, never resolved."""
+    terms = variant_terms(structure_id, list(variant.strikes or []), is_call, variant.wing_ratio)
+    derived = leg_risk(terms) if terms else None
+    if structure_id == "seagull" and variant.wing_ratio is not None and variant.wing_ratio <= 0:
+        declared = None   # no wing sold: the catalog's generic seagull flag does not apply
+    result = reconcile(declared, derived.can_lose_beyond_premium if derived else None)
+    if result is None and declared is not None and derived is not None and warnings is not None:
+        warnings.append(
+            f"variant '{variant.variant_label}': catalog says can lose beyond premium = "
+            f"{declared}, its legs say {derived.can_lose_beyond_premium} — treated as unknown")
+    return result
 
 
 def _apply_notional(pv: PricedVariant, notional: float) -> None:
@@ -411,29 +429,19 @@ def _spread_strikes_from_deltas(
     )
 
 
-def _delta_spread_legs(
-    F: float,
-    T: float,
-    is_call: bool,
-    long_delta: float,
-    short_delta: float,
-    vm: _VolModel,
-) -> tuple[float, float, float, float]:
-    """Resolve (K_long, K_short, vol_long, vol_short) for a delta-pair spread.
-
-    Each leg's strike is resolved with that leg's own (delta-pillar) vol, and the
-    same vol is returned for pricing — so under a flat vol model the result is
-    identical to the legacy ATM-vol path.
-    """
-    v_long = vm.at_delta(long_delta, is_call)
-    v_short = vm.at_delta(short_delta, is_call)
+def _variant_leg(
+    v: dict, delta_key: str, strike_key: str, F: float, T: float, is_call: bool, vm: _VolModel,
+) -> tuple[float, float]:
+    """(strike, vol) for one variant leg: an absolute strike under ``strike_key`` (a
+    PM-named strike) priced at its own strike vol, else a delta under ``delta_key``
+    placed on the smile at its delta-pillar vol (the curated-menu path, unchanged)."""
+    if strike_key in v:
+        K = v[strike_key]
+        return K, vm.at_strike(K)
+    delta = v[delta_key]
+    leg_vol = vm.at_delta(delta, is_call)
     resolve = otm_call_strike if is_call else otm_put_strike
-    return (
-        resolve(F, v_long, T, long_delta),
-        resolve(F, v_short, T, short_delta),
-        v_long,
-        v_short,
-    )
+    return resolve(F, leg_vol, T, delta), leg_vol
 
 
 def _resolve_ratio_spread_strikes(
@@ -454,10 +462,12 @@ def _resolve_ratio_spread_strikes(
     defined legs (ATMF / half-sigma / target) take vol_at_strike; delta-defined
     legs take their delta-pillar vol.
     """
-    if "long_delta" in variant and "short_delta" in variant:
-        return _delta_spread_legs(
-            F, T, is_call, variant["long_delta"], variant["short_delta"], vm
-        )
+    if ("long_delta" in variant or "long_strike" in variant) and (
+        "short_delta" in variant or "short_strike" in variant
+    ):
+        K1, v1 = _variant_leg(variant, "long_delta", "long_strike", F, T, is_call, vm)
+        K2, v2 = _variant_leg(variant, "short_delta", "short_strike", F, T, is_call, vm)
+        return K1, K2, v1, v2
 
     if target is None:
         return None
@@ -536,13 +546,10 @@ def _vanilla(
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
-        delta = v["delta"]
-        leg_vol = vm.at_delta(delta, is_call)
+        K, leg_vol = _variant_leg(v, "delta", "strike", F, T, is_call, vm)
         if is_call:
-            K = otm_call_strike(F, leg_vol, T, delta)
             prem = black76_call(F, K, T, leg_vol, DF)
         else:
-            K = otm_put_strike(F, leg_vol, T, delta)
             prem = black76_put(F, K, T, leg_vol, DF)
 
         prem_pct = prem / spot
@@ -576,9 +583,8 @@ def _spread(
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
-        K_long, K_short, v_long, v_short = _delta_spread_legs(
-            F, T, is_call, v["long_delta"], v["short_delta"], vm
-        )
+        K_long, v_long = _variant_leg(v, "long_delta", "long_strike", F, T, is_call, vm)
+        K_short, v_short = _variant_leg(v, "short_delta", "short_strike", F, T, is_call, vm)
         if is_call:
             prem_long  = black76_call(F, K_long,  T, v_long,  DF)
             prem_short = black76_call(F, K_short, T, v_short, DF)
@@ -815,28 +821,19 @@ def _seagull(
 ) -> list[PricedVariant]:
     result = []
     for v in variants:
-        ld, sd, wd = v["spread_long"], v["spread_short"], v["wing_delta"]
         # Spread legs in the view direction; wing on the opposite side.
-        v1 = vm.at_delta(ld, is_call)
-        v2 = vm.at_delta(sd, is_call)
-        v3 = vm.at_delta(wd, not is_call)
+        K1, v1 = _variant_leg(v, "spread_long", "spread_long_strike", F, T, is_call, vm)
+        K2, v2 = _variant_leg(v, "spread_short", "spread_short_strike", F, T, is_call, vm)
+        K3, v3 = _variant_leg(v, "wing_delta", "wing_strike", F, T, not is_call, vm)
 
         if is_call:
-            K1 = otm_call_strike(F, v1, T, ld)   # long call (lower K)
-            K2 = otm_call_strike(F, v2, T, sd)   # short call (higher K)
-            prem1 = black76_call(F, K1, T, v1, DF)
-            prem2 = black76_call(F, K2, T, v2, DF)
-            # Wing: OTM put (opposite direction)
-            K3 = otm_put_strike(F, v3, T, wd)
-            prem3 = black76_put(F, K3, T, v3, DF)
+            prem1 = black76_call(F, K1, T, v1, DF)   # long call (lower K)
+            prem2 = black76_call(F, K2, T, v2, DF)   # short call (higher K)
+            prem3 = black76_put(F, K3, T, v3, DF)    # wing: OTM put (opposite direction)
         else:
-            K1 = otm_put_strike(F, v1, T, ld)    # long put (higher K)
-            K2 = otm_put_strike(F, v2, T, sd)    # short put (lower K)
-            prem1 = black76_put(F, K1, T, v1, DF)
-            prem2 = black76_put(F, K2, T, v2, DF)
-            # Wing: OTM call (opposite direction)
-            K3 = otm_call_strike(F, v3, T, wd)
-            prem3 = black76_call(F, K3, T, v3, DF)
+            prem1 = black76_put(F, K1, T, v1, DF)    # long put (higher K)
+            prem2 = black76_put(F, K2, T, v2, DF)    # short put (lower K)
+            prem3 = black76_call(F, K3, T, v3, DF)   # wing: OTM call (opposite direction)
 
         spread_cost = prem1 - prem2
         wing_ratio = (spread_cost / prem3) if prem3 > 1e-8 else 0.0
@@ -1035,7 +1032,6 @@ def _european_rko(
         return []
 
     fn_price = european_rko_call if is_call else european_rko_put
-    resolve = otm_call_strike if is_call else otm_put_strike
     # Smile seam: price each leg at its own strike vol. Flat surface → vol_fn is
     # None and every leg collapses to the scalar `vol`, reproducing the legacy
     # flat price byte-for-byte.
@@ -1047,10 +1043,8 @@ def _european_rko(
         # barrier at the (further-OTM) barrier delta. Each strike is placed at
         # its own delta-pillar vol (matching the spread family); flat surface →
         # at_delta returns the scalar vol so placement is unchanged.
-        long_delta = v["long_delta"]
-        barrier_delta = v["barrier"]
-        K = resolve(F, vm.at_delta(long_delta, is_call), T, long_delta)
-        barrier = resolve(F, vm.at_delta(barrier_delta, is_call), T, barrier_delta)
+        K, _ = _variant_leg(v, "long_delta", "long_strike", F, T, is_call, vm)
+        barrier, _ = _variant_leg(v, "barrier", "barrier_strike", F, T, is_call, vm)
 
         # The digital strip can hit a smile arbitrage → drop the variant.
         try:

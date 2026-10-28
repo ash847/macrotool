@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import math
 
+# Delta range the resolver supports (OTM, inclusive): 10Δ … 50Δ (ATMF).
+MIN_DELTA, MAX_DELTA = 0.10, 0.50
+
 # N^{-1}(Δ_call) for standard call deltas
 _DELTA_Z: dict[float, float] = {
     0.50: 0.0000,
@@ -29,7 +32,7 @@ def _z_for_delta(delta: float) -> float:
         if d_lo <= delta <= d_hi:
             t = (delta - d_lo) / (d_hi - d_lo)
             return _DELTA_Z[d_lo] * (1 - t) + _DELTA_Z[d_hi] * t
-    raise ValueError(f"delta {delta} outside supported range [0.10, 0.50]")
+    raise ValueError(f"delta {delta} outside supported range [{MIN_DELTA:.2f}, {MAX_DELTA:.2f}]")
 
 
 def otm_call_strike(fwd: float, vol: float, T: float, delta: float) -> float:

@@ -44,7 +44,7 @@ def test_vanilla_prices():
 
 
 def test_ratio_delta_pair_prices():
-    res = price_structure("34 vs 25 1x1.5", _ms(), is_call=True, target=36.0)
+    res = price_structure("34Δ vs 25Δ 1x1.5", _ms(), is_call=True, target=36.0)
     assert isinstance(res, PricedStructure)
     assert len(res.variant.strikes) == 2
 
@@ -90,7 +90,7 @@ def test_direction_from_session_not_request():
 # ---------------------------------------------------------------------------
 
 def test_clarification_passthrough():
-    res = price_structure("34 vs 25", _ms(), is_call=True, target=36.0)
+    res = price_structure("34Δ vs 25Δ", _ms(), is_call=True, target=36.0)
     assert isinstance(res, ClarificationNeeded)
 
 

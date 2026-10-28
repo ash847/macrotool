@@ -1,6 +1,7 @@
 """Construction-level eligibility using the same catalog as entry pricing."""
 
-from analytics.construction_risk import declared_additional_loss, passes_no_tails
+from analytics.construction_risk import LegRisk, declared_additional_loss, leg_risk, passes_no_tails
+from analytics.expiry_breakeven import variant_terms
 from analytics.structure_pricer import _load_variants
 
 
@@ -25,3 +26,11 @@ def configured_additional_loss(structure_id: str, construction: dict) -> bool | 
     if not matches or any(value is None for value in matches):
         return None
     return matches[0] if all(value is matches[0] for value in matches) else None
+
+
+def derived_construction_risk(structure_id: str, variant, is_call: bool) -> LegRisk | None:
+    """A priced variant's loss geometry from its actual legs (strikes + leg ratios,
+    the seagull's solved wing ratio included). None for families without a leg model."""
+    terms = variant_terms(structure_id, list(variant.strikes or []), is_call,
+                          getattr(variant, "wing_ratio", None))
+    return leg_risk(terms) if terms else None
