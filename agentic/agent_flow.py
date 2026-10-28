@@ -350,6 +350,14 @@ Routing — decide what each PM turn needs:
    Compare only supplied facts; do not invent numerical differences or exclusion reasons.
    If the engine did not retain an exclusion reason, say so plainly.
 
+6. Only when asked for delta, gamma or vega, call inception_greeks with the current
+   SHORTLIST REFERENCE and either an exact recommendation rank or the CUSTOM TRADE
+   INDEX returned by price_structure. Clarify if the trade is ambiguous. Report the
+   supplied base-currency units and conventions, not your own calculation. These are
+   inception risks at fixed strikes, ratios, size and entry leg vols, not live Greeks
+   or moving-smile risk. Unsupported digital/ERKO/linear Greeks must be unavailable,
+   never approximated with vanilla Greeks. Do not add Greeks to routine responses.
+
 If a tool returns a clarifying question (ambiguous structure request), ask the PM that
 question. If it says a structure can't be priced, relay the reason plainly.
 

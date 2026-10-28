@@ -47,6 +47,7 @@ class PricedStructure:
     # Product-model PricedStructure (analytics.product_model) — legs first-class, for the
     # explicit per-leg render. Metrics/ccy still come from `variant` (sized to loss_budget).
     priced_structure: object | None = None
+    inception_market_state: object | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,7 @@ def price_structure(
     return PricedStructure(
         request=parsed, variant=priced[0], warnings=tuple(warnings),
         priced_structure=legs_struct,
+        inception_market_state=ms,
     )
 
 

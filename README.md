@@ -32,8 +32,18 @@ combined-feature tests passed; all 13 optional MCP tests passed separately. Afte
 integration, 30 ratio/integration tests passed on agentic-workflow. These counts
 describe separate runs, not one combined full-suite result. No live cloud/UI check.
 
-Next product work: user testing, then selected-trade expiry payoff/net P&L charts
-(T21), inception Greeks (T23, conventions first), and broader custom packages (T22).
+Next product work: user testing of vanilla-leg inception Greeks (T23), then
+selected-trade expiry payoff/net P&L charts (T21) and broader custom packages (T22).
+
+Version 0.2.58 adds T23 vanilla-leg inception Greeks, ahead of charts at the user's
+request. Ask the agent for delta/gamma/vega on an exact recommendation or custom
+trade. No automatic UI display is added. Delta is in base units; gamma is base
+delta change per 1% spot rise; vega is base currency per one vol point, converted
+at fixed inception spot. Strikes, ratios, notional, rates and entry leg vols stay
+fixed. Digital/ERKO/linear Greeks are unavailable. Cloud acceptance testing
+remains pending.
+Final local suite: **1,482 passed, seven skipped** (165.76 seconds), including
+58 new Greeks cases. Agent routing is tested with a fake model, not a live API.
 Specialized product migration remains incomplete (T19). Launch controls remain
 separate priorities, not implied complete by engine progress.
 

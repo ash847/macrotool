@@ -26,7 +26,7 @@ sections retain their original test counts and no-push notes as historical recor
 | T19 product migration | Partial: vanilla-leg families share entry pricing, retained contracts, valuation and explicit sizing policies. Specialized products/legacy retirement remain. |
 | T22 flexible packages | Partial: supported two-leg 1xR requests (R >= 1) have existing recommended sizing; arbitrary combinations/editor remain proposed. |
 | T21 payoff/P&L charts | Not implemented in this work; next product slice after user testing. |
-| T23 inception Greeks | Not implemented; conventions must be agreed before coding. |
+| T23 inception Greeks | Vanilla-leg implementation added locally in v0.2.58, agent-only on request; user testing and exotic-product validation remain open. |
 | Launch controls and deployment gates | Not signed off by these changes; retain existing urgency and verification requirements. |
 
 Verification: full integrated source run 1,416 passed / seven skipped; eight new
@@ -35,8 +35,12 @@ integration run 30 passed. No live API/cloud/UI certification. Input rule:
 bare leg numbers are strikes; use `25d`/`25 delta` for delta. ATMF is distinct
 from 50 delta. See README and PRODUCT_ENGINE_HANDOFF_CODEX.md for current usage.
 
+T23 local v0.2.58 verification: final full suite 1,482 passed / seven skipped
+(165.76 seconds), including 58 new Greeks cases and fake-model routing. No live
+API/cloud/UI certification; source release checkpoint is v0.2.58.
+
 The broad launch stage order below remains valid. Within the current product
-track: user testing -> T21 expiry charts -> T23 Greeks -> broader T22 design,
+track: user testing -> T23 vanilla-leg Greeks (user-selected next) -> T21 expiry charts -> broader T22 design,
 with remaining T19 migration incremental. Do not delay urgent controls for charts.
 
 Items are ordered by implementation stage. Each has one or two functional tags
@@ -395,9 +399,13 @@ Do not widen the cohort solely because a day or headcount target was reached.
   Track: Function / Product. Source: explicit user addition on 27 October 2026.
   Scope: show inception sensitivities for the selected recommended or
   custom-priced package at its actual sized notional, calculated in Python.
-  Agree spot versus forward delta, gamma units, reporting currency, premium/
-  conversion treatment and fixed-vol versus moving-smile assumptions before
-  implementation. Display vega per one volatility point, with explicit units.
+  Agreed and implemented for vanilla-leg packages: conventional spot delta in
+  base units; gamma as change in base delta for a 1% spot rise; vega in base
+  currency per one vol point, converted at fixed inception spot. Use retained
+  entry leg vols, not a moving smile. Agent tool only on explicit request;
+  no default UI/report changes. Numerical checks use +/-0.01% spot and
+  +/-0.1 vol point plus half/double bumps. Delta/gamma checks cancel leading
+  finite-difference truncation error for near-zero package risks.
   Start with vanillas and vanilla-leg packages: sum each leg's sensitivities
   using its signed quantity. Include seagull wing quantities and custom ratios
   when supported. Keep strikes, leg ratios and sized notional fixed when
@@ -405,7 +413,8 @@ Do not widen the cohort solely because a day or headcount target was reached.
   Validate digitals and ERKOs separately using appropriate product formulas or
   bump-and-reprice methods; do not substitute ordinary vanilla Greeks.
   Dependencies: T13 risk meanings and T09 run context; coordinate with T19's
-  product model and T22's flexible construction. Detailed design remains open.
+  product model and T22's flexible construction. Vanilla-leg conventions and
+  implementation are complete locally; exotic-product design remains open.
   Example/trade-off: a 1x2 spread's net delta is long-leg delta minus twice the
   short-leg delta. Consistent conventions add work but prevent misleading
   comparisons between trades, currencies and sizing levels.
@@ -913,7 +922,7 @@ Fill this table as work is assigned and completed.
 | T20 | Unassigned | Pending |
 | T21 | Unassigned | Pending |
 | T22 | Unassigned | Pending specification |
-| T23 | Unassigned | Pending specification |
+| T23 | Codex | Vanilla-leg tool implemented locally; user acceptance and exotic scope pending |
 
 ## Coverage: nothing dropped from either source review
 

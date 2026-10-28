@@ -21,11 +21,26 @@
 
 ## Resume here
 
+T23 release checkpoint (28 October, v0.2.58): user chose inception
+Greeks ahead of T21. Added analytics/inception_greeks.py and the on-demand
+inception_greeks agent tool. Vanilla-leg contracts only; actual signed quantities
+and sized notional; no reconstruction, resizing or automatic UI reporting.
+Delta is conventional spot delta in base units, gamma is delta change per 1%
+spot rise, vega is base currency per one vol point at fixed inception FX.
+Rates and entry leg vols stay fixed. Digitals, ERKOs and linear trades return
+unavailable. Custom trades retain their inception market identity; stale ranks
+or custom contexts are rejected. Final full suite: 1,482 passed, seven skipped
+in 165.76 seconds, including 58 new Greeks cases and fake-model tool routing.
+Delta/gamma bump checks use Richardson extrapolation, tolerance 0.02% relative
+or 0.05 base units per million; vega checks use 0.5% relative or 0.5 base units
+per million across half/standard/double bumps. These are numerical test
+tolerances, not risk limits. Live agent/cloud acceptance has not been run.
+
 1. Get user test feedback on familiar recommendations, explicit strike versus
    delta inputs, ratio sizing and Kelly widget updates. README links current scope.
-2. Next product slice: T21 selected-trade expiry payoff/net P&L charts, using the
+2. After user testing of T23, next product slice: T21 selected-trade expiry payoff/net P&L charts, using the
    retained contract, premium and actual notional. No LLM numerical curve building.
-3. T23 inception Greeks follows agreement on units, currency and smile assumptions.
+3. T23 exotic Greeks remain deferred; do not substitute vanilla sensitivities.
 4. Broader T22 arbitrary packages remain proposed; supported 1xR requests already
    receive existing family sizing. Specialized contracts and legacy retirement
    remain incomplete under T19. Do not mark whole workstreams done.

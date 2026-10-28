@@ -50,6 +50,19 @@ _MODES = ("recommend", "critique")
 
 TOOL_SCHEMAS = [
     {
+        "name": "inception_greeks",
+        "description": "Only when the PM asks for Greeks: compute inception delta, gamma and vega for an already-priced vanilla-leg package. Supply the current SHORTLIST REFERENCE and exactly one of rank (recommendation) or custom_index (1-based index returned by price_structure). Never calculate Greeks yourself. Digital, ERKO and linear trades are not supported. No repricing, resizing or change to recommendations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "shortlist_ref": {"type": "string"},
+                "rank": {"type": "integer", "minimum": 1},
+                "custom_index": {"type": "integer", "minimum": 1},
+            },
+            "required": ["shortlist_ref"], "additionalProperties": False,
+        },
+    },
+    {
         "name": "set_tail_constraint",
         "description": "Set or clear the directional tail preference without changing the view. Rebuilds recommendations under the constraint. lower_spot/higher_spot are absolute spot directions; against_view/with_view are resolved by Python using the current view direction. Unknown risks fail closed. Use none to clear only this directional preference; any separate no-tails setting still applies.",
         "input_schema": {
@@ -158,6 +171,8 @@ TOOL_SCHEMAS = [
 def dispatch(session: AgentSession, name: str, args: dict) -> tuple[str, bool]:
     """Run a tool by name. Returns (content_text, is_error)."""
     try:
+        if name == "inception_greeks":
+            return _inception_greeks(session, args), False
         if name == "set_tail_constraint":
             return _set_tail_constraint(session, args), False
         if name == "inspect_recommendations":
@@ -175,6 +190,49 @@ def dispatch(session: AgentSession, name: str, args: dict) -> tuple[str, bool]:
 
 class _ToolError(Exception):
     pass
+
+
+def _inception_greeks(session, args):
+    import json
+    from dataclasses import asdict
+    from analytics.inception_greeks import inception_greeks
+
+    pack, view = session.pack, session.view
+    if pack is None or view is None:
+        raise _ToolError("No standard pack yet; establish the view first.")
+    if args.get("shortlist_ref") != shortlist_reference(pack, view):
+        raise _ToolError("Stale shortlist reference; ask which current trade the PM means.")
+    if set(args) - {"shortlist_ref", "rank", "custom_index"} or ("rank" in args) == ("custom_index" in args):
+        raise _ToolError("Supply exactly one rank or custom_index, and the shortlist reference.")
+    index = args.get("rank", args.get("custom_index"))
+    if type(index) is not int or index < 1:
+        raise _ToolError("Trade index must be a positive integer.")
+    if "rank" in args:
+        rec = next((rec for rec in pack.recommended if rec.rank == index), None)
+        if rec is None:
+            raise _ToolError("Recommendation rank not found.")
+        variant = rec.variant
+    else:
+        if index > len(session.priced):
+            raise _ToolError("Custom trade index not found.")
+        result = session.priced[index - 1]
+        if result.inception_market_state is not pack.market_state:
+            raise _ToolError("Custom trade belongs to an old market context; price it in the current view first.")
+        variant = result.variant
+    product = variant.product_price
+    if product is None or product.resolved_contract is None:
+        raise _ToolError("Greeks unavailable: only resolved vanilla-leg packages are supported.")
+    if variant.structure_notional is None:
+        raise _ToolError("Greeks unavailable: this trade has no retained sized notional.")
+    ms = pack.market_state
+    result = inception_greeks(product, spot=ms.spot, forward=ms.fwd,
+                              quote_rate=ms.r_d, notional=variant.structure_notional)
+    return json.dumps({
+        "trade": {key: args[key] for key in args},
+        "label": variant.variant_label, "base_currency": view.pair[:3],
+        "conventions": "Inception only; fixed strikes, ratios, notional, rates and entry leg vols. Delta: base units, derivative of quote PV with respect to spot. Gamma: change in base delta for a 1% spot rise. Vega: base currency per +1 vol point, converted at fixed inception spot. Parallel vol shift, not smile-dynamic risk; not derivatives of PV/spot. Leg risks are signed and sized.",
+        "greeks": asdict(result),
+    }, allow_nan=False)
 
 
 def _inspection_family(pack, requested):
@@ -469,5 +527,5 @@ def _price_structure(session: AgentSession, args: dict) -> tuple[str, bool]:
             smile=getattr(ms, "surface", None), weights=session.pack.scenario_weights,
         )
         warning = f"CONFLICT WITH ACTIVE TAIL CONSTRAINT: {tail_warning}. Priced only for inspection, not an eligible recommendation.\n" if tail_warning else ""
-        return reading + warning + tail_risk_text(result.variant) + "\n" + render_priced_structure(result, tags, base_ccy), False
+        return reading + f"CUSTOM TRADE INDEX: {len(session.priced)}\n" + warning + tail_risk_text(result.variant) + "\n" + render_priced_structure(result, tags, base_ccy), False
     return "Unexpected pricing result.", True
