@@ -11,7 +11,12 @@ while arbitrary leg combinations remain price/analysis-first. The blanket sizing
 gate below applies to arbitrary combinations, not supported ratio spreads.
 
 Implemented first slice: explicit agent requests `1xR` with finite R >= 1,
-including `1x1.3 spread ATMF/25`, delta/delta and existing anchor/target forms.
+including `1x1.3 spread ATMF/25d`, delta/delta and existing anchor/target forms.
+After main integration, bare leg numbers mean strikes; explicit delta markers
+are required. The ratio token itself is never a strike or delta.
+Main integration also enables literal strike and mixed strike/delta legs through
+the same construction path. Implausible strikes and reversed spreads are refused,
+never reinterpreted as deltas. General arbitrary-leg construction remains deferred.
 Ratios 1, 1.5 and 2 retain existing family IDs; other ratios use ratio_spread.
 Fixed-loss uses the existing ratio-family premium proxy and cap; Kelly uses the
 actual +1/-R contract. No new financial sizing rule, automatic candidate search,

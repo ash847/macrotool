@@ -8,6 +8,10 @@ from __future__ import annotations
 import math
 from statistics import NormalDist
 
+# Public request grammar range; the exact mathematical resolver accepts (0, 1).
+# ATMF remains K=F, distinct from a 50-delta strike.
+MIN_DELTA, MAX_DELTA = 0.10, 0.50
+
 def _strike(fwd: float, vol: float, T: float, delta: float, is_call: bool) -> float:
     if not all(math.isfinite(x) for x in (fwd, vol, T, delta)):
         raise ValueError("Strike inputs must be finite")

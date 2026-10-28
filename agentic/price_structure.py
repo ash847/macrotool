@@ -23,6 +23,7 @@ adapter converts it to a tool-result message.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Union
 
@@ -74,7 +75,7 @@ def price_structure(
     """Price a single PM-requested structure against the current market state.
 
     Args:
-        request_text: PM-style request, e.g. "34 vs 25 1x1.5", "digital 10%".
+        request_text: PM-style request, e.g. "34Δ vs 25Δ 1x1.5", "1x1 5.00 / 4.80" (strikes), "digital 10%".
         ms:           the current (frozen) MarketState from the standard pack.
         is_call:      direction, from the session view (base_higher → call). NOT
                       from the LLM.
@@ -104,6 +105,9 @@ def price_structure(
             request=parsed,
             detail="Excluded by the active vanilla-only preference.",
         )
+    implausible = _implausible_strike(parsed, ms)
+    if implausible is not None:
+        return PricingUnavailable(request=parsed, detail=implausible)
     surface = getattr(ms, "surface", None) if smile is _UNSET else smile
 
     warnings: list[str] = []
@@ -128,6 +132,9 @@ def price_structure(
             detail=_unavailable_detail(parsed.family, target, warnings),
             warnings=tuple(warnings),
         )
+    reversed_legs = _reversed_spread(parsed.family, priced[0].strikes, is_call)
+    if reversed_legs is not None:
+        return PricingUnavailable(request=parsed, detail=reversed_legs)
 
     # Migrated families retain the exact entry product; no second pricing pass.
     # Unmigrated families keep the best-effort leg-display bridge for now.
@@ -183,6 +190,39 @@ def characterize_against_pack(
         return attributes(family, pm_score, summarize_scenario_rows(rows))
     except Exception:
         return frozenset()
+
+
+# A strike further than this many standard deviations (σ√T) from the forward is not a
+# plausible level — most likely a delta written without its Δ. Refuse; never reinterpret.
+_MAX_STRIKE_SIGMAS = 5.0
+_SPREAD_FAMILIES = ("1x1_spread", "1x1.5_spread", "1x2_spread", "ratio_spread", "seagull")
+
+
+def _implausible_strike(parsed: StructureRequest, ms: MarketState) -> str | None:
+    sd = ms.vol * math.sqrt(ms.T)
+    for leg in parsed.legs:
+        if leg.kind != "strike" or sd <= 0:
+            continue
+        n = abs(math.log(leg.value / ms.fwd)) / sd
+        if n > _MAX_STRIKE_SIGMAS:
+            return (f"Strike {leg.value:g} is {n:.0f} standard deviations from the forward "
+                    f"{ms.fwd:.6g}, so it was not priced. Numbers are read as strikes; if "
+                    f"{leg.value:g} was meant as a delta, write it as {leg.value:g}Δ.")
+    return None
+
+
+def _reversed_spread(family: str, strikes: list[float], is_call: bool) -> str | None:
+    """The long leg must sit nearer the money than the short leg (in the view's
+    direction); otherwise the request describes the opposite spread."""
+    if family not in _SPREAD_FAMILIES or len(strikes) < 2:
+        return None
+    k_long, k_short = strikes[0], strikes[1]
+    if (k_long < k_short) if is_call else (k_long > k_short):
+        return None
+    side = "above" if not is_call else "below"
+    return (f"For this {'call' if is_call else 'put'} spread the long strike must be {side} "
+            f"the short strike, but the request gives long {k_long:.6g} and short "
+            f"{k_short:.6g}, so it was not priced. Legs are read in order: long, then short.")
 
 
 def _unavailable_detail(family: str, target: float | None, warnings: list[str]) -> str:

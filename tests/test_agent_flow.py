@@ -34,7 +34,7 @@ def test_pack_then_narrate():
 def test_price_within_pack():
     flow = _flow([
         _tool("run_standard_pack", dict(_VIEW)),
-        _tool("price_structure", {"request": "34 vs 25 1x1.5"}, tid="t2"),
+        _tool("price_structure", {"request": "34Δ vs 25Δ 1x1.5"}, tid="t2"),
         _text("That 1x1.5 cuts your premium."),
     ])
     out = flow.advance("long USDBRL 60d +6%, what about a 34 vs 25 1x1.5?")
@@ -72,7 +72,7 @@ def test_cache_reused_across_turns():
 def test_clarification_relayed():
     flow = _flow([
         _tool("run_standard_pack", dict(_VIEW)),
-        _tool("price_structure", {"request": "34 vs 25"}, tid="t2"),  # ambiguous
+        _tool("price_structure", {"request": "34Δ vs 25Δ"}, tid="t2"),  # ambiguous
         _text("Did you mean a 1x1, 1x1.5 or 1x2?"),
     ])
     out = flow.advance("long USDBRL 60d +6%, price 34 vs 25")

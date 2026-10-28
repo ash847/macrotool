@@ -4,11 +4,14 @@ String in, validated spec out. No LLM, no MarketState, no pricing. Everything th
 LLM is allowed to say about a structure passes through here and is either resolved
 to a known variant shape or rejected with a structured reason.
 
-The LLM names a trade the way a PM says it ("34 vs 25 1x1.5", "digital 10%"). It
-never sets direction, signs, resolved strikes, or notionals. An explicit PM-requested
-1xR ratio is retained as a validated construction input. Other terms are supplied
-downstream (direction from the session view; weights inside the pricer; strikes by
-the pricer's delta resolver). ``to_variant_dict`` emits exactly the per-variant
+The LLM names a trade the way a PM says it ("34Δ vs 25Δ 1x1.5", "1x1 5.00 / 4.80",
+"digital 10%"). **A bare number is an absolute strike; a delta must be marked**
+(``25Δ``, ``25d``, ``25 delta``) — reading a strike as a delta silently prices a
+different trade, so the unmarked reading is the literal one. ``describe_leg_inputs``
+states the reading back. Explicit PM-requested 1xR ratios are retained. The LLM
+never sets direction, signs or sized notionals —
+those are supplied downstream (direction from the session view; weights inside the
+pricer; delta legs placed on the smile by the pricer's resolver). ``to_variant_dict`` emits exactly the per-variant
 dict shape ``analytics.structure_pricer.price_variants`` already consumes.
 """
 
@@ -19,6 +22,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Union
 
+from analytics.strike_resolver import MAX_DELTA, MIN_DELTA
 from agentic.family_registry import (
     FAMILIES,
     RATIO_TOKEN,
@@ -28,7 +32,7 @@ from agentic.family_registry import (
     resolve_family,
 )
 
-LegKind = Literal["delta", "atmf", "sigma", "target", "premium"]
+LegKind = Literal["delta", "strike", "atmf", "sigma", "target", "premium"]
 
 # Rejection reasons (each maps to a clean agent-facing message).
 EMPTY_REQUEST = "EMPTY_REQUEST"
@@ -36,6 +40,7 @@ UNKNOWN_FAMILY = "UNKNOWN_FAMILY"
 FAMILY_DISABLED = "FAMILY_DISABLED"
 WRONG_LEG_COUNT = "WRONG_LEG_COUNT"
 BAD_DELTA = "BAD_DELTA"
+BAD_STRIKE = "BAD_STRIKE"
 BAD_PREMIUM = "BAD_PREMIUM"
 BAD_LEG_KIND_FOR_FAMILY = "BAD_LEG_KIND_FOR_FAMILY"
 MIXED_ANCHOR = "MIXED_ANCHOR"
@@ -45,11 +50,13 @@ BAD_LEG = "BAD_LEG"
 @dataclass(frozen=True)
 class LegRef:
     kind: LegKind
-    value: float | None = None  # delta∈(0,1); sigma multiple (signed); premium∈(0,1)
+    value: float | None = None  # delta∈(0,1); strike>0; sigma multiple (signed); premium∈(0,1)
 
     def render(self) -> str:
         if self.kind == "delta":
-            return f"{int(round(self.value * 100))}Δ"
+            return f"{self.value * 100:g}Δ"
+        if self.kind == "strike":
+            return f"{self.value:g}"
         if self.kind == "atmf":
             return "ATMF"
         if self.kind == "sigma":
@@ -91,6 +98,7 @@ _DIRECTION_WORDS = ("call", "put", "long", "short")
 
 _LEG_SEPARATORS = re.compile(r"\s*(?:\bvs\b|/|,)\s*", re.IGNORECASE)
 _NUMBER = re.compile(r"[-+]?\d*\.?\d+")
+_DELTA_MARK = re.compile(r"\d\s*d\b")   # "25d" / "25 d" (Δ and "delta" normalize to d)
 
 # Alphabetic tokens that are legitimate residue after the family word and
 # direction words are removed: leg markers + the "vs" separator. Anything else
@@ -139,7 +147,8 @@ def parse_structure_request(text: str) -> ParseResult:
         joined = ", ".join(f"'{t}'" for t in unknown)
         return ClarificationNeeded(
             f"Unrecognized term(s): {joined}. Use a known family (vanilla, 1x1, 1x1.5, "
-            f"1x2, seagull, european_rko, digital) and legs (e.g. 25Δ, ATMF, ½σ, target, 10%)."
+            f"1x2, seagull, european_rko, digital) and legs (e.g. a strike 5.10, 25Δ, ATMF, "
+            f"½σ, target, 10%)."
         )
 
     # 3. Parse leg references.
@@ -195,13 +204,14 @@ def _to_variant_dict(req: StructureRequest) -> dict:
     label = req.canonical
 
     if family == "vanilla":
-        delta = _delta_or_atmf(legs[0], family)
-        return {"label": label, "delta": delta}
+        return {"label": label, **_leg_entry(legs[0], family, "delta", "strike")}
 
     if family == "1x1_spread":
-        long_d = _require_delta(legs[0], family)
-        short_d = _require_delta(legs[1], family)
-        return {"label": label, "long_delta": long_d, "short_delta": short_d}
+        return {
+            "label": label,
+            **_leg_entry(legs[0], family, "long_delta", "long_strike"),
+            **_leg_entry(legs[1], family, "short_delta", "short_strike"),
+        }
 
     if family in ("1x1.5_spread", "1x2_spread"):
         return {"label": label, **_ratio_variant(legs, family)}
@@ -215,16 +225,16 @@ def _to_variant_dict(req: StructureRequest) -> dict:
     if family == "seagull":
         return {
             "label": label,
-            "spread_long": _require_delta(legs[0], family),
-            "spread_short": _require_delta(legs[1], family),
-            "wing_delta": _require_delta(legs[2], family),
+            **_leg_entry(legs[0], family, "spread_long", "spread_long_strike"),
+            **_leg_entry(legs[1], family, "spread_short", "spread_short_strike"),
+            **_leg_entry(legs[2], family, "wing_delta", "wing_strike"),
         }
 
     if family == "european_rko":
         return {
             "label": label,
-            "long_delta": _require_delta(legs[0], family),
-            "barrier": _require_delta(legs[1], family),
+            **_leg_entry(legs[0], family, "long_delta", "long_strike"),
+            **_leg_entry(legs[1], family, "barrier", "barrier_strike"),
         }
 
     if family == "european_digital":
@@ -298,14 +308,26 @@ def _parse_leg(chunk: str) -> LegRef:
         val = float(m.group()) if m else 1.0
         return LegRef("sigma", val)
 
-    # delta: a bare/explicit number (with optional 'd' marker)
     m = _NUMBER.search(c)
-    if m:
+
+    # delta: a number explicitly marked Δ / d / delta (normalized to a 'd' marker)
+    if m and _DELTA_MARK.search(c):
         raw = float(m.group())
         delta = raw / 100.0 if raw > 1.0 else raw
-        if not (0.0 < delta < 1.0):
-            raise StructureRequestError(BAD_DELTA, f"delta out of range in '{chunk}'")
+        if not (MIN_DELTA <= delta <= MAX_DELTA):
+            raise StructureRequestError(
+                BAD_DELTA,
+                f"{raw:g}Δ in '{chunk}' is outside the supported "
+                f"{MIN_DELTA * 100:g}Δ–{MAX_DELTA * 100:g}Δ range",
+            )
         return LegRef("delta", delta)
+
+    # strike: any other number is an absolute strike level — never guessed as a delta
+    if m:
+        strike = float(m.group())
+        if strike <= 0.0:
+            raise StructureRequestError(BAD_STRIKE, f"strike must be positive in '{chunk}'")
+        return LegRef("strike", strike)
 
     raise StructureRequestError(BAD_LEG, f"could not parse leg '{chunk}'")
 
@@ -316,7 +338,7 @@ def _infer_family(legs: list[LegRef]) -> Union[str, ClarificationNeeded]:
     if n == 1:
         if kinds[0] == "premium":
             return "european_digital"
-        if kinds[0] in ("delta", "atmf"):
+        if kinds[0] in ("delta", "strike", "atmf"):
             return "vanilla"
         raise StructureRequestError(
             BAD_LEG_KIND_FOR_FAMILY, f"cannot infer a 1-leg family from a {kinds[0]} leg"
@@ -340,17 +362,31 @@ def _require_delta(leg: LegRef, family: str) -> float:
         return 0.50
     if leg.kind != "delta":
         raise StructureRequestError(
-            BAD_LEG_KIND_FOR_FAMILY, f"family '{family}' needs a delta leg, got {leg.kind}"
+            BAD_LEG_KIND_FOR_FAMILY,
+            f"family '{family}' needs a strike, delta or ATMF leg, got {leg.kind}",
         )
     return leg.value
 
 
-def _delta_or_atmf(leg: LegRef, family: str) -> float:
-    if leg.kind in ("delta", "atmf"):
-        return 0.50 if leg.kind == "atmf" else leg.value
-    raise StructureRequestError(
-        BAD_LEG_KIND_FOR_FAMILY, f"family '{family}' needs a delta or ATMF leg, got {leg.kind}"
-    )
+def _leg_entry(leg: LegRef, family: str, delta_key: str, strike_key: str) -> dict:
+    """One leg as variant-dict entries: an absolute strike under ``strike_key``, else a
+    delta placeholder under ``delta_key`` (ATMF identity is retained separately)."""
+    if leg.kind == "strike":
+        return {strike_key: leg.value}
+    return {delta_key: _require_delta(leg, family)}
+
+
+def describe_leg_inputs(req: StructureRequest) -> str | None:
+    """How each numeric leg was read (strike or delta), for the reply — so the PM sees
+    the assumption rather than having to trust it. None when no leg is a number."""
+    parts = [
+        f"{leg.render()} = {'strike' if leg.kind == 'strike' else 'delta'}"
+        for leg in req.legs if leg.kind in ("strike", "delta")
+    ]
+    if not parts:
+        return None
+    return ("LEG INPUTS: " + "; ".join(parts)
+            + " (numbers are read as strikes unless marked Δ/delta).")
 
 
 def _require_premium(leg: LegRef, family: str) -> float:
@@ -366,11 +402,12 @@ def _ratio_variant(legs: tuple[LegRef, ...], family: str) -> dict:
     """Build a 1x1.5 / 1x2 variant: either a delta-pair or an anchored→target form."""
     a, b = legs
 
-    # Delta-pair form: {long_delta, short_delta}
-    if a.kind in ("delta", "atmf") and b.kind in ("delta", "atmf"):
+    # Leg-pair form: each leg a strike, delta or ATMF
+    pair_kinds = ("delta", "strike", "atmf")
+    if a.kind in pair_kinds and b.kind in pair_kinds:
         return {
-            "long_delta": _require_delta(a, family),
-            "short_delta": _require_delta(b, family),
+            **_leg_entry(a, family, "long_delta", "long_strike"),
+            **_leg_entry(b, family, "short_delta", "short_strike"),
         }
 
     # Anchored→target form: long anchor (ATMF or ½σ) vs target.
@@ -386,5 +423,5 @@ def _ratio_variant(legs: tuple[LegRef, ...], family: str) -> dict:
 
     raise StructureRequestError(
         MIXED_ANCHOR,
-        f"family '{family}' legs must be two deltas or anchor/target, got {a.kind}/{b.kind}",
+        f"family '{family}' legs must be two strikes/deltas or anchor/target, got {a.kind}/{b.kind}",
     )

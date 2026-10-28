@@ -1,0 +1,10 @@
+{
+  "_note": "Opening message of each distinct trade idea sent to the Agent tab (most recent first, duplicates removed). Edit freely; the comparison script reads this file.",
+  "ideas": [
+    "I think USDJPY will trade in a range of 155-160 over the next two months",
+    "short USDTRY target 41 over a 3 month horizon",
+    "eurusd to move to 1.08 or below in 9m - what are the best trades and why?",
+    "usdjpy to 152 in 3m what are the best trades",
+    "usdtry to 48.00 in 3m what are the best 5 trades"
+  ]
+}

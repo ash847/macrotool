@@ -83,7 +83,7 @@ def test_nonpositive_butterfly_wing_is_excluded():
                           variants_override=definitions) == []
 
 
-@pytest.mark.parametrize("request_text", ["vanilla ATMF", "1x1 ATMF/25 delta", "1x1.5 34/25", "1x2 ATMF/25 delta"])
+@pytest.mark.parametrize("request_text", ["vanilla ATMF", "1x1 ATMF/25 delta", "1x1.5 34d/25d", "1x2 ATMF/25 delta"])
 def test_custom_trade_is_priced_once(request_text, monkeypatch):
     from analytics import product_pricer
     from agentic.price_structure import price_structure

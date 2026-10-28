@@ -844,6 +844,20 @@ lookup also passed 66 focused tests. Fresh final-tree full run: 1,347 passed,
 zero failures, six skipped in 154.60 seconds. git diff --check passed.
 No commit/push or cloud/UI test for this slice. Resume: PRODUCT_ENGINE_HANDOFF_CODEX.md.
 
+### Safe main integration - Codex
+
+2026-10-28: checkpoint d561a32, then trial merge of main bf12508 in an isolated
+worktree. Main includes MCP, shared telemetry and bare-number strike handling,
+plus construction/risk changes. Reconciled eight conflicts while retaining the
+exact strike resolver, ATMF identity, product entry path and flexible ratios.
+Derived risk now uses retained leg quantities. Public requests require explicit
+delta markers (e.g. 1x1.3 ATMF/25d); bare leg numbers mean outright strikes.
+Version 0.2.57. No push or live cloud/UI verification.
+
+Tests: integrated full suite 1,416 passed / seven skipped, then eight new combined
+integration tests passed. Optional MCP suite separately passed all 13 tests using
+the existing MCP environment, including fake-model stdio exchange. No API calls.
+
 All items are open. Fill this table as work is assigned and completed.
 
 | ID | Owner | Commit / test / live-check evidence |

@@ -14,7 +14,7 @@ from analytics.structure_pricer import price_variants
 from tests.test_product_model_parity import _make_ms, _surface_for
 
 
-@pytest.mark.parametrize("text", ["1x1.3 spread ATMF/25", "34 vs 25 1 x 1.3", "1x1.3 ATMF vs target"])
+@pytest.mark.parametrize("text", ["1x1.3 spread ATMF/25d", "34d vs 25d 1 x 1.3", "1x1.3 ATMF vs target"])
 def test_explicit_ratio_is_not_parsed_as_one_to_one(text):
     from agentic.family_registry import resolve_family
     assert resolve_family(text.lower())[0] == "ratio_spread"
@@ -41,7 +41,7 @@ def test_existing_ratio_names_keep_their_family(ratio, family):
 def test_ratio_entry_payoff_scenario_and_fixed_sizing(is_call, flat):
     surface = _surface_for("USDBRL", flat)
     ms, target = _make_ms("USDBRL", 90, 12, "base_higher" if is_call else "base_lower", surface)
-    result = price_structure("1x1.3 spread ATMF/25", ms, is_call=is_call,
+    result = price_structure("1x1.3 spread ATMF/25d", ms, is_call=is_call,
                              target=target, smile=surface, loss_budget=100, linear_notional=10000)
     assert isinstance(result, PricedStructure)
     pv = result.variant
@@ -74,7 +74,7 @@ def test_kelly_uses_full_requested_ratio(is_call):
     probs = np.array([0.1, 0.1, 0.7, 0.1])
     spec = SizingSpec(method="kelly", bankroll=10000, kelly_lambda=0.5,
                       kelly_probs=tuple(probs), kelly_bins=tuple(bins))
-    result = price_structure("1x1.3 ATMF/25", ms, is_call=is_call, target=target,
+    result = price_structure("1x1.3 ATMF/25d", ms, is_call=is_call, target=target,
                              sizing_spec=spec, linear_notional=10000)
     pv = result.variant
     sign = 1 if is_call else -1
@@ -90,7 +90,7 @@ def test_kelly_uses_full_requested_ratio(is_call):
 def test_custom_ratios_do_not_expand_recommendation_menu_or_bypass_no_tails():
     ms, target = _make_ms("USDBRL", 90, 12, "base_higher", None)
     assert price_variants(ms, "ratio_spread", target=target) == []
-    result = price_structure("1x1.3 ATMF/25", ms, is_call=True, target=target,
+    result = price_structure("1x1.3 ATMF/25d", ms, is_call=True, target=target,
                              structure_constraint="Avoid tail-risky structures")
     assert isinstance(result, PricingUnavailable)
 
@@ -104,7 +104,7 @@ def test_agent_tool_sizes_and_displays_requested_ratio():
     _, error = dispatch(session, "run_standard_pack", {"pair": "USDBRL", "horizon_days": 90,
                   "direction": "base_higher", "magnitude_pct": 12})
     assert not error
-    text, error = dispatch(session, "price_structure", {"request": "1x1.3 spread ATMF/25"})
+    text, error = dispatch(session, "price_structure", {"request": "1x1.3 spread ATMF/25d"})
     assert not error, text
     assert session.priced[-1].variant.structure_notional is not None
     assert session.priced[-1].variant.resolved_contract.legs[1].signed_notional == -1.3

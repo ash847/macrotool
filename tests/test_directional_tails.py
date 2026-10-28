@@ -149,7 +149,7 @@ def test_relative_preference_re_resolves_on_reversal(cnh_context):
 def test_custom_conflict_and_unknown_are_flagged_without_changing_construction(cnh_context):
     session = session_for(cnh_context)
     dispatch(session, "set_tail_constraint", {"tail_constraint": "higher_spot"})
-    for request in ("25 vs 10 1x2", "34 vs 18 1x2"):
+    for request in ("25Δ vs 10Δ 1x2", "34Δ vs 18Δ 1x2"):
         text, error = dispatch(session, "price_structure", {"request": request})
         assert not error and "CONFLICT WITH ACTIVE TAIL CONSTRAINT" in text
         assert "not an eligible recommendation" in text
@@ -167,7 +167,9 @@ def test_no_target_fallback_obeys_filter(cnh_context):
 
 def test_all_excluded_does_not_bypass_filter_via_fallback(cnh_context, monkeypatch):
     snapshot, cfg, view, _ = cnh_context
+    # Neither a declaration nor a leg derivation → every tail unknown, so all are excluded.
     monkeypatch.setattr("knowledge_engine.tail_policy.load_directional_tail_risk", lambda: {"families": {}})
+    monkeypatch.setattr("knowledge_engine.construction_policy.derived_construction_risk", lambda *a: None)
     pack = build_pack(view, snapshot.get("USDCNH"), cfg, tail_constraint="both")
     assert pack.variants_ranked and not pack.recommended and pack.tail_exclusions
     assert not pack.affinity_shortlist

@@ -165,13 +165,19 @@ is not a generic maximum-loss guarantee. New families require an explicit sizing
 policy. Migrated entry breakevens are reused rather than calculated twice.
 
 Explicit PM requests support `1xR` two-leg spreads with finite R >= 1, e.g.
-`1x1.3 spread ATMF/25`. The existing 1, 1.5 and 2 ratios keep their family IDs;
+`1x1.3 spread ATMF/25d`. Bare leg numbers mean absolute strikes; deltas require
+`d`, `delta` or the delta symbol. The existing 1, 1.5 and 2 ratios keep their family IDs;
 other ratios use `ratio_spread` and retain `short_ratio` in the request/variant.
 Construction freezes quantities +1/-R. Fixed-loss sizing uses the same absolute
 net-premium proxy as existing ratio spreads; Kelly uses the full resolved payoff.
 This does not establish a contractual loss bound. Unknown tail classifications
 remain unknown, with existing preference gates applied. These are off-menu agent
 requests only: no automatic recommendation expansion or new Kelly dropdown UI.
+Main's risk derivation reads actual resolved legs and cross-checks matching catalog
+declarations. Use retained signed quantities, including flexible ratios and solved
+seagull wings; do not reconstruct risk from a family name. Catalog disagreements
+remain unknown. Main's request-level 10-50 delta range does not restrict the exact
+mathematical resolver, and ATMF remains distinct from 50 delta.
 
 **Premium basis (load-bearing invariant):** `black76(F,K,T,σ,DF_d) / spot == DF_f × (forward_value / forward)`. Black-76 returns a premium in *quote* ccy discounted at the *quote* rate `r_d`; dividing by **spot** (not forward) collapses that into the *base* rate `r_f`, so the displayed `net_premium_pct` is base-ccy-notional %, effectively USD-discounted. This is correct and intended. `tests/test_premium_basis.py` pins this — do not "fix" the `/spot` to `/fwd`.
 

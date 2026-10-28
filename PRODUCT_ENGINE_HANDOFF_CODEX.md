@@ -4,9 +4,12 @@
 
 - Worktree: /Users/ash/Documents/Coding work/agentic-workflow
 - Branch: agentic-workflow. Do not implement this work in main.
-- Last completed commit: 2ffeae0 (green-suite cleanup).
+- Pre-integration checkpoint: d561a32 (flexible ratios, clean tree).
 - No push requested for this slice.
-- Latest full suite: 1,347 passed, zero failures, six skipped (154.60 seconds).
+- Integrated source full suite: 1,416 passed, zero failures, seven skipped
+  (160.55 seconds). Eight additional combined-feature tests then passed.
+- MCP optional suite: 13 passed using /Users/ash/macrotool-mcp/.venv/bin/python,
+  with fake model and real stdio transport. No API calls or live deployment.
 - The four previous recurring failures are resolved by user-approved test cleanup:
   Auth0-only expectations, GBPUSD 1M instead of missing 1W, and removal of the
   far-target/high-carry vanilla-winner test. Production behavior unchanged.
@@ -65,6 +68,30 @@ entry pricing so its loss-budget calculation is unchanged.
 - Broader roadmap: BETA_IMPLEMENTATION_TODO.md.
 
 ## Next decision
+
+## Main integration - 2026-10-28
+
+Merged main/origin/main bf12508 into checkpoint d561a32 in an isolated managed
+worktree before updating agentic-workflow. No main worktree edits or push.
+Version 0.2.57. Eight textual conflicts reconciled; main changes were broader
+than parser/MCP wrappers and included construction, risk and shared telemetry.
+
+- Bare leg numbers are strikes; explicit d/delta markers are required for delta.
+  Example: 1x1.3 ATMF/25d. Ratio token remains separate from leg inputs.
+- Main's public request delta range is 10-50; mathematical exact resolver still
+  supports (0,1). Exact delta inversion and ATMF versus 50-delta are preserved.
+- Strike construction accepts strike, delta and mixed anchors, including
+  flexible ratios. Retained contracts continue to own quantities and valuation.
+- Main's implausible-strike/reversed-leg checks apply to ratio_spread too.
+- Risk derivation reads resolved contract quantities, not hardcoded family ratios.
+  Catalog disagreement remains unknown; no automatic weakening of preferences.
+- MCP and shared telemetry changes retained. MCP test environment already existed;
+  no installer run, secrets edited, remote logging exercised or Claude config changed.
+- tests/test_main_ratio_integration.py covers eight explicit combined cases.
+- Update is via tested merge commit and fast-forward, not a second merge attempt.
+
+Historical slice notes below predate this integration. Next user check: named
+strike/delta requests in the app; push only if explicitly requested.
 
 User approved supported flexible ratios WITH existing recommended sizing;
 arbitrary combinations remain price/analysis-first. Version 0.2.56 implements

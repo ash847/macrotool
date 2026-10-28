@@ -73,6 +73,18 @@ def freeze_contract(structure: Structure, strikes, tenor_years: float, *, notion
 # build_structure — JSON variant dict → Structure (market-independent)
 # ---------------------------------------------------------------------------
 
+def _anchor(variant: dict, delta_key: str, strike_key: str) -> Anchor:
+    """A leg's anchor: the absolute strike under ``strike_key`` if present, else the
+    delta under ``delta_key``."""
+    if strike_key in variant:
+        return Anchor(AnchorKind.STRIKE, variant[strike_key])
+    return Anchor(AnchorKind.DELTA, variant[delta_key])
+
+
+def _has_leg(variant: dict, delta_key: str, strike_key: str) -> bool:
+    return delta_key in variant or strike_key in variant
+
+
 def build_structure(family: str, variant: dict, is_call: bool) -> Structure | None:
     structure = _build_structure(family, variant, is_call)
     if structure is None:
@@ -92,13 +104,13 @@ def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | N
     label = variant.get("label", "")
 
     if family == "vanilla":
-        legs = (Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["delta"])),)
+        legs = (Leg(Instrument.VANILLA, right, +1.0, _anchor(variant, "delta", "strike")),)
         return Structure(family, legs, label)
 
     if family == "1x1_spread":
         legs = (
-            Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["long_delta"])),
-            Leg(Instrument.VANILLA, right, -1.0, Anchor(AnchorKind.DELTA, variant["short_delta"])),
+            Leg(Instrument.VANILLA, right, +1.0, _anchor(variant, "long_delta", "long_strike")),
+            Leg(Instrument.VANILLA, right, -1.0, _anchor(variant, "short_delta", "short_strike")),
         )
         return Structure(family, legs, label)
 
@@ -106,10 +118,10 @@ def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | N
         ratio = variant["short_ratio"] if family == "ratio_spread" else (1.5 if family == "1x1.5_spread" else 2.0)
         if not math.isfinite(ratio) or ratio <= 1:
             raise ValueError("Ratio spread requires a finite short ratio greater than one")
-        if "long_delta" in variant and "short_delta" in variant:
+        if _has_leg(variant, "long_delta", "long_strike") and _has_leg(variant, "short_delta", "short_strike"):
             legs = (
-                Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["long_delta"])),
-                Leg(Instrument.VANILLA, right, -ratio, Anchor(AnchorKind.DELTA, variant["short_delta"])),
+                Leg(Instrument.VANILLA, right, +1.0, _anchor(variant, "long_delta", "long_strike")),
+                Leg(Instrument.VANILLA, right, -ratio, _anchor(variant, "short_delta", "short_strike")),
             )
         elif variant.get("long_type") == "atmf":
             legs = (
@@ -130,9 +142,9 @@ def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | N
         # K3 = 2·K2 − K1. The wing's strike is derived from the resolved base
         # strikes at price time, so its anchor here is a placeholder (the short
         # leg's) that price() overrides.
-        if "long_delta" in variant and "short_delta" in variant:
-            long_anchor = Anchor(AnchorKind.DELTA, variant["long_delta"])
-            short_anchor = Anchor(AnchorKind.DELTA, variant["short_delta"])
+        if _has_leg(variant, "long_delta", "long_strike") and _has_leg(variant, "short_delta", "short_strike"):
+            long_anchor = _anchor(variant, "long_delta", "long_strike")
+            short_anchor = _anchor(variant, "short_delta", "short_strike")
         elif variant.get("long_type") == "atmf":
             long_anchor, short_anchor = Anchor(AnchorKind.ATMF), Anchor(AnchorKind.TARGET)
         elif variant.get("long_type") == "half_sigma":
@@ -149,10 +161,10 @@ def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | N
     if family == "seagull":
         opp = Right.PUT if is_call else Right.CALL
         legs = (
-            Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["spread_long"])),
-            Leg(Instrument.VANILLA, right, -1.0, Anchor(AnchorKind.DELTA, variant["spread_short"])),
+            Leg(Instrument.VANILLA, right, +1.0, _anchor(variant, "spread_long", "spread_long_strike")),
+            Leg(Instrument.VANILLA, right, -1.0, _anchor(variant, "spread_short", "spread_short_strike")),
             # Wing: opposite side, notional solved to fund zero cost (set at price time).
-            Leg(Instrument.VANILLA, opp, -1.0, Anchor(AnchorKind.DELTA, variant["wing_delta"])),
+            Leg(Instrument.VANILLA, opp, -1.0, _anchor(variant, "wing_delta", "wing_strike")),
         )
         return Structure(family, legs, label)
 
@@ -163,8 +175,8 @@ def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | N
 
     if family == "european_rko":
         # Long vanilla + an expiry-only knock-out barrier (structure-level).
-        legs = (Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["long_delta"])),)
-        return Structure(family, legs, label, barrier_anchor=Anchor(AnchorKind.DELTA, variant["barrier"]))
+        legs = (Leg(Instrument.VANILLA, right, +1.0, _anchor(variant, "long_delta", "long_strike")),)
+        return Structure(family, legs, label, barrier_anchor=_anchor(variant, "barrier", "barrier_strike"))
 
     return None
 
@@ -215,10 +227,13 @@ def _wrapped_variant_dict(structure: Structure) -> dict:
     if structure.family == "european_digital":
         return {"label": structure.label, "target_prem_pct": legs[0].anchor.value}
     if structure.family == "european_rko":
+        def entry(anchor, delta_key, strike_key):
+            return {strike_key if anchor.kind == AnchorKind.STRIKE else delta_key:
+                    0.5 if anchor.kind == AnchorKind.ATMF else anchor.value}
         return {
             "label": structure.label,
-            "long_delta": legs[0].anchor.value if legs[0].anchor.kind == AnchorKind.DELTA else 0.5,
-            "barrier": structure.barrier_anchor.value if structure.barrier_anchor.kind == AnchorKind.DELTA else 0.5,
+            **entry(legs[0].anchor, "long_delta", "long_strike"),
+            **entry(structure.barrier_anchor, "barrier", "barrier_strike"),
         }
     raise ValueError(f"no wrapped variant dict for {structure.family}")
 
