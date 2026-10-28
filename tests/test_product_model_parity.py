@@ -118,8 +118,9 @@ def test_parity_ported_families(pair, horizon, mag, direction, flat):
     stop_price = ms.fwd * (1 - stop_pct) if is_call else ms.fwd * (1 + stop_pct)
 
     for family in _PORTED:
-        if family in ("vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread"):
-            legacy = legacy_entry(ms, family, cfg[family], target, is_call, surface)
+        if family in ("vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread", "1x2x1_spread", "seagull"):
+            legacy = legacy_entry(ms, family, cfg[family], target, is_call, surface,
+                                  stop_price=stop_price)
         else:
             legacy = price_variants(
                 ms, family, target=target, is_call=is_call, stop_price=stop_price, smile=surface

@@ -7,7 +7,7 @@ from tests.product_entry_reference import legacy_entry
 from tests.test_product_model_parity import _assert_parity, _make_ms, _surface_for
 
 
-@pytest.mark.parametrize("family", ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread"])
+@pytest.mark.parametrize("family", ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread", "1x2x1_spread", "seagull"])
 @pytest.mark.parametrize("is_call", [True, False])
 @pytest.mark.parametrize("flat", [True, False])
 def test_public_entry_matches_independent_legacy(family, is_call, flat):
@@ -26,7 +26,7 @@ def test_public_entry_matches_independent_legacy(family, is_call, flat):
         assert actual.structure_notional is not None
 
 
-@pytest.mark.parametrize("family", ["1x1.5_spread", "1x2_spread"])
+@pytest.mark.parametrize("family", ["1x1.5_spread", "1x2_spread", "1x2x1_spread"])
 @pytest.mark.parametrize("magnitude", [None, 1, 12])
 def test_target_gates_are_preserved(family, magnitude):
     ms, target = _make_ms("USDBRL", 90, magnitude, "base_higher", None)
@@ -39,19 +39,48 @@ def test_target_gates_are_preserved(family, magnitude):
         _assert_parity(actual, expected, family)
 
 
-def test_recommendation_display_does_not_reconstruct(monkeypatch):
+@pytest.mark.parametrize("family", ["vanilla", "1x2x1_spread", "seagull"])
+def test_recommendation_display_does_not_reconstruct(monkeypatch, family):
     from agentic.standard_pack import _priced_structure_for
     ms, target = _make_ms("USDBRL", 90, 12, "base_higher", None)
-    variant = price_variants(ms, "vanilla", target=target)[0]
+    variant = price_variants(ms, family, target=target)[0]
 
     def fail(*args, **kwargs):
         raise AssertionError("display must use the retained price")
 
     monkeypatch.setattr("analytics.product_pricer.price", fail)
     monkeypatch.setattr("analytics.product_pricer.build_structure", fail)
-    retained = _priced_structure_for("vanilla", variant.variant_label, ms, True,
+    retained = _priced_structure_for(family, variant.variant_label, ms, True,
                                       target, None, None, variant=variant)
     assert retained is variant.product_price
+
+
+@pytest.mark.parametrize("is_call", [True, False])
+@pytest.mark.parametrize("flat", [True, False])
+def test_seagull_stop_budget_and_solved_quantity(is_call, flat):
+    from analytics.product_pricer import freeze_contract
+    surface = _surface_for("USDBRL", flat)
+    ms, target = _make_ms("USDBRL", 90, 12, "base_higher" if is_call else "base_lower", surface)
+    stop = ms.fwd * (0.96 if is_call else 1.04)
+    definitions = _load_variants()["seagull"]
+    new = price_variants(ms, "seagull", target=target, is_call=is_call,
+                         smile=surface, stop_price=stop, loss_budget=100)
+    old = legacy_entry(ms, "seagull", definitions, target, is_call, surface, stop_price=stop)
+    for actual, expected in zip(new, old):
+        _assert_parity(actual, expected, "seagull stop")
+        assert actual.resolved_contract.legs[2].signed_notional == -actual.wing_ratio
+        assert actual.resolved_contract.legs[2].signed_notional == actual.product_price.priced_legs[2].notional
+        with pytest.raises(ValueError, match="solved leg quantities"):
+            freeze_contract(actual.product_price.structure, actual.strikes, ms.T)
+
+
+def test_nonpositive_butterfly_wing_is_excluded():
+    ms, _ = _make_ms("USDBRL", 90, 12, "base_lower", None)
+    target = ms.fwd * 0.4
+    definitions = [dict(label="invalid wing", long_type="atmf")]
+    assert legacy_entry(ms, "1x2x1_spread", definitions, target, False, None) == []
+    assert price_variants(ms, "1x2x1_spread", target=target, is_call=False,
+                          variants_override=definitions) == []
 
 
 @pytest.mark.parametrize("request_text", ["vanilla ATMF", "1x1 ATMF/25 delta", "1x1.5 34/25", "1x2 ATMF/25 delta"])

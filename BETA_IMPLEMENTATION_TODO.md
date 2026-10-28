@@ -767,6 +767,24 @@ Result: 1,282 passed, four previously recorded failures and six skipped in
 167.03 seconds. No new failures; `git diff --check` passed. This slice is
 checkpointed locally without pushing or deploying.
 
+### Three-leg entry and valuation slice - Codex
+
+Completed 2026-10-28 on agentic-workflow; package version 0.2.54.
+Butterflies and seagulls now use the shared product entry path, retained display
+result and immutable resolved contract for scenario valuation and Kelly payoffs.
+Seagull solved wing quantities and butterfly derived strikes remain fixed under
+market shocks. Stop-budget plumbing, target gates and nonpositive butterfly-wing
+filtering are preserved. Old routines remain independent test references.
+
+Verification: full suite 1,308 passed, the same four known failures, six skipped
+in 146.27 seconds. Regression coverage includes both directions, flat/smile,
+stressed valuation, expiry payoffs, stop budgets and retained object identity.
+No cloud/UI verification or push. Handoff: PRODUCT_ENGINE_HANDOFF_CODEX.md.
+
+Still outstanding: family-specific construction and risk rules remain; arbitrary
+multi-leg construction is not enabled. Specialized binary/barrier contracts and
+multi-expiry support are not migrated by this slice. Do not mark all of T19 done.
+
 All items are open. Fill this table as work is assigned and completed.
 
 | ID | Owner | Commit / test / live-check evidence |

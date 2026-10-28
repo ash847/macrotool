@@ -6,12 +6,14 @@ from analytics import structure_pricer as legacy
 from analytics.expiry_breakeven import expiry_breakevens, variant_terms
 
 
-def legacy_entry(ms, family, definitions, target, is_call, smile):
+def legacy_entry(ms, family, definitions, target, is_call, smile, *, stop_price=None):
     fn = {"vanilla": legacy._vanilla, "1x1_spread": legacy._spread,
-          "1x1.5_spread": legacy._1x1p5, "1x2_spread": legacy._1x2}[family]
+          "1x1.5_spread": legacy._1x1p5, "1x2_spread": legacy._1x2,
+          "1x2x1_spread": legacy._1x2x1, "seagull": legacy._seagull}[family]
     vm = legacy._VolModel(ms.vol, smile, ms.fwd, round(ms.T * 365))
-    rows = fn(definitions, ms.fwd, ms.vol, ms.T, math.exp(-ms.r_d * ms.T),
-              ms.r_d, ms.r_f, ms.spot, ms.vol * math.sqrt(ms.T), is_call, target, vm)
+    args = (definitions, ms.fwd, ms.vol, ms.T, math.exp(-ms.r_d * ms.T),
+            ms.r_d, ms.r_f, ms.spot, ms.vol * math.sqrt(ms.T), is_call, target)
+    rows = fn(*args, stop_price, vm) if family == "seagull" else fn(*args, vm)
     for row in rows:
         terms = variant_terms(family, row.strikes, is_call, row.wing_ratio)
         row.breakevens, row.breakeven_has_zero_region = expiry_breakevens(terms, row.net_premium_pct)

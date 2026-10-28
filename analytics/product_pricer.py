@@ -43,10 +43,15 @@ from pricing.black_scholes import black76_call, black76_put
 
 _ZERO_COST_EPS = 0.0001   # × spot, matches legacy is_zero_cost test
 
-RESOLVED_FAMILIES = frozenset(("vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread"))
+RESOLVED_FAMILIES = frozenset(("vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread",
+                              "1x2x1_spread", "seagull"))
 
 
-def freeze_contract(structure: Structure, strikes, tenor_years: float) -> ResolvedContract:
+class InvalidButterflyWing(ValueError):
+    """A derived butterfly wing cannot be represented by a positive strike."""
+
+
+def freeze_contract(structure: Structure, strikes, tenor_years: float, *, notionals=None) -> ResolvedContract:
     """Retain already resolved strikes; never price or resolve an anchor here."""
     if structure.family not in RESOLVED_FAMILIES or structure.barrier_anchor is not None:
         raise ValueError("Family not yet migrated to the resolved vanilla contract")
@@ -54,10 +59,16 @@ def freeze_contract(structure: Structure, strikes, tenor_years: float) -> Resolv
         raise ValueError("Resolved strike count does not match the structure")
     if any(leg.instrument != Instrument.VANILLA for leg in structure.legs):
         raise ValueError("Resolved vanilla contract cannot contain binary legs")
+    if notionals is None:
+        if structure.family == "seagull":
+            raise ValueError("Seagull requires solved leg quantities")
+        notionals = [leg.signed_notional for leg in structure.legs]
+    if len(notionals) != len(structure.legs):
+        raise ValueError("Resolved quantity count does not match the structure")
     return ResolvedContract(
         structure.family, structure.label,
-        tuple(ResolvedLeg(leg.right, strike, leg.signed_notional)
-              for leg, strike in zip(structure.legs, strikes)), tenor_years,
+        tuple(ResolvedLeg(leg.right, strike, quantity)
+              for leg, strike, quantity in zip(structure.legs, strikes, notionals)), tenor_years,
     )
 
 
@@ -282,6 +293,8 @@ def price(
     # reprice the placeholder wing leg at its own (smile) vol.
     if fam == "1x2x1_spread" and len(priced_legs) == 3:
         K3 = 2.0 * priced_legs[1].strike - priced_legs[0].strike
+        if K3 <= 0:
+            raise InvalidButterflyWing("Butterfly wing strike must be positive")
         is_call3 = priced_legs[2].leg.right == Right.CALL
         v3 = vm.at_strike(K3)
         unit3 = black76_call(F, K3, T, v3, DF) if is_call3 else black76_put(F, K3, T, v3, DF)
@@ -364,6 +377,7 @@ def price(
         breakeven_has_zero_region=zero_region,
         is_zero_cost=is_zero_cost,
         wing_ratio=wing_ratio,
-        resolved_contract=(freeze_contract(structure, strikes, T)
+        resolved_contract=(freeze_contract(structure, strikes, T,
+                                           notionals=[leg.notional for leg in priced_legs])
                            if fam in RESOLVED_FAMILIES else None),
     )

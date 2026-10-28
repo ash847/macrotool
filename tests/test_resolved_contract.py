@@ -14,7 +14,7 @@ from analytics.trade_economics import compute_trade_economics
 from tests.test_product_model_parity import _make_ms, _surface_for
 
 
-@pytest.mark.parametrize("family", ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread"])
+@pytest.mark.parametrize("family", ["vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread", "1x2x1_spread", "seagull"])
 @pytest.mark.parametrize("is_call", [True, False], ids=["call", "put"])
 @pytest.mark.parametrize("flat", [True, False], ids=["flat", "smile"])
 def test_migrated_consumers_match_legacy(family, is_call, flat, monkeypatch):
@@ -42,7 +42,8 @@ def test_migrated_consumers_match_legacy(family, is_call, flat, monkeypatch):
                         _value_variant(family, legacy, *args), abs=1e-12,
                     )
         grid = np.unique(np.r_[np.linspace(ms.spot * 0.5, ms.spot * 1.5, 51), priced.strikes])
-        kwargs = dict(strikes=priced.strikes, barrier=None, is_call=is_call, entry_spot=ms.spot)
+        kwargs = dict(strikes=priced.strikes, barrier=None, is_call=is_call, entry_spot=ms.spot,
+                      wing_ratio=priced.wing_ratio)
         new_payoff = base_ccy_payoff_for_trade_rec(family, **kwargs, resolved_contract=contract)
         old_payoff = base_ccy_payoff_for_trade_rec(family, **kwargs)
         np.testing.assert_allclose(new_payoff(grid), old_payoff(grid), atol=1e-12)
@@ -85,7 +86,7 @@ def test_invalid_context_and_terminal_spots_are_rejected():
 
 def test_specialised_products_are_not_frozen_as_vanilla_contracts():
     ms, target = _make_ms("USDBRL", 90, 12, "base_higher", None)
-    for family in ("seagull", "european_rko", "european_digital"):
+    for family in ("european_rko", "european_digital"):
         variants = price_variants(ms, family, target=target)
         assert variants
         assert all(v.resolved_contract is None for v in variants)

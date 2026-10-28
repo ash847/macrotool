@@ -209,13 +209,10 @@ def price_variants(
 
     from analytics.product_pricer import RESOLVED_FAMILIES
     if structure_id in RESOLVED_FAMILIES:
-        result = _product_variants(ms, structure_id, variants, target, is_call, smile)
-    elif structure_id == "1x2x1_spread":
-        result = _1x2x1(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm)
+        result = _product_variants(ms, structure_id, variants, target, is_call, smile,
+                                   stop_price=stop_price)
     elif structure_id == "european_rko":
         result = _european_rko(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings)
-    elif structure_id == "seagull":
-        result = _seagull(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, stop_price, vm)
     elif structure_id == "european_digital":
         result = _digital(variants, F, vol, T, DF, r_d, r_f, spot, vol_sqrtT, is_call, target, vm, warnings)
     elif structure_id == "european_digital_rko":
@@ -278,13 +275,13 @@ def price_variants(
     return eligible
 
 
-def _product_variants(ms, family, definitions, target, is_call, smile):
+def _product_variants(ms, family, definitions, target, is_call, smile, *, stop_price=None):
     """Compatibility envelope around the one authoritative product entry price."""
-    from analytics.product_pricer import build_structure, price
+    from analytics.product_pricer import InvalidButterflyWing, build_structure, price
 
     result = []
     for definition in definitions:
-        if family in ("1x1.5_spread", "1x2_spread") and not (
+        if family in ("1x1.5_spread", "1x2_spread", "1x2x1_spread") and not (
             "long_delta" in definition and "short_delta" in definition
         ):
             if target is None:
@@ -296,7 +293,11 @@ def _product_variants(ms, family, definitions, target, is_call, smile):
         structure = build_structure(family, definition, is_call)
         if structure is None:
             raise ValueError(f"Unsupported construction for migrated family {family}")
-        product = price(structure, ms, target=target, smile=smile)
+        try:
+            product = price(structure, ms, target=target, smile=smile, stop_price=stop_price)
+        except InvalidButterflyWing:
+            # Preserve the catalogue's existing invalid-wing exclusion.
+            continue
         result.append(PricedVariant(
             variant_label=product.variant_label, strikes=product.strikes,
             barrier=product.barrier, net_premium_pct=product.net_premium_pct,
