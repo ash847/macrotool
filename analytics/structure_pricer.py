@@ -284,7 +284,7 @@ def _product_variants(ms, family, definitions, target, is_call, smile, *, stop_p
 
     result = []
     for definition in definitions:
-        if family in ("1x1.5_spread", "1x2_spread", "1x2x1_spread") and not (
+        if family in ("1x1.5_spread", "1x2_spread", "1x2x1_spread", "ratio_spread") and not (
             "long_delta" in definition and "short_delta" in definition
         ):
             if target is None:

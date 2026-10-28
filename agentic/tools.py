@@ -134,8 +134,9 @@ TOOL_SCHEMAS = [
         "description": (
             "Price a specific structure the PM names, against the CURRENT view's market "
             "state. Provide a short request string in the structure grammar, e.g. "
-            "'34 vs 25 1x1.5', '25Δ vanilla', 'digital 10%', 'ATMF vs target 1x2'. "
-            "Direction, target, weights, and strikes are supplied by the engine — you only "
+            "'34 vs 25 1x1.5', '1x1.3 spread ATMF/25', '25Δ vanilla', 'digital 10%', 'ATMF vs target 1x2'. "
+            "Explicit 1xR spread ratios R>=1 are supported; retain the PM's requested ratio. "
+            "Direction, target and strikes are supplied by the engine — you only "
             "name the structure. Requires that run_standard_pack has already been called."
         ),
         "input_schema": {

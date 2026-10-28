@@ -188,6 +188,6 @@ def characterize_against_pack(
 def _unavailable_detail(family: str, target: float | None, warnings: list[str]) -> str:
     if warnings:
         return "; ".join(warnings)
-    if target is None and family in ("european_rko", "1x1.5_spread", "1x2_spread"):
+    if target is None and family in ("european_rko", "1x1.5_spread", "1x2_spread", "ratio_spread"):
         return f"'{family}' needs a target level to be priced for this view"
     return f"'{family}' could not be priced for the current view (target may be too close to the forward)"

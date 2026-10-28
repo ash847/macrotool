@@ -164,6 +164,15 @@ Legacy display/sizing conventions live in `product_policies.py`; its loss proxy
 is not a generic maximum-loss guarantee. New families require an explicit sizing
 policy. Migrated entry breakevens are reused rather than calculated twice.
 
+Explicit PM requests support `1xR` two-leg spreads with finite R >= 1, e.g.
+`1x1.3 spread ATMF/25`. The existing 1, 1.5 and 2 ratios keep their family IDs;
+other ratios use `ratio_spread` and retain `short_ratio` in the request/variant.
+Construction freezes quantities +1/-R. Fixed-loss sizing uses the same absolute
+net-premium proxy as existing ratio spreads; Kelly uses the full resolved payoff.
+This does not establish a contractual loss bound. Unknown tail classifications
+remain unknown, with existing preference gates applied. These are off-menu agent
+requests only: no automatic recommendation expansion or new Kelly dropdown UI.
+
 **Premium basis (load-bearing invariant):** `black76(F,K,T,σ,DF_d) / spot == DF_f × (forward_value / forward)`. Black-76 returns a premium in *quote* ccy discounted at the *quote* rate `r_d`; dividing by **spot** (not forward) collapses that into the *base* rate `r_f`, so the displayed `net_premium_pct` is base-ccy-notional %, effectively USD-discounted. This is correct and intended. `tests/test_premium_basis.py` pins this — do not "fix" the `/spot` to `/fwd`.
 
 **Pluggable vol surface (`analytics/vol_surface.py`):** vanilla pricing depends on a `VolSurface` Protocol (`vol_at_strike`, `vol_at_delta`). `SmileInterpolator` is the cubic-spline build method (resolution/interpolation are constructor params, legacy values as defaults); `FlatSurface(atm_vol)` is the degenerate flat surface (byte-identical to legacy scalar vol); `build_vol_surface(ccy, method="cubic_spline", **params)` is the sole construction site (add `"sabr"` etc. behind it without touching call sites).

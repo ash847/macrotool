@@ -76,7 +76,7 @@ def compute_trade_economics(
     pnl_reason = None
     supported = {
         "vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread",
-        "1x2x1_spread", "seagull", "european_digital", "european_rko",
+        "1x2x1_spread", "seagull", "european_digital", "european_rko", "ratio_spread",
     }
     if target is None:
         pnl_reason = "No target specified"

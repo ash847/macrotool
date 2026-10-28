@@ -4,13 +4,13 @@
 
 - Worktree: /Users/ash/Documents/Coding work/agentic-workflow
 - Branch: agentic-workflow. Do not implement this work in main.
-- Last completed commit: d593b1c (construction/policy separation).
+- Last completed commit: 2ffeae0 (green-suite cleanup).
 - No push requested for this slice.
-- Latest full suite: 1,325 passed, zero failures, six skipped (163.48 seconds).
+- Latest full suite: 1,347 passed, zero failures, six skipped (154.60 seconds).
 - The four previous recurring failures are resolved by user-approved test cleanup:
   Auth0-only expectations, GBPUSD 1M instead of missing 1W, and removal of the
   far-target/high-carry vanilla-winner test. Production behavior unchanged.
-- Test cleanup is uncommitted; no push. Historical results below are retained.
+- Test cleanup is committed; no push. Historical results below are retained.
 
 ## Previous authorized slice
 
@@ -65,6 +65,19 @@ entry pricing so its loss-budget calculation is unchanged.
 - Broader roadmap: BETA_IMPLEMENTATION_TODO.md.
 
 ## Next decision
+
+User approved supported flexible ratios WITH existing recommended sizing;
+arbitrary combinations remain price/analysis-first. Version 0.2.56 implements
+off-menu agent 1xR requests for finite R >= 1. Existing ratios keep their IDs;
+others use ratio_spread with retained short_ratio and resolved +1/-R quantities.
+Fixed-loss uses the existing absolute premium proxy; Kelly uses resolved payoff.
+No recommendation-menu expansion, arbitrary leg editor or Kelly dropdown addition.
+22 new flexible-ratio tests pass. Final full suite on the finished source tree:
+1,347 passed, zero failures, six skipped in 154.60 seconds. git diff --check
+passed. No cloud/UI verification. Changes are not committed or pushed.
+Spec updated accordingly. Next: user testing of named 1x1.3 requests in the
+agent, then checkpoint/push when requested. Do not describe this as a new
+Kelly dropdown option or a general arbitrary-leg editor.
 
 The approved behaviour-preserving slice is complete. Before enabling arbitrary
 packages, specify allowed ratios/legs, risk constraints and sizing policy with

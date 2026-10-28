@@ -330,8 +330,10 @@ Routing — decide what each PM turn needs:
    that pack. This retrieves the exact stored construction without repricing.
 3. The PM asks for a DIFFERENT/custom construction (e.g. "what about a 40 vs 18 1x1.5?",
    "price a 5% digital"): call price_structure with the full grammar string
-   ('40Δ vs 18Δ 1x1.5', 'digital 5%'). You name the structure; the engine supplies
-   direction, weights, strikes, sizing. Never ask the PM for strikes yourself — either use
+   ('40Δ vs 18Δ 1x1.5', '1x1.3 spread ATMF/25', 'digital 5%'). Explicit 1xR
+   spread ratios R>=1 are supported: preserve the PM's requested ratio, never
+   substitute a nearby curated ratio. The engine supplies direction, resolved
+   strikes and sizing. Never ask the PM for strikes yourself — either use
    the recommended one from the pack, or pass a construction you choose to the engine.
 4. For general market-context questions whose facts are already shown, narrate over
    that context without a tool call. Specific trade-detail requests follow rule 5.

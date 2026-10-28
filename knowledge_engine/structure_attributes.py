@@ -53,8 +53,8 @@ _VEGA_SHARE = 0.20      # vol matters if |Vega| owns >= this share
 _OVERSHOOT_EDGE = 1.05  # overshoot "rewards" if it beats the correct-path avg by >= 5%
 _WRONG_WAY_FLOOR = -0.01  # avg P&L (spot fraction) above which wrong-way bleed is "limited"
 
-_CAPPED = {"1x1_spread", "1x1.5_spread", "1x2_spread", "seagull"}
-_RATIO = {"1x1.5_spread", "1x2_spread"}
+_CAPPED = {"1x1_spread", "1x1.5_spread", "1x2_spread", "seagull", "ratio_spread"}
+_RATIO = {"1x1.5_spread", "1x2_spread", "ratio_spread"}
 _BINARY = {"european_digital", "european_digital_rko"}
 # Path-dependent barriers only. european_rko is EXPIRY-ONLY (the knock-out is tested at
 # expiry, not on the path — see pricing/european_rko.py) so it must NOT carry

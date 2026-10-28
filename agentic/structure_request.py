@@ -5,7 +5,8 @@ LLM is allowed to say about a structure passes through here and is either resolv
 to a known variant shape or rejected with a structured reason.
 
 The LLM names a trade the way a PM says it ("34 vs 25 1x1.5", "digital 10%"). It
-never sets direction, weights, signs, strikes, or notionals — those are supplied
+never sets direction, signs, resolved strikes, or notionals. An explicit PM-requested
+1xR ratio is retained as a validated construction input. Other terms are supplied
 downstream (direction from the session view; weights inside the pricer; strikes by
 the pricer's delta resolver). ``to_variant_dict`` emits exactly the per-variant
 dict shape ``analytics.structure_pricer.price_variants`` already consumes.
@@ -14,11 +15,13 @@ dict shape ``analytics.structure_pricer.price_variants`` already consumes.
 from __future__ import annotations
 
 import re
+import math
 from dataclasses import dataclass
 from typing import Literal, Union
 
 from agentic.family_registry import (
     FAMILIES,
+    RATIO_TOKEN,
     POLICY_CURATED,
     POLICY_DISABLED,
     POLICY_FREE,
@@ -63,6 +66,7 @@ class StructureRequest:
     family: str
     legs: tuple[LegRef, ...]
     canonical: str
+    short_ratio: float | None = None
 
 
 @dataclass(frozen=True)
@@ -113,8 +117,17 @@ def parse_structure_request(text: str) -> ParseResult:
     norm = _normalize(text)
 
     # 1. Resolve and remove the family token (so its digits don't parse as legs).
+    # Parse the complete ratio before synonym matching (1x1 is a substring of 1x1.3).
+    ratio_match = RATIO_TOKEN.search(norm)
+    ratio = None
+    if ratio_match:
+        ratio = float(ratio_match.group(1))
+        if not math.isfinite(ratio) or ratio < 1:
+            raise StructureRequestError(BAD_LEG, "Spread short ratio must be finite and at least 1")
     family, token = resolve_family(norm)
     remainder = norm.replace(token, " ", 1) if token else norm
+    if ratio_match:
+        remainder = re.sub(r"\bspread\b", " ", remainder)
 
     # 2. Strip direction / noise words.
     remainder = _strip_direction_words(remainder)
@@ -154,8 +167,10 @@ def parse_structure_request(text: str) -> ParseResult:
 
     # 6. Family-specific validation happens in to_variant_dict's builders; build
     #    the canonical echo and the request now (builders re-validate leg kinds).
-    canonical = f"{family} " + "/".join(leg.render() for leg in legs)
-    req = StructureRequest(family=family, legs=tuple(legs), canonical=canonical)
+    name = f"1x{ratio} spread" if family == "ratio_spread" else family
+    canonical = f"{name} " + "/".join(leg.render() for leg in legs)
+    req = StructureRequest(family=family, legs=tuple(legs), canonical=canonical,
+                           short_ratio=ratio if family == "ratio_spread" else None)
     # Eagerly validate by building once (raises on bad leg kinds for the family).
     to_variant_dict(req)
     return req
@@ -190,6 +205,12 @@ def _to_variant_dict(req: StructureRequest) -> dict:
 
     if family in ("1x1.5_spread", "1x2_spread"):
         return {"label": label, **_ratio_variant(legs, family)}
+
+    if family == "ratio_spread":
+        ratio = req.short_ratio
+        if ratio is None or not math.isfinite(ratio) or ratio <= 1:
+            raise StructureRequestError(BAD_LEG, "Flexible ratio must be finite and greater than 1")
+        return {"label": label, "short_ratio": ratio, **_ratio_variant(legs, family)}
 
     if family == "seagull":
         return {

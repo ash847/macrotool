@@ -812,6 +812,38 @@ Full suite: 1,325 passed, zero failures, six skipped in 163.48 seconds.
 The four historical failures above are no longer outstanding. GBPUSD override
 test still depends on the snapshot containing 1M. No commit/push for this cleanup.
 
+### Flexible packages specification - Codex
+
+T22 proposed first-version spec: FLEXIBLE_PACKAGE_SPEC_CODEX.md. Covers explicit
+same-pair/same-expiry vanilla legs, validation, current parser/selector gaps,
+contract-based consumer handoff and acceptance tests. Custom automatic sizing
+is a separate approval gate; no new functionality implemented by this document.
+Green-suite cleanup is checkpointed as 2ffeae0; nothing pushed.
+
+### Flexible ratio spreads - Codex
+
+User approved recommended sizing for variations within supported structures,
+while arbitrary leg combinations remain price/analysis-first. Version 0.2.56
+adds explicit agent requests such as `1x1.3 spread ATMF/25` (finite R >= 1).
+Named 1/1.5/2 ratios keep existing IDs; other ratios retain short_ratio under
+ratio_spread. Resolved +1/-R legs feed premium, scenario P&L, breakevens and Kelly.
+Fixed-loss retains the existing absolute-net-premium proxy and 10x capital cap;
+this is not a newly established contractual loss bound. Unknown risk classifications
+remain unknown and preference restrictions remain active.
+
+Default recommendations and the Kelly screen's Trade Rec dropdown are unchanged.
+The new path is a PM-named agent request, sized under the current session regime.
+Ratios below one, explicit custom strikes, arbitrary packages and a new UI editor
+are not enabled. Family lookup now recognizes the complete ratio instead of
+substring-matching 1x1.3 to 1x1. Tests cover both directions, flat/smile, exact
+payoff/scenario quantities, fixed-loss/Kelly sizing, existing-policy equivalence,
+agent output, missing targets and unchanged menu/constraints.
+
+Initial full run: 1,347 passed, six skipped (148.39 seconds); final family-token
+lookup also passed 66 focused tests. Fresh final-tree full run: 1,347 passed,
+zero failures, six skipped in 154.60 seconds. git diff --check passed.
+No commit/push or cloud/UI test for this slice. Resume: PRODUCT_ENGINE_HANDOFF_CODEX.md.
+
 All items are open. Fill this table as work is assigned and completed.
 
 | ID | Owner | Commit / test / live-check evidence |

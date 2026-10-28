@@ -19,6 +19,10 @@ LLM. It does not price anything; it only validates and shapes a request.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
+
+
+RATIO_TOKEN = re.compile(r"(?<![\w.])1\s*x\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?![\w.])")
 
 
 # Construction policy per family.
@@ -41,6 +45,7 @@ FAMILIES: dict[str, FamilySpec] = {
     "1x1_spread":           FamilySpec("1x1_spread",           POLICY_FREE,     (2,)),
     "1x1.5_spread":         FamilySpec("1x1.5_spread",         POLICY_FREE,     (2,)),
     "1x2_spread":           FamilySpec("1x2_spread",           POLICY_FREE,     (2,)),
+    "ratio_spread":         FamilySpec("ratio_spread",         POLICY_FREE,     (2,)),
     "seagull":              FamilySpec("seagull",              POLICY_FREE,     (3,)),
     "european_rko":         FamilySpec("european_rko",         POLICY_FREE,     (2,)),
     "european_digital":     FamilySpec("european_digital",     POLICY_CURATED,  (1,)),
@@ -100,6 +105,11 @@ def resolve_family(text: str) -> tuple[str | None, str | None]:
     Returns ``(family, matched_token)`` or ``(None, None)`` if no family word is
     present (the caller may then try to infer a family from the leg shape).
     """
+    match = RATIO_TOKEN.search(text)
+    if match:
+        ratio = float(match.group(1))
+        family = {1.0: "1x1_spread", 1.5: "1x1.5_spread", 2.0: "1x2_spread"}.get(ratio, "ratio_spread")
+        return family, match.group()
     for token, family in _SYNONYMS:
         if token in text:
             return family, token

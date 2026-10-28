@@ -38,7 +38,7 @@ def sizing_loss_proxy(contract: ResolvedContract, premium_pct: float, ms,
         spot = stop_price * math.exp(-(ms.r_d - ms.r_f) * ms.T)
         context = PricingContext(spot, ms.T, ms.vol, ms.r_d, ms.r_f, surface)
         return abs(value_resolved(contract, context)) / ms.spot
-    if family in ("1x1.5_spread", "1x2_spread"):
+    if family in ("1x1.5_spread", "1x2_spread", "ratio_spread"):
         # Existing premium-based sizing proxy does not capitalize open-tail loss.
         return abs(premium_pct)
     raise ValueError(f"No approved sizing policy for {family}")

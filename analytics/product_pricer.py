@@ -41,7 +41,7 @@ from analytics.structure_pricer import _VolModel
 from pricing.black_scholes import black76_call, black76_put
 
 RESOLVED_FAMILIES = frozenset(("vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread",
-                              "1x2x1_spread", "seagull"))
+                              "1x2x1_spread", "seagull", "ratio_spread"))
 
 
 class InvalidButterflyWing(ValueError):
@@ -102,8 +102,10 @@ def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | N
         )
         return Structure(family, legs, label)
 
-    if family in ("1x1.5_spread", "1x2_spread"):
-        ratio = 1.5 if family == "1x1.5_spread" else 2.0
+    if family in ("1x1.5_spread", "1x2_spread", "ratio_spread"):
+        ratio = variant["short_ratio"] if family == "ratio_spread" else (1.5 if family == "1x1.5_spread" else 2.0)
+        if not math.isfinite(ratio) or ratio <= 1:
+            raise ValueError("Ratio spread requires a finite short ratio greater than one")
         if "long_delta" in variant and "short_delta" in variant:
             legs = (
                 Leg(Instrument.VANILLA, right, +1.0, Anchor(AnchorKind.DELTA, variant["long_delta"])),
