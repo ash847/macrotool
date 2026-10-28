@@ -802,6 +802,16 @@ four unchanged known failures, six skipped (153.38 seconds). Final breakeven
 reuse cleanup was verified separately with 97 focused tests passing after
 that edit. No cloud/UI check or push. See PRODUCT_ENGINE_HANDOFF_CODEX.md.
 
+### Recurring test cleanup - Codex
+
+2026-10-28: user confirmed Auth0-only login, requested GBPUSD 1M for the
+forward-points override test, and removal of the far-target/high-carry
+vanilla-winner ranking test. Updated those tests accordingly; the missing-auth
+settings guard now uses Auth0 as well. No production behavior or scoring changes.
+Full suite: 1,325 passed, zero failures, six skipped in 163.48 seconds.
+The four historical failures above are no longer outstanding. GBPUSD override
+test still depends on the snapshot containing 1M. No commit/push for this cleanup.
+
 All items are open. Fill this table as work is assigned and completed.
 
 | ID | Owner | Commit / test / live-check evidence |

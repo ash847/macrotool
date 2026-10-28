@@ -29,8 +29,9 @@ class TestApplyOverrides:
 
     def test_forward_points_recomputed_from_spot(self):
         base = load_snapshot()
-        out = apply_overrides(base, {"GBPUSD": {"forwards": {"1W": 1.2715}}})
-        fwd = out.get("GBPUSD").get_forward("1W")
+        out = apply_overrides(base, {"GBPUSD": {"forwards": {"1M": 1.2715}}})
+        fwd = out.get("GBPUSD").get_forward("1M")
+        assert fwd.outright == pytest.approx(1.2715)
         assert fwd.points == pytest.approx((1.2715 - out.get("GBPUSD").spot) * 10000)
 
     def test_atm_override_preserves_rr_and_bf(self):

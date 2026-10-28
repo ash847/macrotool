@@ -111,14 +111,6 @@ class TestRanking:
         primaries = [s for s in result.shortlist if not s.is_exotic]
         assert primaries[0].structure_id == "vanilla"
 
-    def test_vanilla_wins_far_target_high_carry(self):
-        # carry regime 2 (c=1.0), target at 2.0σ (far) → vanilla tops due to far=3.0
-        # plus carry_regime and carry_alignment scores added in user tuning
-        ms = _ms(c=1.0, target_z=2.0)
-        result = score_structures(ms)
-        primaries = [s for s in result.shortlist if not s.is_exotic]
-        assert primaries[0].structure_id == "vanilla"
-
     def test_risk_reversal_permanently_gated(self):
         # risk_reversal has target_z_abs_min=999 gate — never eligible
         ms = _ms(c=0.60)

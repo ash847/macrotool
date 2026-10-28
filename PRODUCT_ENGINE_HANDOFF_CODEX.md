@@ -4,12 +4,13 @@
 
 - Worktree: /Users/ash/Documents/Coding work/agentic-workflow
 - Branch: agentic-workflow. Do not implement this work in main.
-- Last completed commit: 3fd4ea9 (butterfly/seagull migration).
+- Last completed commit: d593b1c (construction/policy separation).
 - No push requested for this slice.
-- Previous full suite: 1,308 passed, 4 known failures, 6 skipped.
-- Known failures: two Google login button tests in test_roles_visibility;
-  missing GBPUSD 1W in test_snapshot_overrides; ranking expectation in
-  test_structure_scorer::TestRanking::test_vanilla_wins_far_target_high_carry.
+- Latest full suite: 1,325 passed, zero failures, six skipped (163.48 seconds).
+- The four previous recurring failures are resolved by user-approved test cleanup:
+  Auth0-only expectations, GBPUSD 1M instead of missing 1W, and removal of the
+  far-target/high-carry vanilla-winner test. Production behavior unchanged.
+- Test cleanup is uncommitted; no push. Historical results below are retained.
 
 ## Previous authorized slice
 

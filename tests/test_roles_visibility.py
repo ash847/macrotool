@@ -65,7 +65,7 @@ def test_fail_restricted_default_is_tester(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Multi-provider login (Google + Auth0 magic-link) — interface/security.py
+# Auth0-only login; legacy Google secrets must not enable a provider.
 # ---------------------------------------------------------------------------
 
 _FULL_AUTH_BLOCK = {"redirect_uri": "https://x/~/+/oauth2callback", "cookie_secret": "s" * 64}
@@ -83,10 +83,10 @@ def test_no_providers_configured_means_not_configured(monkeypatch):
     assert security.auth_configured() is False
 
 
-def test_google_only_offers_one_button(monkeypatch):
+def test_google_only_does_not_enable_login(monkeypatch):
     _patch_secrets(monkeypatch, {**_FULL_AUTH_BLOCK, "google": _GOOGLE_BLOCK})
-    assert security._configured_providers() == [("google", "Sign in with Google")]
-    assert security.auth_configured() is True
+    assert security._configured_providers() == []
+    assert security.auth_configured() is False
 
 
 def test_auth0_only_offers_magic_link_button(monkeypatch):
@@ -95,12 +95,12 @@ def test_auth0_only_offers_magic_link_button(monkeypatch):
     assert security.auth_configured() is True
 
 
-def test_both_providers_configured_offers_both_in_order(monkeypatch):
+def test_legacy_google_secrets_do_not_add_button_to_auth0(monkeypatch):
     _patch_secrets(monkeypatch, {**_FULL_AUTH_BLOCK, "google": _GOOGLE_BLOCK, "auth0": _AUTH0_BLOCK})
     assert security._configured_providers() == [
-        ("google", "Sign in with Google"),
         ("auth0", "Sign in with magic link"),
     ]
+    assert security.auth_configured() is True
 
 
 def test_incomplete_provider_block_is_not_configured(monkeypatch):
@@ -110,5 +110,5 @@ def test_incomplete_provider_block_is_not_configured(monkeypatch):
 
 
 def test_missing_redirect_or_cookie_secret_fails_closed(monkeypatch):
-    monkeypatch.setattr(security.st, "secrets", {"auth": {"google": _GOOGLE_BLOCK}})  # no redirect_uri/cookie_secret
+    monkeypatch.setattr(security.st, "secrets", {"auth": {"auth0": _AUTH0_BLOCK}})  # no redirect_uri/cookie_secret
     assert security.auth_configured() is False
