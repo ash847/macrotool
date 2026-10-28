@@ -136,7 +136,7 @@ def log_chat_turn(
     session_id: str | None,
     chat_id: str,
     seq: int,
-    surface: str,             # "agent_tab" | "trade_view"
+    surface: str,             # "agent_tab" | "trade_view" | "mcp"
     role: str,                # "user" | "assistant"
     text: str | None,
     tool_trace: list | None = None,
@@ -162,6 +162,35 @@ def log_chat_turn(
         row["user_email"] = user_email
     _insert_with_optional("chat_turns", row, optional=("user_email", "session_id"))
 
+
+
+def log_chat_exchange(
+    *,
+    surface: str,
+    chat_id: str,
+    seq: int,
+    session,
+    prompt: str,
+    reply: str,
+    pre_len: int,
+    session_id: str | None = None,
+    user_email: str | None = None,
+) -> None:
+    """One exchange as two ``chat_turns`` rows: the user's message, then the reply with
+    its tool trace (tool calls/results + per-call model metrics). ``pre_len`` is the
+    message count before the exchange; the turn uses ``seq`` and ``seq + 1``."""
+    from agentic.telemetry import exchange_trace, tool_trace_from_messages, view_json
+
+    view = getattr(session, "view", None)
+    pair = view.pair if view is not None else None
+    vjson = view_json(view)
+    trace = exchange_trace(tool_trace_from_messages(session.messages[pre_len:]),
+                           session, pre_len) or None
+    log_chat_turn(session_id=session_id, chat_id=chat_id, seq=seq, surface=surface,
+                  role="user", text=prompt, pair=pair, view_json=vjson, user_email=user_email)
+    log_chat_turn(session_id=session_id, chat_id=chat_id, seq=seq + 1, surface=surface,
+                  role="assistant", text=reply, tool_trace=trace, pair=pair,
+                  view_json=vjson, user_email=user_email)
 
 def log_app_error(
     *,
