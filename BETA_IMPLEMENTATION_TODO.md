@@ -785,6 +785,23 @@ Still outstanding: family-specific construction and risk rules remain; arbitrary
 multi-leg construction is not enabled. Specialized binary/barrier contracts and
 multi-expiry support are not migrated by this slice. Do not mark all of T19 done.
 
+### Construction and policy boundary - Codex
+
+Completed 2026-10-28, version 0.2.55, following checkpoint 3fd4ea9.
+`construct_package` resolves strikes/quantities once; inception aggregation
+consumes the resolved contract and retained quotes. Explicit compatibility
+display/sizing rules live in `analytics/product_policies.py`. Seagull stop
+valuation uses the generic fixed-leg valuator, preserving the stop-forward
+interpretation and inception-spot normalization. Entry breakevens are reused.
+
+Boundary tests disable construction during aggregation/revaluation. A four-leg
+valuation test demonstrates that generic leg support does not imply an approved
+sizing policy; unknown families fail explicitly at that policy boundary.
+Existing entry, ranking and sizing parity tests pass. Full run: 1,321 passed,
+four unchanged known failures, six skipped (153.38 seconds). Final breakeven
+reuse cleanup was verified separately with 97 focused tests passing after
+that edit. No cloud/UI check or push. See PRODUCT_ENGINE_HANDOFF_CODEX.md.
+
 All items are open. Fill this table as work is assigned and completed.
 
 | ID | Owner | Commit / test / live-check evidence |

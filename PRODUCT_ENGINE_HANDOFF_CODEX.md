@@ -4,14 +4,14 @@
 
 - Worktree: /Users/ash/Documents/Coding work/agentic-workflow
 - Branch: agentic-workflow. Do not implement this work in main.
-- Last completed commit: df7a9c9 (unified vanilla/two-leg entry pricing).
+- Last completed commit: 3fd4ea9 (butterfly/seagull migration).
 - No push requested for this slice.
-- Previous full suite: 1,282 passed, 4 known failures, 6 skipped.
+- Previous full suite: 1,308 passed, 4 known failures, 6 skipped.
 - Known failures: two Google login button tests in test_roles_visibility;
   missing GBPUSD 1W in test_snapshot_overrides; ranking expectation in
   test_structure_scorer::TestRanking::test_vanilla_wins_far_target_high_carry.
 
-## Current authorized slice
+## Previous authorized slice
 
 Migrate butterflies and seagulls onto product_pricer.price and retain the
 resolved vanilla-leg contract for scenario repricing and Kelly payoffs.
@@ -30,17 +30,25 @@ entry pricing so its loss-budget calculation is unchanged.
 - Consumer tests cover both new families under spot/vol/time shocks, expiry
   payoffs, fixed contract identity and no reconstruction.
 - Independent legacy parity includes both new families, including stop budgets.
-- Version 0.2.54. Changes are currently uncommitted; no push or deployment.
+- Version 0.2.54. Checkpointed in 3fd4ea9; no push or deployment.
 - Full suite: 1,308 passed, four known failures listed above, six skipped,
   146.27 seconds. Command: .venv/bin/python -m pytest tests -q
   -p no:cacheprovider --tb=short. No UI/cloud check performed.
 
 ## Resume here
 
-1. Review/checkpoint this tested slice before further changes.
-2. Separate family construction/solving from generic resolved-package metrics;
-   some payoff/risk policy still dispatches by family. Do not change policy
-   silently (notably seagull stop budget and ratio-spread tail-risk treatment).
+1. Completed construction/policy slice (version 0.2.55): construct_package
+   owns solving; _price_constructed aggregates resolved legs and entry quotes.
+   product_policies.py explicitly owns legacy sizing and display conventions.
+   Seagull stop valuation now uses generic value_resolved. Entry breakevens
+   are reused by the compatibility envelope. Financial policy is unchanged.
+2. Boundary tests prove no construction during aggregation/revaluation and
+   generic four-leg valuation does not silently imply an approved sizing rule.
+   Full suite: 1,321 passed, the same four known failures, six skipped in
+   153.38 seconds. The final breakeven-reuse cleanup was made while that run
+   was active; a fresh focused run covering construction, entry and resolved
+   consumers passed all 97 tests after the cleanup (8.42 seconds).
+   git diff --check passed. No cloud/UI run. No push.
 3. Flexible same-expiry ratios are a later product feature requiring validation
    and user specification; this slice does not expose arbitrary packages.
 4. Specialized binary/barrier migration requires explicit contract semantics;
@@ -54,3 +62,12 @@ entry pricing so its loss-budget calculation is unchanged.
 - Barriers/digitals need specialized semantics, not vanilla-leg flattening.
 - Old private entry functions remain independent regression references.
 - Broader roadmap: BETA_IMPLEMENTATION_TODO.md.
+
+## Next decision
+
+The approved behaviour-preserving slice is complete. Before enabling arbitrary
+packages, specify allowed ratios/legs, risk constraints and sizing policy with
+the user. Existing generic valuation does not mean arbitrary package sizing is
+approved. Old private entry functions remain test references; do not delete
+without retaining independent regression evidence. Check git log for the local
+construction/policy checkpoint commit following 3fd4ea9.

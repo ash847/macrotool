@@ -227,6 +227,9 @@ def price_variants(
     from analytics.expiry_breakeven import expiry_breakevens, variant_terms
 
     for variant in result:
+        if variant.product_price is not None:
+            # Migrated entry metrics are authoritative; do not calculate twice.
+            continue
         terms = (variant.resolved_contract.expiry_terms if variant.resolved_contract is not None
                  else variant_terms(structure_id, variant.strikes, is_call, variant.wing_ratio))
         variant.breakevens, variant.breakeven_has_zero_region = expiry_breakevens(

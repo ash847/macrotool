@@ -1,28 +1,27 @@
 """Product pricer — `build_structure` + `price(structure, ms)`.
 
-Phase B of the product-model refactor (see PRODUCT_MODEL_PLAN.md). Per-leg
-model-appropriate pricing + uniform linear aggregation:
+Construction resolves anchors and funding constraints once. Fixed contracts
+then drive aggregation, payoffs and revaluation:
 
   value/greeks  = Σ signed_notionalᵢ × unitᵢ          (linear)
   payoff(target)= Σ signed_notionalᵢ × intrinsicᵢ(target)   (linear in legs at a point)
 
-No structure-type dispatch in the aggregator. The only family-specific knowledge is
-(a) how `build_structure` lays out the legs, and (b) the max-loss "stress point" and the
-breakeven convention (both small, declarative).
+Family-specific entry/display and sizing conventions live in product_policies.
+These are compatibility rules, not generic risk guarantees.
 
 Parity: reuses the exact legacy primitives (`black76_call/put`, `otm_*_strike`, `_VolModel`)
 so the leg-sum reproduces `analytics.structure_pricer.price_variants` byte-for-byte on the
 families implemented here. Guarded by `tests/test_product_model_parity.py`.
 
 Entry construction supports vanilla-leg families plus specialised European wrappers.
-Vanilla and two-leg spreads also retain an immutable resolved contract for revaluation;
-the remaining families stay on their existing consumer paths during migration.
+All six supported vanilla-leg families retain immutable resolved contracts.
+Specialised binary/barrier wrappers retain their existing consumer paths.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from analytics.market_state import MarketState
 from analytics.product_model import (
@@ -40,8 +39,6 @@ from analytics.product_model import (
 from analytics.strike_resolver import otm_call_strike, otm_put_strike
 from analytics.structure_pricer import _VolModel
 from pricing.black_scholes import black76_call, black76_put
-
-_ZERO_COST_EPS = 0.0001   # × spot, matches legacy is_zero_cost test
 
 RESOLVED_FAMILIES = frozenset(("vanilla", "1x1_spread", "1x1.5_spread", "1x2_spread",
                               "1x2x1_spread", "seagull"))
@@ -170,7 +167,6 @@ def _build_structure(family: str, variant: dict, is_call: bool) -> Structure | N
     return None
 
 
-_RATIO_FAMILIES = ("1x1.5_spread", "1x2_spread")
 # Binary/barrier families: the leg model is least natural (binary payoff, barrier), so these
 # are priced by their own pricer via the legacy seam — wrapped into a PricedStructure for a
 # uniform consumer interface. Parity is exact (same code path).
@@ -199,10 +195,6 @@ def _resolve_leg(leg: Leg, F, vol, T, vol_sqrtT, vm, target) -> tuple[float, flo
     if a.kind == AnchorKind.STRIKE:
         return a.value, vm.at_strike(a.value)
     raise ValueError(f"unsupported anchor for vanilla leg: {a.kind}")
-
-
-def _intrinsic(strike: float, target: float, is_call: bool) -> float:
-    return max(target - strike, 0.0) if is_call else max(strike - target, 0.0)
 
 
 def _variant_dict_from(structure: Structure) -> dict:
@@ -266,18 +258,26 @@ def _price_wrapped(structure, ms, target, smile, stop_price) -> PricedStructure 
 # price
 # ---------------------------------------------------------------------------
 
-def price(
+@dataclass(frozen=True)
+class ConstructedPackage:
+    """Fixed contract plus inception quotes; no market anchors remain in contract."""
+    contract: ResolvedContract
+    priced_legs: tuple[PricedLeg, ...]
+    wing_ratio: float | None
+
+
+def construct_package(
     structure: Structure,
     ms: MarketState,
     target: float | None = None,
     smile=None,
-    stop_price: float | None = None,
-) -> PricedStructure:
+) -> ConstructedPackage:
+    """Resolve anchors and construction constraints once, before aggregation."""
     fam = structure.family
-    if fam in _WRAPPED_FAMILIES:
-        return _price_wrapped(structure, ms, target, smile, stop_price)
+    if fam not in RESOLVED_FAMILIES:
+        raise ValueError(f"Unsupported vanilla construction family: {fam}")
 
-    F, vol, T, r_d, r_f, spot = ms.fwd, ms.vol, ms.T, ms.r_d, ms.r_f, ms.spot
+    F, vol, T, r_d = ms.fwd, ms.vol, ms.T, ms.r_d
     DF = math.exp(-r_d * T)
     vol_sqrtT = vol * math.sqrt(T)
     vm = _VolModel(vol, smile=smile, F=F, horizon_days=round(T * 365))
@@ -308,28 +308,42 @@ def price(
         wing_ratio = (spread_cost / prem_wing) if prem_wing > 1e-8 else 0.0
         priced_legs[2].effective_notional = -wing_ratio
 
-    # Linear aggregation: net premium = Σ notional × unit (using solved notionals).
-    net_prem = sum(pl.notional * pl.unit_premium for pl in priced_legs)
-    prem_pct = net_prem / spot
-    # Legacy vanilla/1x1 entries never apply the ratio-family near-zero label.
-    is_zero_cost = fam not in ("vanilla", "1x1_spread") and abs(net_prem) < _ZERO_COST_EPS * spot
+    contract = freeze_contract(structure, [leg.strike for leg in priced_legs], T,
+                               notionals=[leg.notional for leg in priced_legs])
+    return ConstructedPackage(contract, tuple(priced_legs), wing_ratio)
 
-    long_leg = next((pl for pl in priced_legs if pl.notional > 0), None)
-    long_is_call = long_leg.leg.right == Right.CALL if long_leg else True
+
+def price(
+    structure: Structure,
+    ms: MarketState,
+    target: float | None = None,
+    smile=None,
+    stop_price: float | None = None,
+) -> PricedStructure:
+    """Construct once, aggregate fixed legs, then apply explicit entry policies."""
+    if structure.family in _WRAPPED_FAMILIES:
+        return _price_wrapped(structure, ms, target, smile, stop_price)
+    package = construct_package(structure, ms, target, smile)
+    return _price_constructed(structure, package, ms, target, smile, stop_price)
+
+
+def _price_constructed(structure: Structure, package: ConstructedPackage, ms: MarketState,
+                       target=None, smile=None, stop_price=None) -> PricedStructure:
+    """Assemble inception output from fixed legs and retained entry quotes.
+
+    This is not a market revaluation API; use value_resolved for market shocks.
+    """
+    from analytics.product_policies import entry_target_payoff, entry_zero_cost, sizing_loss_proxy
+
+    contract = package.contract
+    priced_legs = list(package.priced_legs)
+    prem_pct = sum(leg.signed_notional * quote.unit_premium
+                   for leg, quote in zip(contract.legs, priced_legs)) / ms.spot
+    is_zero_cost = entry_zero_cost(contract, prem_pct)
 
     payoff_pct = rr = None
     if target is not None:
-        raw = sum(
-            pl.notional * _intrinsic(pl.strike, target, pl.leg.right == Right.CALL)
-            for pl in priced_legs
-        )
-        if fam == "1x1_spread":
-            # Retain the entry table's capped-payoff convention even for reversed
-            # input legs; changing that legacy policy is not part of migration.
-            k1, k2 = (leg.strike for leg in priced_legs)
-            width = k2 - k1 if long_is_call else k1 - k2
-            raw = min(_intrinsic(k1, target, long_is_call), width)
-        payoff_pct = raw / target
+        payoff_pct = entry_target_payoff(contract, target)
         rr = (
             (payoff_pct / prem_pct)
             if (payoff_pct is not None and not is_zero_cost and prem_pct > 1e-8)
@@ -339,31 +353,11 @@ def price(
     from analytics.expiry_breakeven import expiry_breakevens
 
     roots, zero_region = expiry_breakevens(
-        [(leg.notional, leg.strike, leg.leg.right == Right.CALL) for leg in priced_legs], prem_pct,
+        contract.expiry_terms, prem_pct,
     )
     breakeven = roots[0] if roots is not None and len(roots) == 1 and not zero_region else None
 
-    # Max loss = net premium for vanilla / 1x1 / ratio spreads (the open tail beyond the
-    # short strike is not capitalised into the sizing max-loss). Seagull is zero-cost, so
-    # its max loss is the stressed-forward (stop) package value.
-    strikes = [pl.strike for pl in priced_legs]
-    if fam in _RATIO_FAMILIES:
-        max_loss_pct = abs(prem_pct)
-    elif fam == "1x2x1_spread":
-        # Long butterfly: expiry payoff non-negative → max loss = net premium paid.
-        max_loss_pct = max(prem_pct, 0.0)
-    elif fam == "seagull":
-        if stop_price is not None:
-            from analytics.structure_pricer import _today_package_value_pct
-            max_loss_pct = _today_package_value_pct(
-                structure_id="seagull", strikes=strikes, fwd_today=stop_price, T=T, vol=vol,
-                r_d=r_d, r_f=r_f, spot=spot, is_call=long_is_call,
-                wing_ratio=wing_ratio, surface=vm.surface,
-            )
-        else:
-            max_loss_pct = 0.0
-    else:
-        max_loss_pct = prem_pct if fam in ("vanilla", "1x1_spread") else abs(prem_pct)
+    max_loss_pct = sizing_loss_proxy(contract, prem_pct, ms, stop_price=stop_price, surface=smile)
 
     return PricedStructure(
         structure=structure,
@@ -376,8 +370,6 @@ def price(
         breakevens=roots,
         breakeven_has_zero_region=zero_region,
         is_zero_cost=is_zero_cost,
-        wing_ratio=wing_ratio,
-        resolved_contract=(freeze_contract(structure, strikes, T,
-                                           notionals=[leg.notional for leg in priced_legs])
-                           if fam in RESOLVED_FAMILIES else None),
+        wing_ratio=package.wing_ratio,
+        resolved_contract=contract,
     )
