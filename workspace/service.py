@@ -15,7 +15,7 @@ the model answers anything else.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 from agentic.render import render_pack
@@ -31,9 +31,17 @@ from workspace.models import (
     ViewSpec,
 )
 from workspace.serialize import messages_from_json, messages_to_json
+from workspace.store import VersionConflict
 
 REFRESH_TOOL_ID_PREFIX = "refresh_"
 _CACHED_SUFFIX = "\n\n(reused cached pack — view unchanged)"
+
+
+def _same_evaluation(latest: IdeaVersion, spec, prefs, fingerprint: str, rendered: str) -> bool:
+    """``latest`` already records this exact evaluation (view, prefs, data and output)."""
+    return (classify_view_change(latest, spec, prefs) == "same"
+            and latest.snapshot_fingerprint == fingerprint
+            and latest.rendered_pack == rendered)
 
 
 def snapshot_fingerprint(snapshot) -> str:
@@ -193,9 +201,7 @@ class ConversationService:
         change = classify_view_change(latest, spec, prefs)
         fingerprint = snapshot_fingerprint(session.snapshot)
         rendered = render_pack(session.pack, session.view)
-        if change == "same" and (
-            latest.snapshot_fingerprint != fingerprint or latest.rendered_pack != rendered
-        ):
+        if change == "same" and not _same_evaluation(latest, spec, prefs, fingerprint, rendered):
             change = "revision"   # same view, new data or engine output → new evaluation
 
         if idea is None:
@@ -216,8 +222,21 @@ class ConversationService:
                 top_structure=_top_structure(session.pack),
             )
             self.store.save_idea(idea)
-            self.store.add_version(version)
-        link = idea.id if (change != "same" or conv.active_idea_id != idea.id) else None
+            try:
+                self.store.add_version(version)
+            except VersionConflict:
+                # An overlapping run (e.g. a second Apply click) saved this version_no
+                # first: reuse its version if it is this same evaluation, else retry once
+                # on top of it.
+                latest = self.store.latest_version(self.user_email, idea.id)
+                if latest is None:
+                    raise
+                if _same_evaluation(latest, spec, prefs, fingerprint, rendered):
+                    version = latest
+                else:
+                    version = replace(version, version_no=latest.version_no + 1)
+                    self.store.add_version(version)
+        link =idea.id if (change != "same" or conv.active_idea_id != idea.id) else None
 
         title = conv.title if conv.title_custom else spec.label()
         conv = conv.touched(active_idea_id=idea.id, title=title,

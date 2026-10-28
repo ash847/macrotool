@@ -15,6 +15,7 @@ import numpy as np
 import streamlit as st
 
 from analytics.distributions import interpolate_atm_vol
+from knowledge_engine import ui_labels as UL
 from data.snapshot_loader import load_snapshot as load_live_snapshot
 from data.snapshot_overrides import apply_overrides
 from pricing.forwards import interpolate_forward
@@ -496,7 +497,8 @@ def render_sidebar() -> None:
             col_fwd.metric("Forward", f"{candidate.forward:.4f}")
             col_vol, col_loss = st.columns(2)
             col_vol.metric("ATM vol", f"{candidate.sigma:.1%}")
-            col_loss.metric("Max loss", f"{candidate.max_loss_pct:.1%}")
+            col_loss.metric(UL.label("sizing_loss_reference"), f"{candidate.max_loss_pct:.1%}", help=UL.tip("sizing_loss_reference"))
+            st.caption(UL.tip("sizing_loss_reference"))
 
     st.divider()
     st.header("Anchors / buckets")
@@ -668,7 +670,8 @@ def render_trade_rec_summary(candidate: TradeRecCandidate) -> None:
     col_spot.metric("Spot", f"{candidate.entry_spot:.4f}")
     col_fwd.metric("Forward", f"{candidate.forward:.4f}")
     col_vol.metric("ATM vol", f"{candidate.sigma:.1%}")
-    col_loss.metric("Max loss", f"{candidate.max_loss_pct:.1%}")
+    col_loss.metric(UL.label("sizing_loss_reference"), f"{candidate.max_loss_pct:.1%}", help=UL.tip("sizing_loss_reference"))
+    st.caption(UL.tip("sizing_loss_reference"))
 
 
 def render_edge_panel(rep, *, out_of_range_label: str | None = None) -> None:
@@ -905,7 +908,7 @@ def render_page() -> None:
             cost_label = "truncated market price"
         else:
             cost_basis = trade_rec_candidate.max_loss_pct
-            cost_label = "max-loss capital proxy"
+            cost_label = "sizing loss reference (not a maximum-loss bound)"
 
     st.markdown("---")
     if cost_basis > 1e-10:

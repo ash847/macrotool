@@ -551,11 +551,11 @@ def _render_sizing_panel() -> None:
                     _loss_sb = _W * _stop_pct_sb
                     _stop_px_sb = (_fwd * (1 - _stop_pct_sb) if _is_call_sb
                                    else _fwd * (1 + _stop_pct_sb))
-                    st.markdown(f"Risk this trade: **{fmt_ccy(_loss_sb, _ccy)}** "
+                    st.markdown(f"Loss budget: **{fmt_ccy(_loss_sb, _ccy)}** "
                                 f"({_stop_pct_sb:.2%} of W)")
-                    st.markdown(f"Implied stop: **{_stop_pct_sb:.1%}** · {_stop_px_sb:.4f}")
-                    st.caption("Every variant is sized so its max loss equals this one figure "
-                               "(notional capped at 10·W — capped rows are flagged in the table).")
+                    st.markdown(f"Sizing reference: **{_stop_pct_sb:.1%}** · {_stop_px_sb:.4f}")
+                    st.caption("This budget is used for sizing, subject to notional caps and sizing policies. "
+                               "It is not a guaranteed maximum loss or an executable stop; actual losses can be larger.")
                 else:
                     st.caption("Enter a pair and target to see dollar equivalents.")
             else:
@@ -1342,6 +1342,16 @@ def _render_agent() -> None:
         "Describe your view in plain English. The agent routes to the deterministic "
         "engine — every number is computed in Python; the LLM only narrates."
     )
+    st.caption(
+        "Below are the currency pairs and indicative spot levels the tool is currently loaded with."
+    )
+    snapshot = _get_effective_snapshot()
+    st.caption(
+        f"**Currency pairs & indicative spot** — data snapshot dated {snapshot.snapshot_date}"
+    )
+    spot_columns = st.columns(4)
+    for index, (pair, currency) in enumerate(snapshot.currencies.items()):
+        spot_columns[index % 4].caption(f"**{pair}**  ·  {currency.spot:g}")
 
     provider = get_llm_provider()
     if provider != "anthropic":

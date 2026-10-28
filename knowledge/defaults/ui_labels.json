@@ -80,6 +80,10 @@
       "label": "Loss budget",
       "tip": "Common fixed-loss sizing input, not a guaranteed maximum loss. Actual package sizing amounts can differ because of caps and sizing policies."
     },
+    "sizing_loss_reference": {
+      "label": "Sizing loss reference",
+      "tip": "An input used to size the trade, not its contractual maximum loss. Actual losses can exceed this amount; notional caps and sizing policies can also affect the final size."
+    },
     "bankroll": {
       "label": "Bankroll (W)",
       "tip": "Kelly notionals are λ·f*·W, where f* is each structure's full-Kelly size as a multiple of W."
@@ -94,9 +98,9 @@
       "tip": "How a structure performs across a range of possible market outcomes, tuned to match an expert practitioner's process."
     },
     "kelly_risk": {
-      "label": "Capital at risk (Kelly)",
+      "label": "Sizing exposure (Kelly)",
       "term": "Kelly risk",
-      "tip": "Full-Kelly capital at risk (f* × max loss, before the λ haircut) as a share of W. The notional column already applies λ."
+      "tip": "Full-Kelly sizing-reference exposure (f* × sizing loss reference, before the λ haircut) as a share of W; not a maximum-loss bound. The notional column already applies λ."
     },
     "premium": {
       "label": "Premium",

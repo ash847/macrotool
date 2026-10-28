@@ -92,7 +92,8 @@ TOOL_SCHEMAS = [
             "the forward yet, so never guess direction from a price level).\n"
             "  • MAGNITUDE: the PM gives a percentage move (e.g. '6% higher', 'down 4%'). "
             "Pass magnitude_pct AND an explicit direction — the PM must have said higher/"
-            "lower/up/down. Never invent the direction.\n"
+            "lower/up/down. Percentages are from spot by default. Set move_reference='forward' "
+            "only when the PM explicitly requests a move from forward. Never invent the direction.\n"
             "  • PURE DIRECTIONAL (no target): pass direction only.\n"
             "Direction is relative to the base currency: 'base_higher' = base appreciates, "
             "'base_lower' = base depreciates. You provide the view only — never compute a "
@@ -115,6 +116,11 @@ TOOL_SCHEMAS = [
                 "magnitude_pct": {
                     "type": "number",
                     "description": "percentage move size, e.g. 6.0; use only when the PM gave a %, with direction",
+                },
+                "move_reference": {
+                    "type": "string",
+                    "enum": ["spot", "forward"],
+                    "description": "Reference for percentage moves; defaults to spot. Use forward only if explicitly requested.",
                 },
                 "direction_conviction": {"type": "string", "enum": list(_CONVICTIONS)},
                 "mode": {"type": "string", "enum": list(_MODES)},
@@ -283,6 +289,7 @@ def _set_tail_constraint(session, args):
     return _run_standard_pack(session, {
         "pair": view.pair, "horizon_days": view.horizon_days,
         "direction": view.direction, "magnitude_pct": view.magnitude_pct,
+        "move_reference": "forward",
         "direction_conviction": view.direction_conviction, "mode": view.mode,
         "tail_constraint": constraint,
     })
@@ -303,6 +310,20 @@ def _run_standard_pack(session: AgentSession, args: dict) -> str:
     if not isinstance(horizon_days, (int, float)) or horizon_days <= 0:
         raise _ToolError("horizon_days must be a positive integer.")
     horizon_days = int(horizon_days)
+
+    if target_level is None and magnitude_pct is not None:
+        if direction not in _DIRECTIONS:
+            raise _ToolError("A percentage move requires an explicit direction.")
+        reference = args.get("move_reference", "spot")
+        if reference not in ("spot", "forward"):
+            raise _ToolError("move_reference must be spot or forward.")
+        if not isinstance(magnitude_pct, (int, float)) or not 0 <= magnitude_pct < float("inf"):
+            raise _ToolError("magnitude_pct must be finite and non-negative.")
+        anchor = session.snapshot.get(pair).spot if reference == "spot" else _forward_for(session, pair, horizon_days)
+        sign = 1 if direction == "base_higher" else -1
+        target_level = anchor * (1 + sign * magnitude_pct / 100.0)
+        if target_level <= 0:
+            raise _ToolError("The percentage move must produce a positive target.")
 
     if target_level is not None:
         # An absolute level: infer direction + magnitude from the FORWARD (the

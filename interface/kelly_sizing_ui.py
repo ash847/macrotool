@@ -43,7 +43,7 @@ def build_sizing_spec(state: dict, ms=None, trade_key: tuple | None = None) -> S
 
 
 def notional_column_label(method: str) -> str:
-    return "Notional (Kelly)" if method == _KELLY else "Notional (max-loss)"
+    return "Notional (Kelly)" if method == _KELLY else "Notional (fixed-loss sizing)"
 
 
 KELLY_FALLBACK_MSG = ("Kelly is selected, but you haven't set up a distribution for this "
@@ -55,7 +55,7 @@ def meaning_banner(method: str) -> str:
     if method == _KELLY:
         return ("Sized to each variant's growth-optimal bet under your distribution — "
                 "a bigger notional means better edge/odds, not just bigger risk.")
-    return "Sized to equal max loss (R:R-derived) — same risk per variant, compare the reward."
+    return "Sized using a common R:R-derived loss budget, subject to caps and sizing policies. This does not equalise or guarantee maximum losses."
 
 
 def kelly_row_flag(structure_notional: float | None, cap: float) -> str:

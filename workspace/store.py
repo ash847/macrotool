@@ -24,6 +24,11 @@ class StoreError(RuntimeError):
     pass
 
 
+class VersionConflict(StoreError):
+    """The idea's ``version_no`` was already saved by another writer — e.g. an
+    overlapping Streamlit run (unique on ``idea_id, version_no``)."""
+
+
 class ConversationStore(Protocol):
     persistent: bool
 
@@ -111,6 +116,9 @@ class InMemoryStore:
     def add_version(self, version: IdeaVersion) -> None:
         if version.idea_id not in self._ideas:
             raise StoreError(f"idea {version.idea_id} not saved yet")
+        if any(v.idea_id == version.idea_id and v.version_no == version.version_no
+               for v in self._versions):
+            raise VersionConflict(f"idea {version.idea_id} already has version {version.version_no}")
         self._versions.append(version)
 
     def latest_version(self, user_email, idea_id):
@@ -219,7 +227,13 @@ class SupabaseStore:
                   .upsert(row, on_conflict="conversation_id,idea_id").execute())
 
     def add_version(self, version):
-        self._run("add_version", lambda: self._t(T_VERSIONS).insert(version.to_row()).execute())
+        try:
+            self._t(T_VERSIONS).insert(version.to_row()).execute()
+        except Exception as e:
+            # 23505 = unique_violation on (idea_id, version_no).
+            if getattr(e, "code", None) == "23505" or "23505" in str(e):
+                raise VersionConflict(f"add_version: {e}") from e
+            raise StoreError(f"add_version: {e}") from e
 
     def latest_version(self, user_email, idea_id):
         res = self._run("latest_version", lambda: self._t(T_VERSIONS).select("*")

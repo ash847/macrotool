@@ -193,7 +193,7 @@ def _recommend_ranked(
     linear_rows = price_linear_scenarios(inputs.scenarios, trade_inputs, is_call, linear_notional, loss_budget)
     linear_score = score_structure(linear_rows, inputs.weights)
     linear_variant = PricedVariant(
-        variant_label="Delta 1 (max-loss capped)", strikes=[], barrier=None,
+        variant_label="Delta 1 (scenario loss capped; not contractual)", strikes=[], barrier=None,
         net_premium_pct=0.0, breakeven=None, payoff_at_target_pct=None,
         rr_at_target=None, max_loss_pct=stop_pct, wing_ratio=None, is_zero_cost=True,
         structure_notional=linear_notional, net_premium_ccy=0.0,

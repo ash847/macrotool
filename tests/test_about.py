@@ -38,13 +38,14 @@ def test_about_panels_and_unconfigured_contact():
     app = about_app()
     assert not app.exception
     assert [panel.label for panel in app.expander] == ["What the tool does", "How it does it", "Sizing", "Who we are", "Contact us"]
-    assert [heading.value for heading in app.subheader] == ["Fixed loss", "Kelly"]
+    assert [heading.value for heading in app.subheader] == ["Spot Equivalent", "Kelly"]
     content = load_about_content()
     assert "Risk 1 to make" in content["sizing_fixed_loss"]
     assert "you can lose more than the premium" in content["sizing_fixed_loss"]
     assert "total portfolio capital" in content["sizing_kelly"]
     assert "comparable sizing budget" in content["sizing_fixed_loss"]
     assert "stress-loss estimate" in content["sizing_fixed_loss"]
+    assert "notional is capped at 10 times capital W" in content["sizing_fixed_loss"].split("\n\n")[1]
     assert "not a guaranteed maximum loss" in content["sizing_fixed_loss"]
     assert "shared capital input across chats" in content["sizing_fixed_loss"]
     assert "shared capital input across chats" in content["sizing_kelly"]
