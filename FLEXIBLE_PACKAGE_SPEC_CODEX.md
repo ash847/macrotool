@@ -3,6 +3,7 @@
 Status: supported-ratio slice implemented; arbitrary-package spec remains proposed,
 2026-10-28. See the scope distinction below.
 Worktree: agentic-workflow. Roadmap item: T22 in BETA_IMPLEMENTATION_TODO.md.
+Release: v0.2.57 / f276056, pushed to origin/agentic-workflow. User testing pending.
 
 ## Approved refinement and first implementation
 
@@ -26,7 +27,7 @@ rejected in this slice, rather than being misinterpreted as an existing family.
 Unknown tail/loss bounds stay unknown; existing preference gates remain active.
 The arbitrary-package specification below remains proposed, not implemented.
 
-## First-version scope
+## Proposed arbitrary-package scope (not implemented)
 
 - Same supported pair and expiry for every leg; European vanilla calls/puts.
 - Explicit buy/sell, positive ratio, and call/put per leg.
@@ -64,9 +65,11 @@ anchor. Pair and expiry are taken explicitly from the active trade context.
 ## Existing code and required extensions
 
 1. agentic/structure_request.py strips call/put/long/short words and obtains
-   ratios from named families. Do not send explicit custom legs through it.
+   ratios from named families or explicit 1xR requests. Do not send arbitrary
+   per-leg buy/sell/right combinations through it.
 2. product_model.Structure and ResolvedContract support variable leg counts.
-   product_pricer.construct_package still allowlists six families. Add an
+   product_pricer.construct_package allowlists supported vanilla-leg families
+   including ratio_spread. Add an
    explicit custom-vanilla construction path with validation, not a blanket
    bypass of the family guard. No derived wings or quantity solving there.
 3. product_policies.sizing_loss_proxy deliberately rejects unknown families.
@@ -109,7 +112,8 @@ sizing unchanged. Never silently borrow the 1x2 premium-only proxy for custom le
 - [ ] 3. Risk classification and scenario results with honest unavailable-sizing state.
 - [ ] 4. Structured editor, persistence and contract-based Kelly handoff, subject
   to the sizing release gate above. No new automatic recommendation candidates.
-- [ ] 5. Approved sizing policy, followed by payoff/P&L charts and inception Greeks.
+- [ ] 5. Approved sizing policy for arbitrary packages. T21 charts and T23 Greeks
+  can proceed independently on already supported resolved contracts.
 
 ## Acceptance tests
 
@@ -124,7 +128,7 @@ sizing unchanged. Never silently borrow the 1x2 premium-only proxy for custom le
   resolved contract. Pair/expiry edits invalidate the old construction deliberately.
 - Current curated recommendations, preference gates and sizing stay unchanged.
 
-## Decision before implementation
+## Decision before arbitrary-package implementation
 
 Approve price-and-analysis first with automatic custom sizing withheld, or define
 the custom sizing rule now. Four-leg UI cap is proposed; ratio limits also need

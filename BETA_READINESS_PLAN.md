@@ -1,12 +1,29 @@
 # MacroTool — wider-beta readiness plan
 
-Date: 7 October 2026  
-Baseline reviewed: `agentic-workflow`, v0.2.43, commit `002aea2`  
+Original plan: 7 October 2026; source-status refresh: 28 October 2026.
+Original review: v0.2.43 / `002aea2`; current tested source: `agentic-workflow`,
+v0.2.57 / `f276056`, pushed to origin.
 Status: proposed plan for agreement; not an implementation or a production security certification.
+
+## Current delivery checkpoint
+
+Shared vanilla-leg pricing/valuation, exact strike resolution, flexible ratio
+requests with existing sizing, strike-default parsing and local MCP integration
+are implemented. User cloud/UI acceptance testing is pending. The integrated
+suite passed 1,416 tests (seven skipped); eight new integration tests and 13 MCP
+tests passed separately, followed by 30 post-merge ratio/integration tests.
+The previous recurring test failures are resolved, not quarantined.
+
+Product sequence: test the pushed changes; T21 expiry payoff/net P&L charts;
+T23 inception Greeks after conventions are agreed; broader T22 packages after
+their risk/sizing specification. T19 specialized-product migration is incomplete.
+This sequence does not replace urgent admission/RLS/spend/release work before
+onboarding more users. See [the active checklist](BETA_IMPLEMENTATION_TODO.md)
+for task status and [the handoff](PRODUCT_ENGINE_HANDOFF_CODEX.md) for resuming.
 
 ## 1. Recommendation and scope
 
-Launch a **controlled, invite-only research beta for professional users**, then expand in measured cohorts. Do not move directly from friendly testers to unrestricted Google sign-in. Audience and jurisdiction restrictions require legal agreement; professional status alone is not a regulatory exemption.
+Launch a **controlled, invite-only research beta for professional users**, then expand in measured cohorts. Do not move directly from friendly testers to unrestricted sign-in. Audience and jurisdiction restrictions require legal agreement; professional status alone is not a regulatory exemption.
 
 Separate two tracks:
 
@@ -23,17 +40,17 @@ The following is based on repository inspection and work completed in this task.
 
 | Area | Current evidence | Consequence for this plan |
 |---|---|---|
-| Login | `interface/security.py` requires configured OIDC login, but does not enforce a tester admission allowlist after login. Non-admin signed-in users become testers. Google/Auth0 provider settings may impose other restrictions. | Verify provider settings and add explicit application admission checks; authentication is not permission to join the beta. |
+| Login | Source uses Auth0-only email magic links, issuer/verified-email/subject checks and an `allowed_emails` admission gate. Admitted non-admin users become testers. | Verify live provider settings and all protected operation boundaries, revocation and isolation; do not rebuild the existing login allowlist as if absent. |
 | Navigation | `interface/navigation.py` restricts testers to Agent and About; admins retain the other pages. | Do not reopen Trade View/Batch/Kelly as a tester fallback. Audit server-side actions as well as navigation. |
 | Data access | The app uses a server-side Supabase service key. Workspace tables declare deny-by-default RLS, with user ownership enforced by application code. | Service-role requests bypass RLS; both database policy and application ownership checks need testing. |
 | Critical schema warning | `db/migrations_tester_logging.sql` explicitly disables RLS on `chat_turns`, `app_errors` and `reactions`. | P0: inspect live permissions and policies immediately; do not infer exposure or safety from source alone. Replace the unsafe migration posture and verify direct access is denied. |
 | LLM | Default `claude-sonnet-5-5`; agent loop defaults to six rounds and the adapter allows 9,000 output tokens per call. | “Six calls at 3K tokens” is not a valid cost model. Measure actual usage; caps are ceilings, not typical consumption. |
 | Caching and telemetry | Prompt caching and per-call token/cache/latency/stop-reason metrics exist in `agentic/agent_llm.py`, `agentic/telemetry.py` and `PROMPT_CACHING.md`. | Verify live coverage and cache hit rates; do not rebuild this or assume caching makes output free. Logging is best-effort, not a spending enforcement ledger. |
-| Market data | Checked-in snapshot date is 16 September 2026. Its note says EUR/GBP discount curves were retained rather than refreshed with the spot/forward/vol quotes. | Show component freshness, not just one reassuring headline date. Refresh or explicitly restrict mixed-date datasets before broader use. |
+| Market data | The original review found mixed component dates. Freshness of current/deployed data was not re-audited during this engine/doc update. | Inspect the actual snapshot and component dates; do not reuse the original review date as evidence of current freshness. |
 | Product surface | About, sizing explanations, contact email, chat logging and reactions already exist. | Improve onboarding and feedback delivery; these are not greenfield features. |
 | Recent fixes | v0.2.42–43 add loss-bound reporting, target/budget displays and hard preference filters. Net-credit sizing still sets notional to 10×W by policy. | Verify deployed UI; narration changes do not make that sizing policy conservative or a guaranteed loss bound. |
 | Commentary | Remote commentary can override local JSON. The USDJPY trace showed “Avoid seagulls” while Seagull was second in Structure Fit. | Audit and reconcile active remote prose. Prompt safeguards alone are not a complete content cleanup. |
-| Releases/tests | Work has been pushed to `agentic-workflow`; older notes say `main` auto-deploys. No `.github/workflows` directory was found in this checkout. One known scorer expectation conflicts with current tuning. | Verify the actual deployed branch/version, add CI and deliberate promotion, and resolve or formally quarantine stale tests. |
+| Releases/tests | v0.2.57 / `f276056` is pushed to `agentic-workflow`; test evidence is above. Obsolete scorer expectation removed by user decision; login/tenor/smile tests corrected. | Verify the actual deployed branch/version and clean-install/CI release gates separately; source tests do not establish deployment readiness. |
 
 Older `SECURITY_HARDENING_PLAN.md` describes an anon insert model that differs from today's service-role model. Reconcile that document during hardening; do not copy its old SQL into production.
 
@@ -56,7 +73,7 @@ Start legal/data-rights work and engineering audits in parallel. Do not wait for
 
 ### Admission and sharing the app
 
-- Start with a server-enforced invite allowlist. Add invited/active/suspended/revoked status and accepted-terms version. Check admission before protected reads, expensive calculations and every paid API call, not only at login.
+- Build on the existing server-side email admission allowlist. Add durable invited/active/suspended/revoked status and accepted-terms version. Verify admission before protected reads, expensive calculations and every paid API call, not only at login.
 - Verify the identity provider's issuer, subject and verified email claims. Prefer a stable internal user ID derived from trusted identity; retain normalised email for contact. Never trust an email or owner ID supplied by the browser or LLM tool arguments.
 - Test revoked users with existing sessions, multiple tabs, fresh sessions and saved deep links. Account for session expiry and reauthentication; disable development auth overrides in production with an explicit environment safeguard.
 - A shareable **app/invitation link** should lead to a landing page or controlled signup, not grant access to another person's trade history. Later invite codes should be expiring, limited-use, revocable and redeemed atomically.
@@ -112,7 +129,7 @@ Start legal/data-rights work and engineering audits in parallel. Do not wait for
 - If capacity or hosting control is inadequate, move the existing app to managed, always-on container hosting before rewriting the UI. Add a bounded job queue/worker for costly computation if measurements justify it. Multi-instance hosting requires shared durable state/quotas, deliberate cache/session handling and idempotent jobs, not just extra replicas.
 - Verify current hosting plan limits, SMTP connectivity, regions, backup facilities and uptime commitments. Name an operations owner and support coverage; a beta is not a promise of 24/7 desk support.
 - Set explicit request/compute timeouts, bounded retries with backoff, cancellation and friendly error IDs. Avoid duplicate mail or billable requests after uncertain timeouts. Preserve user drafts; distinguish failed generation from lost persistence.
-- Add CI for unit/integration tests, two-user authorization tests, fixed-snapshot golden outputs, schema validation and secret/dependency scanning. Resolve the known scorer expectation against intended tuning; any temporary quarantine needs an owner, reason and expiry. Never silently bless all failures as “old”.
+- Add CI for unit/integration tests, two-user authorization tests, fixed-snapshot golden outputs, schema validation and secret/dependency scanning. The obsolete scorer expectation was removed by user decision; maintain the green baseline. Any future quarantine needs an owner, reason and expiry. Never silently bless failures as “old”.
 - Create separate staging and production deployments, credentials and preferably databases. Verify which branch each actually runs. Promote a tested commit deliberately; do not let routine branch pushes become accidental public releases.
 - Version the application, prompt, model, scoring config and dataset. Pin approved config/data per run; a mutable remote JSON update can be as consequential as a code deployment. Retain rollback versions and audit every promotion.
 - Exercise database restoration and app/config/data rollback before launch. Proposed recovery targets for agreement: recover service within four hours and lose no more than 24 hours of saved work; confirm backup frequency and user expectations support these targets.

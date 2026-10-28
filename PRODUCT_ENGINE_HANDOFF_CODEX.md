@@ -5,7 +5,8 @@
 - Worktree: /Users/ash/Documents/Coding work/agentic-workflow
 - Branch: agentic-workflow. Do not implement this work in main.
 - Pre-integration checkpoint: d561a32 (flexible ratios, clean tree).
-- No push requested for this slice.
+- Current source release: f276056, v0.2.57, pushed to origin/agentic-workflow.
+- User acceptance testing is pending; cloud deployment has not been independently verified.
 - Integrated source full suite: 1,416 passed, zero failures, seven skipped
   (160.55 seconds). Eight additional combined-feature tests then passed.
 - MCP optional suite: 13 passed using /Users/ash/macrotool-mcp/.venv/bin/python,
@@ -13,7 +14,31 @@
 - The four previous recurring failures are resolved by user-approved test cleanup:
   Auth0-only expectations, GBPUSD 1M instead of missing 1W, and removal of the
   far-target/high-carry vanilla-winner test. Production behavior unchanged.
-- Test cleanup is committed; no push. Historical results below are retained.
+- Post-merge check on agentic-workflow: 30 ratio/integration tests passed.
+- Test cleanup and all engine/integration work through f276056 are committed and
+  pushed. Historical results below are retained; earlier no-push statements
+  describe those checkpoints only, not the current release.
+
+## Resume here
+
+1. Get user test feedback on familiar recommendations, explicit strike versus
+   delta inputs, ratio sizing and Kelly widget updates. README links current scope.
+2. Next product slice: T21 selected-trade expiry payoff/net P&L charts, using the
+   retained contract, premium and actual notional. No LLM numerical curve building.
+3. T23 inception Greeks follows agreement on units, currency and smile assumptions.
+4. Broader T22 arbitrary packages remain proposed; supported 1xR requests already
+   receive existing family sizing. Specialized contracts and legacy retirement
+   remain incomplete under T19. Do not mark whole workstreams done.
+5. Keep urgent launch controls separate; a green pricing suite is not beta sign-off.
+
+Current input example: `1x1.3 spread ATMF/25d`. Bare `25` is strike 25, not a delta.
+No new recommendation menu or Kelly dropdown entries were introduced.
+
+## Historical evidence
+
+Sections below preserve the sequence and test evidence. They are not a second
+current task list; the resume instructions above and BETA_IMPLEMENTATION_TODO.md
+take precedence over earlier plans.
 
 ## Previous authorized slice
 
@@ -39,7 +64,7 @@ entry pricing so its loss-budget calculation is unchanged.
   146.27 seconds. Command: .venv/bin/python -m pytest tests -q
   -p no:cacheprovider --tb=short. No UI/cloud check performed.
 
-## Resume here
+## Construction-policy checkpoint (historical)
 
 1. Completed construction/policy slice (version 0.2.55): construct_package
    owns solving; _price_constructed aggregates resolved legs and entry quotes.
@@ -53,8 +78,8 @@ entry pricing so its loss-budget calculation is unchanged.
    was active; a fresh focused run covering construction, entry and resolved
    consumers passed all 97 tests after the cleanup (8.42 seconds).
    git diff --check passed. No cloud/UI run. No push.
-3. Flexible same-expiry ratios are a later product feature requiring validation
-   and user specification; this slice does not expose arbitrary packages.
+3. At that checkpoint flexible ratios were deferred; they were subsequently
+   approved and implemented in d561a32. Arbitrary packages remain deferred.
 4. Specialized binary/barrier migration requires explicit contract semantics;
    preserve the negative-smile-package rejection guard. Multiple expiries need
    per-leg expiry support, not just extra legs.
@@ -62,17 +87,17 @@ entry pricing so its loss-budget calculation is unchanged.
 ## Scope boundaries
 
 - Generic leg lists have no hardcoded maximum; current contract has one expiry.
-- Arbitrary ratios/user construction require later validation and product design.
+- Arbitrary combinations require later validation and product design; supported
+  two-leg 1xR ratios are implemented.
 - Barriers/digitals need specialized semantics, not vanilla-leg flattening.
 - Old private entry functions remain independent regression references.
 - Broader roadmap: BETA_IMPLEMENTATION_TODO.md.
 
-## Next decision
-
 ## Main integration - 2026-10-28
 
 Merged main/origin/main bf12508 into checkpoint d561a32 in an isolated managed
-worktree before updating agentic-workflow. No main worktree edits or push.
+worktree before updating agentic-workflow. No main worktree edits. The integration
+was subsequently pushed as f276056 to origin/agentic-workflow.
 Version 0.2.57. Eight textual conflicts reconciled; main changes were broader
 than parser/MCP wrappers and included construction, risk and shared telemetry.
 
@@ -90,8 +115,7 @@ than parser/MCP wrappers and included construction, risk and shared telemetry.
 - tests/test_main_ratio_integration.py covers eight explicit combined cases.
 - Update is via tested merge commit and fast-forward, not a second merge attempt.
 
-Historical slice notes below predate this integration. Next user check: named
-strike/delta requests in the app; push only if explicitly requested.
+Historical slice notes below predate this integration and its completed push.
 
 User approved supported flexible ratios WITH existing recommended sizing;
 arbitrary combinations remain price/analysis-first. Version 0.2.56 implements
@@ -101,9 +125,9 @@ Fixed-loss uses the existing absolute premium proxy; Kelly uses resolved payoff.
 No recommendation-menu expansion, arbitrary leg editor or Kelly dropdown addition.
 22 new flexible-ratio tests pass. Final full suite on the finished source tree:
 1,347 passed, zero failures, six skipped in 154.60 seconds. git diff --check
-passed. No cloud/UI verification. Changes are not committed or pushed.
-Spec updated accordingly. Next: user testing of named 1x1.3 requests in the
-agent, then checkpoint/push when requested. Do not describe this as a new
+passed. No cloud/UI verification. That slice was later committed as d561a32 and
+included in the f276056 push. User testing of named requests is pending.
+Do not describe this as a new
 Kelly dropdown option or a general arbitrary-leg editor.
 
 The approved behaviour-preserving slice is complete. Before enabling arbitrary

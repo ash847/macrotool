@@ -7,11 +7,16 @@ normal; MacroTool answers anything about FX option structuring.
 
 Runs entirely on your machine. No hosting, no login. Not for production use.
 
+Source checkpoint: integrated in v0.2.57 / f276056 on `agentic-workflow`, pushed
+28 October 2026. All 13 MCP tests passed using the fake model, including stdio;
+this does not verify live Claude Desktop/provider setup. The app's Auth0 gate does
+not apply to this local-only process. Never expose it as a public service as-is.
+
 ## Quick start
 
 ```bash
 git clone https://github.com/ash847/macrotool.git ~/macrotool-mcp
-cd ~/macrotool-mcp && git checkout mcp-demo
+cd ~/macrotool-mcp && git checkout agentic-workflow
 ./install.sh
 ```
 
@@ -28,7 +33,9 @@ to Claude Desktop (while the app is closed), and self-checks. How to evaluate it
 > not help: macOS checks Python itself. Also edit `claude_desktop_config.json` only while
 > Claude Desktop is closed, or the app can overwrite your change.
 
-1. **Get the code** and check out the `mcp-demo` branch.
+1. **Get the code** and check out the tested `agentic-workflow` branch (or the
+   exact `f276056` checkpoint). Older installer comments reference the original
+   demo branch; they do not change which checked-out code the installer uses.
 2. **Create the environment** (Python 3.13) from the lockfile, then add the MCP package:
    ```bash
    uv sync --python 3.13

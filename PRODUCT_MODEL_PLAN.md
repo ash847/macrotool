@@ -1,5 +1,22 @@
 # Product Model Refactor — `Structure` / `Leg` / `PricedStructure`
 
+## Current status - 28 October 2026
+
+This is the historical design/evidence document, not the current execution list.
+Use [BETA_IMPLEMENTATION_TODO.md](BETA_IMPLEMENTATION_TODO.md) and
+[PRODUCT_ENGINE_HANDOFF_CODEX.md](PRODUCT_ENGINE_HANDOFF_CODEX.md) to resume.
+At pushed v0.2.57 / f276056, vanilla-leg families including butterflies, seagulls
+and flexible ratio spreads share entry construction, retained resolved contracts,
+scenario/Kelly valuation and explicit sizing policies. Exact delta/ATMF semantics
+are corrected; ratio target payoff uses actual legs, not the long-leg-only quirk
+described below. Binary/barrier migration, arbitrary packages and legacy retirement
+remain incomplete. Greeks are not delivered by this refactor.
+
+## Original design and historical phase evidence
+
+The original phase/status statements below are preserved for context; they are
+not claims about current coverage or instructions to reimplement completed work.
+
 Engine refactor (not agent work) — replaces the flat `PricedVariant` with a first-class
 product model. Standalone build doc; execute against this when green-lit.
 

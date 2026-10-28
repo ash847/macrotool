@@ -2,7 +2,46 @@
 
 EM FX trade structuring and sizing tool for macro PMs.
 
-The target architecture is conversational: the engine computes the market state and structure selection deterministically, and the LLM narrates only the pre-computed numbers. The current Trade View screen is running a structured silent path while we test the deterministic pipeline, so the visible UI does not currently rely on live LLM output.
+The Agent page supports conversational structuring: Python computes prices, rankings,
+risk and sizing; the LLM interprets requests and narrates engine results. The separate
+Trade View screen retains a structured, silent engine path for admin testing.
+
+## Current Status - 28 October 2026
+
+The tested integration is **v0.2.57, commit `f276056`, pushed to
+`origin/agentic-workflow`**. This is a source-release checkpoint, not confirmation
+that a cloud app has deployed it. User acceptance testing is pending.
+
+- Shared entry pricing and fixed-contract valuation cover vanillas, 1x1/1x1.5/1x2
+  spreads, butterflies, seagulls and explicitly requested flexible ratio spreads.
+- Construction resolves strikes and quantities once. Scenario/Kelly calculations
+  retain those quantities, including solved seagull wings. Exact delta inversion
+  and strike-specific smile pricing are preserved; ATMF is not 50 delta.
+- Ask the Agent for `1x1.3 spread ATMF/25d` for a flexible ratio with recommended
+  sizing under the session's existing fixed-loss or Kelly regime. Ratios R >= 1
+  are supported. This does not expand the default recommendation menu or Kelly dropdown.
+- Bare leg numbers mean **strikes**; deltas require `d`, `delta` or `Δ` (public
+  request range 10-50 delta). `1x1.3 5.00/5.20` retains literal strikes. Direction
+  comes from the session; implausible strikes and reversed spreads are refused,
+  not silently reinterpreted. The ratio token is separate from the leg numbers.
+- The local [MCP demo](mcp_server/README.md) and shared exchange telemetry are included.
+  MCP is not a production external API or an app authentication replacement.
+
+Verification: integrated full suite **1,416 passed, seven skipped**; eight added
+combined-feature tests passed; all 13 optional MCP tests passed separately. After
+integration, 30 ratio/integration tests passed on agentic-workflow. These counts
+describe separate runs, not one combined full-suite result. No live cloud/UI check.
+
+Next product work: user testing, then selected-trade expiry payoff/net P&L charts
+(T21), inception Greeks (T23, conventions first), and broader custom packages (T22).
+Specialized product migration remains incomplete (T19). Launch controls remain
+separate priorities, not implied complete by engine progress.
+
+Documentation map:
+- [Active implementation checklist](BETA_IMPLEMENTATION_TODO.md): scope, tags, urgency and evidence.
+- [Beta roadmap](BETA_READINESS_PLAN.md): launch/security/legal/data gates.
+- [Current engine handoff](PRODUCT_ENGINE_HANDOFF_CODEX.md): checkpoint and resume instructions.
+- [Flexible-package specification](FLEXIBLE_PACKAGE_SPEC_CODEX.md): implemented ratios versus proposed arbitrary packages.
 
 ## Quick Start
 
@@ -17,7 +56,9 @@ Open the local URL Streamlit prints, usually:
 http://localhost:8501
 ```
 
-The app now expects Google OIDC auth and server-side secrets. For local or deployed use, configure Streamlit secrets before opening the app.
+The app expects Auth0 email magic-link login and server-side secrets. Configure
+Streamlit secrets before opening it; Google login is not offered. The authenticated
+email must also be in `allowed_emails`; admin status alone does not grant admission.
 
 Minimum runtime secrets:
 
@@ -27,15 +68,16 @@ SUPABASE_URL = "..."
 SUPABASE_ANON_KEY = "..."
 SUPABASE_SERVICE_KEY = "..."
 admin_emails = ["ash@fund.com"]
+allowed_emails = ["ash@fund.com", "tester@fund.com"]
 
 [auth]
 redirect_uri = "https://<your-app>.streamlit.app/~/+/oauth2callback"
 cookie_secret = "<openssl rand -hex 32>"
 
-[auth.google]
+[auth.auth0]
 client_id = "..."
 client_secret = "..."
-server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+server_metadata_url = "https://<your-auth0-domain>/.well-known/openid-configuration"
 ```
 
 ## Useful Commands
@@ -59,6 +101,9 @@ knowledge/         JSON rulebase and tunable defaults
 knowledge_engine/  Structure scoring, sizing, critique, conventions
 config/            Layered config and session override support
 conversation/      LLM flow, prompt assembly, tracing
+agentic/           Tool-driven Agent loop, parsing, rendering and telemetry
+workspace/         Saved user/chat workspace persistence
+mcp_server/        Optional local MCP demo and evaluation tools
 interface/         Streamlit app, charts, debug log, Supabase logger
 tests/             Unit test suite
 ```
@@ -89,11 +134,15 @@ The intake form supports three PM preference inputs:
 Current hard exclusions:
 
 - `Avoid complex structures`: excludes `seagull`, `rko`, `european_rko`, `european_digital_rko`
-- `Avoid tail-risky structures`: excludes `seagull`, `1x2_spread`
+- `Avoid capped structures`: currently a vanilla-only hard preference.
+- `Avoid tail-risky structures`: final eligibility requires a verified finite
+  contractual loss bound; unknown/unbounded bounds are excluded. Do not infer
+  safety from the sizing proxy or a family name. Construction/tail classification
+  uses actual legs and cross-checks catalog declarations; disagreements stay unknown.
 
 ## Kelly Screen
 
-The Streamlit app now exposes a separate `Kelly Sizing` page in the sidebar.
+Admins can access the separate `Kelly Sizing` page. Testers currently see Agent and About.
 
 Current modes:
 
@@ -115,9 +164,12 @@ Streamlit state lessons from the recent Kelly build:
 
 GitHub repository: `ash847/macrotool`
 
-Streamlit Community Cloud redeploys from `main`. For Python source or dependency changes, bump the `pyproject.toml` version so Streamlit Cloud performs a fresh package reinstall. JSON-only changes in `knowledge/` deploy without a version bump.
+Verify each Streamlit app's configured branch and deployed version in its hosting
+settings. This work was pushed to `agentic-workflow`, not to `main`; a push is not
+proof of a completed deployment. For Python source or dependency changes, bump
+`pyproject.toml` to trigger package reinstall. JSON-only changes do not require a bump.
 
-The current deploy fix for preference gating was released with package version `0.1.19`.
+Current tested source version: `0.2.57` (`f276056`).
 
 Runtime secrets:
 
@@ -130,20 +182,26 @@ SUPABASE_URL = "..."
 SUPABASE_ANON_KEY = "..."
 SUPABASE_SERVICE_KEY = "..."
 admin_emails = ["ash@fund.com"]
+allowed_emails = ["ash@fund.com", "tester@fund.com"]
 
 [auth]
 redirect_uri = "https://<your-app>.streamlit.app/~/+/oauth2callback"
 cookie_secret = "<openssl rand -hex 32>"
 
-[auth.google]
+[auth.auth0]
 client_id = "..."
 client_secret = "..."
-server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+server_metadata_url = "https://<your-auth0-domain>/.well-known/openid-configuration"
 ```
 
-Auth is fail-closed: without the `[auth]` block, the app stops at startup and shows an authentication configuration error.
+Auth is fail-closed without complete `[auth]` and `[auth.auth0]` settings. Admission
+checks the configured issuer, verified email, email magic-link subject and
+`allowed_emails`. Keep the local `MACROTOOL_DEV` bypass disabled in deployments.
 
 `SUPABASE_SERVICE_KEY` is used server-side for app writes, engine config reads, and admin-only reads/writes.
 `SUPABASE_ANON_KEY` is retained only for direct REST smoke tests and Security Advisor checks.
 
-Only emails listed in `admin_emails` can access admin pages (`Market Data`, `Structure Selection`, `Context Rules`, `Query log`). All other authenticated users see `Trade View` only.
+Admitted users in `admin_emails` can access admin/test pages, including Trade View,
+Kelly Sizing, Market Data, Structure Selection, Scenario Weightings and Query log.
+Other admitted users see **Agent and About**. Live provider/database permissions
+and server-side ownership checks still require the roadmap's separate audit.

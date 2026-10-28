@@ -14,6 +14,31 @@ authorise launch.
 
 ## How to use this file
 
+### Current status - 28 October 2026
+
+Pushed source checkpoint: **agentic-workflow, f276056, v0.2.57**. User testing is
+pending; a cloud deployment is not independently confirmed. Earlier evidence
+sections retain their original test counts and no-push notes as historical records.
+
+| Task | Current status |
+| --- | --- |
+| T01 baseline failures | Complete for the agreed source environment; fixtures corrected and obsolete expectations resolved by user decision. Clean-install/CI gates remain T02. |
+| T19 product migration | Partial: vanilla-leg families share entry pricing, retained contracts, valuation and explicit sizing policies. Specialized products/legacy retirement remain. |
+| T22 flexible packages | Partial: supported two-leg 1xR requests (R >= 1) have existing recommended sizing; arbitrary combinations/editor remain proposed. |
+| T21 payoff/P&L charts | Not implemented in this work; next product slice after user testing. |
+| T23 inception Greeks | Not implemented; conventions must be agreed before coding. |
+| Launch controls and deployment gates | Not signed off by these changes; retain existing urgency and verification requirements. |
+
+Verification: full integrated source run 1,416 passed / seven skipped; eight new
+combined-feature tests and 13 MCP tests passed separately; post-merge ratio/
+integration run 30 passed. No live API/cloud/UI certification. Input rule:
+bare leg numbers are strikes; use `25d`/`25 delta` for delta. ATMF is distinct
+from 50 delta. See README and PRODUCT_ENGINE_HANDOFF_CODEX.md for current usage.
+
+The broad launch stage order below remains valid. Within the current product
+track: user testing -> T21 expiry charts -> T23 Greeks -> broader T22 design,
+with remaining T19 migration incremental. Do not delay urgent controls for charts.
+
 Items are ordered by implementation stage. Each has one or two functional tags
 from the requested set, an urgency, dependencies and a completion check.
 Assign an owner before starting. Tick an item only after recording its commit,
@@ -38,7 +63,7 @@ promise. Database migrations, quant decisions and external approvals may take
 longer. Finish a stage's gate before promoting its changes. Independent work can
 run in parallel, but keep behavioural changes separate from code-only refactors.
 
-Baseline: the reviewed non-live tests/ run had 1,077 passes and six failures.
+Historical review baseline: the non-live tests/ run had 1,077 passes and six failures.
 The tests used the shared main virtual environment, not a newly built release
 environment. Live database permissions, deployed branches, provider limits and
 contracts were not audited. Recheck the current checkout before implementing.
@@ -61,11 +86,11 @@ distributed system or rewrite the app based on guessed user counts.
 
 ## Stage 1 - Day 1: establish a safe baseline and release path
 
-- [ ] **T01. Reproduce and resolve the six test failures.**
+- [x] **T01. Reproduce and resolve the six test failures.**
 
   Tags: testing improvement; engineering improvements. **Urgency: U0.**
   Depends on: none. Sources: Claude 1; Codex 4.
-  Now: two login tests expect removed Google login, one override test expects an
+  Original finding: two login tests expected removed Google login, one override test expected an
   absent tenor, one scorer expectation differs from tuning, and two smile tests
   fail. Some tests mix current market data with fixed historical assumptions.
   Do: reproduce in the agreed environment; classify each as a defect, obsolete
@@ -77,6 +102,9 @@ distributed system or rewrite the app based on guessed user counts.
   baseline is green or has an explicitly approved, owned, expiring exception.
   Evidence: tests/test_roles_visibility.py, test_snapshot_overrides.py,
   test_structure_scorer.py, test_vol_surface_refactor.py.
+  Completed: coherent smile fixtures and pricing guards; Auth0-only expectations;
+  GBPUSD 1M override test; obsolete winner test removed by user decision. See
+  bed493e, 2ffeae0 and the passing integrated suite above. No failure quarantine.
 
 - [ ] **T02. Fix packaging and add automatic release checks.**
 
@@ -858,11 +886,12 @@ Tests: integrated full suite 1,416 passed / seven skipped, then eight new combin
 integration tests passed. Optional MCP suite separately passed all 13 tests using
 the existing MCP environment, including fake-model stdio exchange. No API calls.
 
-All items are open. Fill this table as work is assigned and completed.
+T01 is complete; other broad items remain open or partial as summarized above.
+Fill this table as work is assigned and completed.
 
 | ID | Owner | Commit / test / live-check evidence |
 | --- | --- | --- |
-| T01 | Unassigned | Pending |
+| T01 | Codex | bed493e / 2ffeae0; green integrated suite at f276056; see current status. |
 | T02 | Unassigned | Pending |
 | T03 | Unassigned | Pending |
 | T04 | Unassigned | Pending |
