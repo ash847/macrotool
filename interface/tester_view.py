@@ -188,6 +188,62 @@ def _render_priced_table(ev) -> None:
     st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True, column_config=_cfg)
 
 
+def _render_scoring_grid(ve, rank: int, base_ccy: str) -> None:
+    """Inspect the exact cell contributions used for this ranked variant."""
+    from analytics.scenario_generator import GRID_COLS, GRID_ROWS, col_label
+
+    terms = variant_label_with_strikes(ve.structure_id, ve.pv)
+    with st.expander(f"#{rank} {ve.struct_label} — {terms} — scoring grid", expanded=False):
+        cells = ve.score.cells
+        if not cells:
+            st.caption("No scenario-cell breakdown available for this variant.")
+            return
+        st.caption(
+            "Each cell shows scenario net P&L × normalized context weight, as a % "
+            "of trade notional. All cells sum to the engine score. Zero-weight cells "
+            "contribute zero; blank cells are not evaluated."
+        )
+        contributions = pd.DataFrame([
+            {"Time": c.row, "Scenario": c.col, "Contribution": c.contrib_pct}
+            for c in cells
+        ])
+        grid = contributions.pivot(index="Time", columns="Scenario", values="Contribution")
+        grid = grid.reindex(
+            index=[r for r in GRID_ROWS if r in grid.index], columns=GRID_COLS,
+        ).rename(columns=col_label)
+        st.dataframe(
+            grid, use_container_width=True,
+            column_config={c: st.column_config.NumberColumn(format="percent") for c in grid.columns},
+        )
+        st.caption(
+            f"Total weighted P&L: {ve.score.score_pct:+.4%} of trade notional · "
+            f"{fmt_ccy(ve.score.score_ccy, base_ccy)}"
+        )
+        st.markdown("**Cell calculation details**")
+        details = pd.DataFrame([
+            {
+                "Time": c.row,
+                "Scenario": col_label(c.col),
+                "P&L (%)": c.pnl_pct,
+                "Weight": c.normalized_weight,
+                "Multiplier": c.multiplier,
+                "P&L × weight (%)": c.contrib_pct,
+                f"P&L ({base_ccy})": c.pnl_ccy,
+                f"P&L × weight ({base_ccy})": c.contrib_ccy,
+            }
+            for c in cells
+        ])
+        st.dataframe(
+            details, hide_index=True, use_container_width=True,
+            column_config={
+                **{c: st.column_config.NumberColumn(format="percent")
+                   for c in ("P&L (%)", "Weight", "P&L × weight (%)")},
+                **{c: st.column_config.NumberColumn(format="%.2f")
+                   for c in (f"P&L ({base_ccy})", f"P&L × weight ({base_ccy})")},
+            },
+        )
+
+
 def render_admin_ranking(ev, *, is_admin: bool = False) -> None:
     """Admin-only inspection of the engine's ranked concrete variants."""
     if not is_admin or ev is None or not ev.variants:
@@ -223,6 +279,8 @@ def render_admin_ranking(ev, *, is_admin: bool = False) -> None:
             f"Baseline score ({ev.base_ccy})": st.column_config.NumberColumn(format="%.2f"),
         },
     )
+    for rank, ve in enumerate(ev.variants[:15], 1):
+        _render_scoring_grid(ve, rank, ev.base_ccy)
 
 
 def render_tester_recommendations(flow, is_call: bool, target: float | None, *, eval_result=None) -> None:
