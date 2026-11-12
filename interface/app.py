@@ -1871,7 +1871,7 @@ else:
             st.dataframe(styled, use_container_width=True)
 
         _evals = None
-        if can_see("structure_evaluation", ROLE) and _target is not None:
+        if (can_see("structure_evaluation", ROLE) or IS_ADMIN) and _target is not None:
             try:
                 _evals = compute_structure_evaluation(flow, _target)
             except Exception as _e:
@@ -1882,12 +1882,16 @@ else:
                 st.warning(KELLY_FALLBACK_MSG)
             if ROLE == "tester":
                 from interface.tester_view import render_tester_recommendations
-                render_tester_recommendations(flow, _is_call, _target)
+                render_tester_recommendations(flow, _is_call, _target, eval_result=_evals)
             else:
                 st.caption(meaning_banner(flow.sizing_spec.method if flow.sizing_spec else "fixed_loss"))
                 render_structure_variants(flow, _is_call, _target, _stop_price, _loss_budget,
                                           eval_result=_evals)
             _render_recommendation_reaction("trade_view", flow, _target)
+
+        if IS_ADMIN:
+            from interface.tester_view import render_admin_ranking
+            render_admin_ranking(_evals, is_admin=IS_ADMIN)
 
     # Feedback form (only after a view is active)
     if flow.view and can_see("feedback", ROLE):

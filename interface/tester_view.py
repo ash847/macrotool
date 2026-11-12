@@ -17,6 +17,7 @@ from interface.structure_eval import (
     _PNL_SCORE_HELP,
     compute_structure_evaluation,
     fmt_ccy,
+    variant_label_with_strikes,
 )
 from knowledge_engine import ui_labels as UL
 
@@ -187,13 +188,50 @@ def _render_priced_table(ev) -> None:
     st.dataframe(pd.DataFrame(rows).set_index("#"), use_container_width=True, column_config=_cfg)
 
 
-def render_tester_recommendations(flow, is_call: bool, target: float | None) -> None:
+def render_admin_ranking(ev, *, is_admin: bool = False) -> None:
+    """Admin-only inspection of the engine's ranked concrete variants."""
+    if not is_admin or ev is None or not ev.variants:
+        return
+
+    rows = []
+    for rank, ve in enumerate(ev.variants[:15], 1):
+        rows.append({
+            "Rank": rank,
+            "Structure": ve.struct_label,
+            "Terms / strikes": variant_label_with_strikes(ve.structure_id, ve.pv),
+            "Variant": ve.variant_label,
+            "Notional": fmt_ccy(ve.pv.structure_notional, ev.base_ccy),
+            "Premium": f"{ve.pv.net_premium_pct:+.2%}",
+            f"Engine score ({ev.base_ccy})": ve.score.score_ccy,
+            "Engine score (%)": ve.score.score_pct,
+            f"Baseline score ({ev.base_ccy})": ve.score_base.score_ccy,
+            "Baseline score (%)": ve.score_base.score_pct,
+        })
+    st.subheader("Top 15 engine-ranked structures — admin")
+    st.caption(
+        f"Active context: {ev.active_ctx}. Up to 15 priced variants from the engine's "
+        "eligible shortlist, in context-weighted P&L score order, including the linear "
+        "benchmark. Baseline scores are shown for comparison. Unscaled variants may "
+        "have no currency score."
+    )
+    st.dataframe(
+        pd.DataFrame(rows).set_index("Rank"), use_container_width=True,
+        column_config={
+            "Engine score (%)": st.column_config.NumberColumn(format="percent"),
+            "Baseline score (%)": st.column_config.NumberColumn(format="percent"),
+            f"Engine score ({ev.base_ccy})": st.column_config.NumberColumn(format="%.2f"),
+            f"Baseline score ({ev.base_ccy})": st.column_config.NumberColumn(format="%.2f"),
+        },
+    )
+
+
+def render_tester_recommendations(flow, is_call: bool, target: float | None, *, eval_result=None) -> None:
     """Tester Trade View output, in workflow order: regime text summary → affinity
     shortlist (names + % of max score) → priced table with strikes. Market state is
     rendered above this by the app."""
     if target is None:
         return
-    ev = compute_structure_evaluation(flow, target)
+    ev = eval_result if eval_result is not None else compute_structure_evaluation(flow, target)
     if ev is None or not ev.variants:
         return
 
